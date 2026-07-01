@@ -37,19 +37,20 @@ public sealed class WindowsSystemAccessManager : ISystemAccessManager
         void Persist() => RevertStateStore.Save(_statePath, state);
         Persist();
 
-        // 1. OpenSSH Server
-        var installed = _ps.Run(
-            "(Get-WindowsCapability -Online -Name 'OpenSSH.Server*').State").StdOut;
-        if (!installed.Contains("Installed"))
+        // 1. OpenSSH Server: сначала быстрая проверка службы. Медленный Get/Add-WindowsCapability
+        // (DISM/Windows Update) вызываем ТОЛЬКО если службы sshd вообще нет.
+        var sshdStatus = _ps.Run("(Get-Service sshd -ErrorAction SilentlyContinue).Status",
+            throwOnError: false).StdOut.Trim();
+        var sshdExists = sshdStatus.Length > 0;
+        if (!sshdExists)
         {
             _ps.Run("Add-WindowsCapability -Online -Name OpenSSH.Server~~~~0.0.1.0");
             state.InstalledOpenSsh = true;
             Persist();
         }
 
-        // 2. Служба sshd
-        var running = _ps.Run("(Get-Service sshd -ErrorAction SilentlyContinue).Status").StdOut;
-        if (!running.Contains("Running"))
+        // 2. Запустить службу, если ещё не Running (иначе не трогаем — значит стояла до нас).
+        if (!sshdStatus.Contains("Running"))
         {
             _ps.Run("Set-Service sshd -StartupType Automatic; Start-Service sshd");
             state.StartedSshService = true;
