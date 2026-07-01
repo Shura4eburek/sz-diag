@@ -17,6 +17,8 @@ builder.Services.AddSingleton<IKnowledgeBaseScaffolder>(sp =>
     return new KnowledgeBaseScaffolder(opts.KnowledgeBaseRoot);
 });
 builder.Services.AddHostedService<OfflineSweeper>();
+builder.Services.AddSingleton<IAgentCommandSender, SignalRAgentCommandSender>();
+builder.Services.AddSingleton<SessionCloser>();
 builder.Services.AddSignalR();
 
 var app = builder.Build();
@@ -41,6 +43,7 @@ app.Use(async (ctx, next) =>
 });
 
 app.MapHub<AgentHub>(HubRoutes.Path);
+app.MapManagementApi();
 
 app.Run();
 
