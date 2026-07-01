@@ -29,9 +29,18 @@ public class AgentSessionTests
         public Task RegisterAsync(string sz, string hostname, CancellationToken ct = default) { RegisteredSz = sz; return Task.CompletedTask; }
         public Task HeartbeatAsync(string sz, CancellationToken ct = default) { Heartbeats++; return Task.CompletedTask; }
         public void OnRevert(Func<string, Task> handler) => _onRevert = handler;
+        public List<SzDiag.Contracts.UploadReportPart> Uploaded { get; } = new();
+        private Func<string, Task>? _onRunTests;
+        public void OnRunTests(Func<string, Task> handler) => _onRunTests = handler;
+        public Task UploadReportFileAsync(SzDiag.Contracts.UploadReportPart part, CancellationToken ct = default)
+        {
+            Uploaded.Add(part);
+            return Task.CompletedTask;
+        }
         public ValueTask DisposeAsync() { Disposed = true; return ValueTask.CompletedTask; }
 
         public Task FireRevert(string sz) => _onRevert!(sz);
+        public Task FireRunTests(string sz) => _onRunTests!(sz);
     }
 
     private static AccessSpec Spec() =>

@@ -40,6 +40,21 @@ Console.WriteLine($"Открываю доступ для СЗ {sz}…");
 await session.StartAsync();
 Console.WriteLine($"СЗ {sz}: доступ открыт ● online. Хост {Environment.MachineName}.");
 
+// Тест-раннер: по команде hub RunTests прогнать набор и залить отчёт.
+if (File.Exists(opts.TestSuitePath))
+{
+    var suite = TestSuite.Load(opts.TestSuitePath);
+    var reportRunner = new TestReportRunner(
+        new TestRunner(new PowerShellCommandExecutor(ps), new GdiScreenCapturer()),
+        suite, link, Environment.MachineName);
+    link.OnRunTests(async runSz =>
+    {
+        Console.WriteLine($"Прогон тестов для СЗ {runSz}…");
+        try { await reportRunner.RunAndUploadAsync(runSz); Console.WriteLine("Отчёт залит на hub."); }
+        catch (Exception ex) { Console.WriteLine($"Ошибка прогона: {ex.Message}"); }
+    });
+}
+
 // Перехват закрытия окна консоли (крестик) → откат.
 using var closeGuard = new ConsoleCloseGuard(() => session.RevertAsync().GetAwaiter().GetResult());
 
