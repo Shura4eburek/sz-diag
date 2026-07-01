@@ -65,8 +65,8 @@ dotnet new xunit -n SzDiag.Hub.Tests -o tests/SzDiag.Hub.Tests -f net8.0
 dotnet sln add src/SzDiag.Contracts src/SzDiag.Hub tests/SzDiag.Hub.Tests
 dotnet add src/SzDiag.Hub reference src/SzDiag.Contracts
 dotnet add tests/SzDiag.Hub.Tests reference src/SzDiag.Hub src/SzDiag.Contracts
-dotnet add src/SzDiag.Hub package Microsoft.Data.Sqlite
-dotnet add tests/SzDiag.Hub.Tests package Microsoft.AspNetCore.Mvc.Testing
+dotnet add src/SzDiag.Hub package Microsoft.Data.Sqlite --version 8.0.11
+dotnet add tests/SzDiag.Hub.Tests package Microsoft.AspNetCore.Mvc.Testing --version 8.0.11
 ```
 
 - [ ] **Step 2: Удалить шаблонные файлы**
