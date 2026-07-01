@@ -1,0 +1,11 @@
+{
+  "steps": [
+    { "type": "command", "name": "Система", "run": "systeminfo" },
+    { "type": "command", "name": "Диски и SMART", "run": "Get-PhysicalDisk | Format-List; Get-PhysicalDisk | Get-StorageReliabilityCounter | Format-List" },
+    { "type": "command", "name": "Память", "run": "Get-CimInstance Win32_PhysicalMemory | Format-List Manufacturer,Capacity,Speed,PartNumber" },
+    { "type": "command", "name": "Драйверы", "run": "driverquery" },
+    { "type": "command", "name": "Ошибки System (48ч)", "run": "Get-WinEvent -FilterHashtable @{LogName='System';Level=1,2;StartTime=(Get-Date).AddHours(-48)} -ErrorAction SilentlyContinue | Select-Object -First 50 TimeCreated,Id,ProviderName,Message | Format-List" },
+    { "type": "command", "name": "GPU (dxdiag)", "run": "$t=\"$env:TEMP\\dxdiag.txt\"; dxdiag /t $t; Start-Sleep 3; Get-Content $t" },
+    { "type": "screenshot", "name": "Состояние экрана" }
+  ]
+}
