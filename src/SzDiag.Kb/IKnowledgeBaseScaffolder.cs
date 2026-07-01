@@ -1,4 +1,4 @@
-namespace SzDiag.Hub;
+namespace SzDiag.Kb;
 
 /// <summary>Создаёт каркас папки базы знаний для СЗ в Obsidian-форме.</summary>
 public interface IKnowledgeBaseScaffolder

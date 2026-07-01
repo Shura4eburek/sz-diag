@@ -1,6 +1,7 @@
 using Microsoft.Extensions.Options;
 using SzDiag.Contracts;
 using SzDiag.Hub;
+using SzDiag.Kb;
 
 var builder = WebApplication.CreateBuilder(args);
 

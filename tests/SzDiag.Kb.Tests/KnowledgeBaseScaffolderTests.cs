@@ -1,7 +1,7 @@
-using SzDiag.Hub;
+using SzDiag.Kb;
 using Xunit;
 
-namespace SzDiag.Hub.Tests;
+namespace SzDiag.Kb.Tests;
 
 public class KnowledgeBaseScaffolderTests : IDisposable
 {
@@ -43,7 +43,7 @@ public class KnowledgeBaseScaffolderTests : IDisposable
         var reqPath = Path.Combine(dir, "request.md");
         File.WriteAllText(reqPath, "РУЧНОЙ ТЕКСТ");
 
-        s.EnsureSkeleton("156864"); // повторно
+        s.EnsureSkeleton("156864");
 
         Assert.Equal("РУЧНОЙ ТЕКСТ", File.ReadAllText(reqPath));
     }

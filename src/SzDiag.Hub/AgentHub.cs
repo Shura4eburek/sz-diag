@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.SignalR;
 using SzDiag.Contracts;
+using SzDiag.Kb;
 
 namespace SzDiag.Hub;
 
