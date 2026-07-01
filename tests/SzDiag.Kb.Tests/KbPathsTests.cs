@@ -19,4 +19,12 @@ public class KbPathsTests
         Assert.Equal(Path.Combine("/vault", "Заказы", "A-1.md"), p.OrderNote("A-1"));
         Assert.Equal(Path.Combine("/vault", "Компоненты", "SSD.md"), p.ComponentNote("SSD"));
     }
+
+    [Fact]
+    public void ReportDir_UnderSzReports()
+    {
+        var p = new KbPaths("/vault");
+        Assert.Equal(Path.Combine("/vault", "СЗ", "156864", "reports", "20260701-120000"),
+            p.ReportDir("156864", "20260701-120000"));
+    }
 }
