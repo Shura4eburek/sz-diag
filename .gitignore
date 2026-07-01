@@ -1,0 +1,28 @@
+# Секреты и локальная конфигурация — НИКОГДА не коммитить
+*.key
+*.pem
+*.pfx
+.credentials.json
+secrets/
+config.local.*
+
+# База знаний по реальным СЗ (данные клиентов) — не в публичный репозиторий
+kb/
+data/
+
+# Логи
+*.log
+
+# ОС
+Thumbs.db
+Desktop.ini
+.DS_Store
+
+# Языко-специфичное (уточнится после выбора стека)
+node_modules/
+__pycache__/
+*.pyc
+bin/
+obj/
+dist/
+build/
