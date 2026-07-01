@@ -71,4 +71,18 @@ public class HubApiClientTests
         var client = NewClient(new StubHandler(HttpStatusCode.NotFound));
         Assert.Null(await client.GetTargetAsync("000000"));
     }
+
+    [Fact]
+    public async Task TriggerTest_Ok_ReturnsTrue()
+    {
+        var client = NewClient(new StubHandler(HttpStatusCode.OK));
+        Assert.True(await client.TriggerTestAsync("156864"));
+    }
+
+    [Fact]
+    public async Task TriggerTest_NotFound_ReturnsFalse()
+    {
+        var client = NewClient(new StubHandler(HttpStatusCode.NotFound));
+        Assert.False(await client.TriggerTestAsync("000000"));
+    }
 }

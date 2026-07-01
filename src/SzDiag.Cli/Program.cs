@@ -41,6 +41,12 @@ switch (command)
         await KbCommand.RunAsync(args[1..], options.KbRoot);
         break;
 
+    case "test" when args.Length >= 3 && args[1].Equals("run", StringComparison.OrdinalIgnoreCase):
+        Console.WriteLine(await client.TriggerTestAsync(args[2])
+            ? $"СЗ {args[2]}: прогон тестов запущен на агенте (отчёт появится в kb по завершении)."
+            : $"СЗ {args[2]} не найдена среди активных.");
+        break;
+
     default:
         Console.WriteLine("""
             Использование:

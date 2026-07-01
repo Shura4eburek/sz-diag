@@ -31,4 +31,10 @@ public sealed class HubApiClient : IHubApiClient
         resp.EnsureSuccessStatusCode();
         return await resp.Content.ReadFromJsonAsync<TargetInfo>(ct);
     }
+
+    public async Task<bool> TriggerTestAsync(string sz, CancellationToken ct = default)
+    {
+        var resp = await _http.PostAsync($"/api/sessions/{sz}/test", null, ct);
+        return resp.StatusCode == HttpStatusCode.OK;
+    }
 }
