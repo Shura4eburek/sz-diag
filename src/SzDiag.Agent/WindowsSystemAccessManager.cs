@@ -57,10 +57,11 @@ public sealed class WindowsSystemAccessManager : ISystemAccessManager
             Persist();
         }
 
-        // 3. Firewall
-        _ps.Run($"New-NetFirewallRule -Name '{state.FirewallRuleName}' " +
+        // 3. Firewall (идемпотентно: снести остаток одноимённого правила, затем создать).
+        _ps.Run($"Remove-NetFirewallRule -Name '{state.FirewallRuleName}' -ErrorAction SilentlyContinue; " +
+                $"New-NetFirewallRule -Name '{state.FirewallRuleName}' " +
                 $"-DisplayName '{state.FirewallRuleName}' -Enabled True -Direction Inbound " +
-                $"-Protocol TCP -Action Allow -LocalPort {spec.SshPort}");
+                $"-Protocol TCP -Action Allow -LocalPort {spec.SshPort} | Out-Null");
         state.AddedFirewallRule = true;
         Persist();
 
@@ -77,10 +78,12 @@ public sealed class WindowsSystemAccessManager : ISystemAccessManager
             Persist();
         }
 
-        // 5. Учётка svc-diag (админ)
+        // 5. Учётка svc-diag (админ), идемпотентно: снести остаток, затем создать.
         var password = GeneratePassword();
+        _ps.Run($"net user {spec.ServiceAccount} /delete", throwOnError: false);
         _ps.Run($"net user {spec.ServiceAccount} '{password}' /add");
-        _ps.Run($"Add-LocalGroupMember -SID {AdminsSid} -Member {spec.ServiceAccount}");
+        _ps.Run($"Add-LocalGroupMember -SID {AdminsSid} -Member {spec.ServiceAccount} -ErrorAction SilentlyContinue",
+            throwOnError: false);
         state.CreatedUser = true;
         Persist();
 
@@ -96,7 +99,11 @@ public sealed class WindowsSystemAccessManager : ISystemAccessManager
         }
         else
         {
-            File.AppendAllText(AdminAuthKeys, keyLine + Environment.NewLine);
+            // Идемпотентно: убрать прежние строки с нашей меткой, затем дописать свежую.
+            var kept = File.ReadAllLines(AdminAuthKeys)
+                .Where(l => !l.Contains(state.AuthorizedKeyComment)).ToList();
+            kept.Add(keyLine);
+            File.WriteAllLines(AdminAuthKeys, kept);
         }
         state.WroteAuthorizedKey = true;
         Persist();
