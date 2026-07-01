@@ -10,12 +10,15 @@ public sealed class AgentHub : Microsoft.AspNetCore.SignalR.Hub
     private readonly SessionRegistry _registry;
     private readonly ISessionStore _store;
     private readonly IKnowledgeBaseScaffolder _kb;
+    private readonly IReportStore _reports;
 
-    public AgentHub(SessionRegistry registry, ISessionStore store, IKnowledgeBaseScaffolder kb)
+    public AgentHub(SessionRegistry registry, ISessionStore store,
+        IKnowledgeBaseScaffolder kb, IReportStore reports)
     {
         _registry = registry;
         _store = store;
         _kb = kb;
+        _reports = reports;
     }
 
     public async Task Register(RegisterRequest request)
@@ -30,6 +33,12 @@ public sealed class AgentHub : Microsoft.AspNetCore.SignalR.Hub
     public Task Heartbeat(string sz)
     {
         _registry.Heartbeat(sz);
+        return Task.CompletedTask;
+    }
+
+    public Task UploadReportFile(UploadReportPart part)
+    {
+        _reports.Save(part.Sz, part.Timestamp, part.FileName, part.Content);
         return Task.CompletedTask;
     }
 

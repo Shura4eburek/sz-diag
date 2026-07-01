@@ -14,4 +14,10 @@ public static class HubRoutes
 
     // Метод, который hub вызывает на агенте (client method).
     public const string Revert = nameof(Revert);
+
+    // Hub -> агент: запустить прогон тестов.
+    public const string RunTests = nameof(RunTests);
+
+    // Агент -> hub: загрузить файл отчёта.
+    public const string UploadReportFile = nameof(UploadReportFile);
 }

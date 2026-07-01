@@ -17,10 +17,16 @@ builder.Services.AddSingleton<IKnowledgeBaseScaffolder>(sp =>
     var opts = sp.GetRequiredService<IOptions<HubOptions>>().Value;
     return new KnowledgeBaseScaffolder(opts.KnowledgeBaseRoot);
 });
+builder.Services.AddSingleton<IReportStore>(sp =>
+{
+    var opts = sp.GetRequiredService<IOptions<HubOptions>>().Value;
+    return new KbReportStore(opts.KnowledgeBaseRoot);
+});
 builder.Services.AddHostedService<OfflineSweeper>();
 builder.Services.AddSingleton<IAgentCommandSender, SignalRAgentCommandSender>();
 builder.Services.AddSingleton<SessionCloser>();
-builder.Services.AddSignalR();
+builder.Services.AddSingleton<TestRunTrigger>();
+builder.Services.AddSignalR(o => o.MaximumReceiveMessageSize = 10 * 1024 * 1024);
 
 var app = builder.Build();
 
