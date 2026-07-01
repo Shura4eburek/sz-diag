@@ -28,7 +28,10 @@ if (string.IsNullOrWhiteSpace(sz) || !sz.All(char.IsDigit))
     return 1;
 }
 
-var pubKey = File.ReadAllText(opts.ServicePublicKeyPath);
+// Относительные пути (ключ, testsuite) — рядом с exe, независимо от рабочего каталога.
+string ResolvePath(string p) => Path.IsPathRooted(p) ? p : Path.Combine(AppContext.BaseDirectory, p);
+
+var pubKey = File.ReadAllText(ResolvePath(opts.ServicePublicKeyPath));
 var spec = new AccessSpec(sz, opts.ServiceAccount, pubKey, opts.SshPort,
     TimeSpan.FromHours(opts.WatchdogHours));
 
@@ -41,9 +44,10 @@ await session.StartAsync();
 Console.WriteLine($"СЗ {sz}: доступ открыт ● online. Хост {Environment.MachineName}.");
 
 // Тест-раннер: по команде hub RunTests прогнать набор и залить отчёт.
-if (File.Exists(opts.TestSuitePath))
+var suitePath = ResolvePath(opts.TestSuitePath);
+if (File.Exists(suitePath))
 {
-    var suite = TestSuite.Load(opts.TestSuitePath);
+    var suite = TestSuite.Load(suitePath);
     var reportRunner = new TestReportRunner(
         new TestRunner(new PowerShellCommandExecutor(ps), new GdiScreenCapturer()),
         suite, link, Environment.MachineName);
