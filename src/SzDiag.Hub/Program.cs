@@ -5,6 +5,15 @@ using SzDiag.Kb;
 
 var builder = WebApplication.CreateBuilder(args);
 
+// Читать appsettings.json рядом с exe независимо от текущего каталога запуска.
+builder.Configuration.AddJsonFile(
+    Path.Combine(AppContext.BaseDirectory, "appsettings.json"), optional: true, reloadOnChange: false);
+
+// Адрес прослушивания: из конфига "Urls" (для standalone-exe), иначе 0.0.0.0:5099.
+builder.WebHost.UseUrls(
+    (builder.Configuration["Urls"] ?? "http://0.0.0.0:5099")
+        .Split(';', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries));
+
 builder.Services.Configure<HubOptions>(builder.Configuration.GetSection("Hub"));
 builder.Services.AddSingleton<SessionRegistry>();
 builder.Services.AddSingleton<ISessionStore>(sp =>
