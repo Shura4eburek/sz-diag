@@ -1,5 +1,6 @@
 using Microsoft.Extensions.Configuration;
 using SzDiag.Cli;
+using SzDiag.Kb;
 
 var config = new ConfigurationBuilder()
     .SetBasePath(AppContext.BaseDirectory)
@@ -34,6 +35,10 @@ switch (command)
     case "target" when args.Length >= 2:
         var t = await client.GetTargetAsync(args[1]);
         Console.WriteLine(t is null ? $"СЗ {args[1]} не найдена." : t.Ssh);
+        break;
+
+    case "kb" when args.Length >= 2:
+        await KbCommand.RunAsync(args[1..], options.KbRoot);
         break;
 
     default:
