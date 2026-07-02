@@ -1,4 +1,5 @@
 using Microsoft.Extensions.Options;
+using Spectre.Console;
 using SzDiag.Contracts;
 using SzDiag.Hub;
 using SzDiag.Kb;
@@ -10,9 +11,9 @@ builder.Configuration.AddJsonFile(
     Path.Combine(AppContext.BaseDirectory, "appsettings.json"), optional: true, reloadOnChange: false);
 
 // Адрес прослушивания: из конфига "Urls" (для standalone-exe), иначе 0.0.0.0:5099.
-builder.WebHost.UseUrls(
-    (builder.Configuration["Urls"] ?? "http://0.0.0.0:5099")
-        .Split(';', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries));
+var listenUrls = (builder.Configuration["Urls"] ?? "http://0.0.0.0:5099")
+    .Split(';', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+builder.WebHost.UseUrls(listenUrls);
 
 builder.Services.Configure<HubOptions>(builder.Configuration.GetSection("Hub"));
 builder.Services.AddSingleton<SessionRegistry>();
@@ -46,6 +47,20 @@ var app = builder.Build();
 
 // Инициализация БД при старте.
 await app.Services.GetRequiredService<ISessionStore>().InitializeAsync();
+
+// Баннер со сводкой конфигурации — печатается после того, как Kestrel начал слушать.
+app.Lifetime.ApplicationStarted.Register(() =>
+{
+    var hubOpts = app.Services.GetRequiredService<IOptions<HubOptions>>().Value;
+    var panel = new Panel(new Rows(
+            new Markup($"[grey]слушает:[/] {Markup.Escape(string.Join(", ", listenUrls))}"),
+            new Markup($"[grey]kb:[/] {Markup.Escape(hubOpts.KnowledgeBaseRoot)}   [grey]db:[/] {Markup.Escape(hubOpts.SqliteConnectionString)}")))
+        .Header("[bold]sz-diag hub[/]")
+        .Border(BoxBorder.Rounded)
+        .BorderColor(Color.Grey)
+        .Padding(1, 0);
+    AnsiConsole.Write(panel);
+});
 
 // Проверка pre-shared токена на коннекте к хабу.
 app.Use(async (ctx, next) =>

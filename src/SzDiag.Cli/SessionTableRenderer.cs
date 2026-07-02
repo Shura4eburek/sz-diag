@@ -1,22 +1,31 @@
-using System.Text;
+using Spectre.Console;
 using SzDiag.Contracts;
 
 namespace SzDiag.Cli;
 
 public static class SessionTableRenderer
 {
-    public static string Render(IReadOnlyList<SessionInfo> sessions)
+    public static Table Render(IReadOnlyList<SessionInfo> sessions)
     {
-        if (sessions.Count == 0) return "  (нет активных СЗ)";
+        var table = new Table().Border(TableBorder.Rounded).BorderColor(Color.Grey);
+        table.AddColumn("СЗ");
+        table.AddColumn("Статус");
+        table.AddColumn("IP");
+        table.AddColumn("Хост");
 
-        var sb = new StringBuilder();
-        sb.AppendLine("  СЗ         Статус     IP               Хост");
-        sb.AppendLine("  ────────── ────────── ──────────────── ────────────");
+        if (sessions.Count == 0)
+        {
+            table.AddRow("[dim]нет активных СЗ[/]", "", "", "");
+            return table;
+        }
+
         foreach (var s in sessions.OrderBy(x => x.Sz))
         {
-            var marker = s.Status == SessionStatus.Online ? "● online" : "○ offline";
-            sb.AppendLine($"  {s.Sz,-10} {marker,-10} {s.Ip,-16} {s.Hostname}");
+            var status = s.Status == SessionStatus.Online
+                ? "[green]● online[/]"
+                : "[grey]○ offline[/]";
+            table.AddRow(s.Sz, status, s.Ip, s.Hostname);
         }
-        return sb.ToString();
+        return table;
     }
 }

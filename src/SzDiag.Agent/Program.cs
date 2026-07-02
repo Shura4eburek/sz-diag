@@ -1,6 +1,7 @@
 using System.Runtime.InteropServices;
 using System.Text;
 using Microsoft.Extensions.Configuration;
+using Spectre.Console;
 using SzDiag.Agent;
 
 // UTF-8 в консоли — иначе кириллица превращается в «?» на Windows.
@@ -24,7 +25,17 @@ var logPath = Path.IsPathRooted(opts.LogPath)
     ? opts.LogPath
     : Path.Combine(AppContext.BaseDirectory, opts.LogPath);
 var logFile = AgentLog.Init(logPath);
-Console.SetOut(new TeeTextWriter(Console.Out, logFile));
+var rawOut = Console.Out;
+Console.SetOut(new TeeTextWriter(rawOut, logFile));
+
+// Цветной вывод (Spectre.Console) идёт напрямую в реальную консоль, минуя Tee — иначе в
+// лог-файл попадали бы сырые ANSI-коды. Announce() дублирует туда же чистый текст без разметки.
+var term = AnsiConsole.Create(new AnsiConsoleSettings { Out = new AnsiConsoleOutput(rawOut) });
+void Announce(string plain, string? markup = null)
+{
+    term.MarkupLine(markup ?? Markup.Escape(plain));
+    logFile.WriteLine(plain);
+}
 
 var ps = new PowerShellRunner();
 
@@ -39,11 +50,13 @@ if (args.Length >= 2 && args[0] == "--revert")
 try
 {
 
-Console.Write("Введите номер СЗ: ");
+term.Write(new Rule("[bold]sz-diag agent[/]").LeftJustified());
+term.Markup("Введите номер [yellow]СЗ[/]: ");
 var sz = (Console.ReadLine() ?? "").Trim();
+logFile.WriteLine($"Введите номер СЗ: {sz}");
 if (string.IsNullOrWhiteSpace(sz) || !sz.All(char.IsDigit))
 {
-    Console.WriteLine("Некорректный номер СЗ.");
+    Announce("Некорректный номер СЗ.", "[red]Некорректный номер СЗ.[/]");
     return 1;
 }
 
@@ -58,9 +71,10 @@ var manager = new WindowsSystemAccessManager(ps, opts.StatePath);
 var link = new SignalRHubLink(opts.HubUrl, opts.AgentToken);
 var session = new AgentSession(manager, link, spec, Environment.MachineName);
 
-Console.WriteLine($"Открываю доступ для СЗ {sz}…");
+Announce($"Открываю доступ для СЗ {sz}…", $"[grey]Открываю доступ для СЗ {sz}…[/]");
 await session.StartAsync();
-Console.WriteLine($"СЗ {sz}: доступ открыт ● online. Хост {Environment.MachineName}.");
+Announce($"СЗ {sz}: доступ открыт ● online. Хост {Environment.MachineName}.",
+    $"СЗ {sz}: доступ открыт [green]● online[/]. Хост {Environment.MachineName}.");
 
 // Тест-раннер: по команде hub RunTests прогнать набор и залить отчёт.
 var suitePath = ResolvePath(opts.TestSuitePath);
@@ -72,9 +86,16 @@ if (File.Exists(suitePath))
         suite, link, Environment.MachineName);
     link.OnRunTests(async runSz =>
     {
-        Console.WriteLine($"Прогон тестов для СЗ {runSz}…");
-        try { await reportRunner.RunAndUploadAsync(runSz); Console.WriteLine("Отчёт залит на hub."); }
-        catch (Exception ex) { Console.WriteLine($"Ошибка прогона: {ex.Message}"); }
+        Announce($"Прогон тестов для СЗ {runSz}…", $"[grey]Прогон тестов для СЗ {runSz}…[/]");
+        try
+        {
+            await reportRunner.RunAndUploadAsync(runSz);
+            Announce("Отчёт залит на hub.", "[green]Отчёт залит на hub.[/]");
+        }
+        catch (Exception ex)
+        {
+            Announce($"Ошибка прогона: {ex.Message}", $"[red]Ошибка прогона:[/] {Markup.Escape(ex.Message)}");
+        }
     });
 }
 
@@ -93,13 +114,14 @@ var heartbeat = Task.Run(async () =>
     }
 });
 
-Console.WriteLine("\n[C] Закрыть СЗ и откатить    [Q] Выход без отката (не рекомендуется)");
+term.MarkupLine("\n[green][[C]][/] Закрыть СЗ и откатить    [grey][[Q]][/] Выход без отката (не рекомендуется)");
+logFile.WriteLine("\n[C] Закрыть СЗ и откатить    [Q] Выход без отката (не рекомендуется)");
 while (true)
 {
     var key = Console.ReadKey(intercept: true).Key;
     if (key == ConsoleKey.C)
     {
-        Console.WriteLine("\nЗакрываю СЗ и откатываю…");
+        Announce("\nЗакрываю СЗ и откатываю…", "\n[yellow]Закрываю СЗ и откатываю…[/]");
         await session.RevertAsync();
         break;
     }
@@ -108,16 +130,22 @@ while (true)
 
 cts.Cancel();
 try { await heartbeat; } catch (OperationCanceledException) { }
-Console.WriteLine("Готово.");
+Announce("Готово.", "[green]Готово.[/]");
 return 0;
 
 }
 catch (Exception ex)
 {
-    Console.WriteLine();
-    Console.WriteLine($"[ФАТАЛ] Агент упал: {ex}");
-    Console.WriteLine($"Лог сохранён: {logPath}");
-    Console.WriteLine("Нажмите любую клавишу для выхода…");
+    term.WriteLine();
+    logFile.WriteLine();
+    term.Write(new Panel(Markup.Escape(ex.ToString()))
+        .Header("[red bold]ФАТАЛ: агент упал[/]")
+        .Border(BoxBorder.Rounded)
+        .BorderColor(Color.Red));
+    logFile.WriteLine($"[ФАТАЛ] Агент упал: {ex}");
+    Announce($"Лог сохранён: {logPath}", $"[grey]Лог сохранён:[/] {logPath}");
+    term.MarkupLine("[grey]Нажмите любую клавишу для выхода…[/]");
+    logFile.WriteLine("Нажмите любую клавишу для выхода…");
     try { Console.ReadKey(intercept: true); } catch { /* нет консоли — просто выходим */ }
     return 1;
 }

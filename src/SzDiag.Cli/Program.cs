@@ -1,4 +1,5 @@
 using Microsoft.Extensions.Configuration;
+using Spectre.Console;
 using SzDiag.Cli;
 using SzDiag.Kb;
 
@@ -19,7 +20,7 @@ var command = args.Length > 0 ? args[0].ToLowerInvariant() : "watch";
 switch (command)
 {
     case "list":
-        Console.WriteLine(SessionTableRenderer.Render(await client.GetSessionsAsync()));
+        AnsiConsole.Write(SessionTableRenderer.Render(await client.GetSessionsAsync()));
         break;
 
     case "watch":
@@ -27,14 +28,16 @@ switch (command)
         break;
 
     case "close" when args.Length >= 2:
-        Console.WriteLine(await client.CloseAsync(args[1])
-            ? $"СЗ {args[1]} закрыта (revert отправлен агенту)."
-            : $"СЗ {args[1]} не найдена среди активных.");
+        if (await client.CloseAsync(args[1]))
+            AnsiConsole.MarkupLineInterpolated($"[green]СЗ {args[1]} закрыта[/] (revert отправлен агенту).");
+        else
+            AnsiConsole.MarkupLineInterpolated($"[red]СЗ {args[1]} не найдена[/] среди активных.");
         break;
 
     case "target" when args.Length >= 2:
         var t = await client.GetTargetAsync(args[1]);
-        Console.WriteLine(t is null ? $"СЗ {args[1]} не найдена." : t.Ssh);
+        if (t is null) AnsiConsole.MarkupLineInterpolated($"[red]СЗ {args[1]} не найдена.[/]");
+        else AnsiConsole.WriteLine(t.Ssh);
         break;
 
     case "kb" when args.Length >= 2:
@@ -42,43 +45,58 @@ switch (command)
         break;
 
     case "test" when args.Length >= 3 && args[1].Equals("run", StringComparison.OrdinalIgnoreCase):
-        Console.WriteLine(await client.TriggerTestAsync(args[2])
-            ? $"СЗ {args[2]}: прогон тестов запущен на агенте (отчёт появится в kb по завершении)."
-            : $"СЗ {args[2]} не найдена среди активных.");
+        if (await client.TriggerTestAsync(args[2]))
+            AnsiConsole.MarkupLineInterpolated($"[green]СЗ {args[2]}: прогон тестов запущен[/] на агенте (отчёт появится в kb по завершении).");
+        else
+            AnsiConsole.MarkupLineInterpolated($"[red]СЗ {args[2]} не найдена[/] среди активных.");
         break;
 
     default:
-        Console.WriteLine("""
+        AnsiConsole.Write(new Rule("[bold]sz-diag[/]").LeftJustified());
+        AnsiConsole.MarkupLine("""
             Использование:
-              szcli [watch]          живой список онлайн-СЗ (по умолчанию)
-              szcli list             однократный список
-              szcli close <СЗ>       закрыть СЗ (revert на агенте)
-              szcli target <СЗ>      SSH-адрес по номеру СЗ
+              [yellow]szcli[/] [grey][[watch]][/]          живой список онлайн-СЗ (по умолчанию)
+              [yellow]szcli list[/]             однократный список
+              [yellow]szcli close[/] [blue]<СЗ>[/]         закрыть СЗ (revert на агенте)
+              [yellow]szcli target[/] [blue]<СЗ>[/]        SSH-адрес по номеру СЗ
+              [yellow]szcli test run[/] [blue]<СЗ>[/]      запустить прогон тестов
+              [yellow]szcli kb[/] …               работа с базой знаний
             """);
         break;
 }
 
 static async Task WatchAsync(IHubApiClient client)
 {
-    Console.WriteLine("Живой список онлайн-СЗ. Ctrl+C для выхода.\n");
-    while (true)
-    {
-        IReadOnlyList<SzDiag.Contracts.SessionInfo> sessions;
-        try
-        {
-            sessions = await client.GetSessionsAsync();
-        }
-        catch (HttpRequestException)
-        {
-            Console.Clear();
-            Console.WriteLine("  hub недоступен, переподключение…");
-            await Task.Delay(2000);
-            continue;
-        }
+    AnsiConsole.Write(new Rule("[bold]sz-diag[/] — онлайн-СЗ").LeftJustified());
+    AnsiConsole.MarkupLine("[grey]Ctrl+C для выхода.[/]\n");
 
-        Console.Clear();
-        Console.WriteLine($"  sz-diag — онлайн-СЗ   {DateTime.Now:HH:mm:ss}\n");
-        Console.WriteLine(SessionTableRenderer.Render(sessions));
-        await Task.Delay(1000);
-    }
+    var table = SessionTableRenderer.Render(Array.Empty<SzDiag.Contracts.SessionInfo>());
+    await AnsiConsole.Live(table)
+        .AutoClear(false)
+        .Overflow(VerticalOverflow.Ellipsis)
+        .Cropping(VerticalOverflowCropping.Bottom)
+        .StartAsync(async ctx =>
+        {
+            while (true)
+            {
+                IReadOnlyList<SzDiag.Contracts.SessionInfo> sessions;
+                try
+                {
+                    sessions = await client.GetSessionsAsync();
+                }
+                catch (HttpRequestException)
+                {
+                    var offline = new Table().Border(TableBorder.Rounded).BorderColor(Color.Red);
+                    offline.AddColumn(new TableColumn("[red]hub недоступен, переподключение…[/]"));
+                    ctx.UpdateTarget(offline);
+                    ctx.Refresh();
+                    await Task.Delay(2000);
+                    continue;
+                }
+
+                ctx.UpdateTarget(SessionTableRenderer.Render(sessions).Caption($"обновлено {DateTime.Now:HH:mm:ss}"));
+                ctx.Refresh();
+                await Task.Delay(1000);
+            }
+        });
 }
