@@ -87,4 +87,57 @@ public class TestRunnerTests
         Assert.Equal("нет сессии", output.Report.Steps.Single().Error);
         Assert.Empty(output.Screenshots);
     }
+
+    private sealed class RecordingExecutor : ICommandExecutor
+    {
+        public List<string> Commands { get; } = new();
+        public CommandResult Run(string command)
+        {
+            Commands.Add(command);
+            return new CommandResult(0, "", "");
+        }
+    }
+
+    [Fact]
+    public void Run_AppStep_MissingExe_RecordsErrorAndContinues()
+    {
+        var runner = new TestRunner(new RecordingExecutor(), new FakeCapturer(new ScreenCapture(null, "n/a")));
+        var suite = new TestSuite { Steps = new[]
+        {
+            new TestStep("app", "TM5", Exe: "tools\\tm5\\нет-такого.exe", DurationSeconds: 1),
+        } };
+
+        var output = runner.Run(suite, "156864", "PC-1", At);
+
+        var step = output.Report.Steps.Single();
+        Assert.Equal(TestStepKind.App, step.Kind);
+        Assert.Contains("не найден", step.Error);
+    }
+
+    [Fact]
+    public void Run_AppStep_LaunchesCapturesAndKillsProcessTree()
+    {
+        var exe = Path.GetTempFileName();   // реальный файл → пройдёт File.Exists
+        try
+        {
+            var png = new byte[] { 9, 8, 7 };
+            var exec = new RecordingExecutor();
+            var runner = new TestRunner(exec, new FakeCapturer(new ScreenCapture(png, null)));
+            var suite = new TestSuite { Steps = new[]
+            {
+                new TestStep("app", "Стресс", Exe: exe, Args: "/run", DurationSeconds: 1, KillImage: "stress.exe"),
+            } };
+
+            var output = runner.Run(suite, "156864", "PC-1", At);
+
+            var step = output.Report.Steps.Single();
+            Assert.Equal(TestStepKind.App, step.Kind);
+            Assert.Null(step.Error);
+            Assert.Equal("screen-1.png", step.ScreenshotFile);
+            Assert.Equal(png, output.Screenshots["screen-1.png"]);
+            Assert.Contains(exec.Commands, c => c.StartsWith("Start-Process") && c.Contains("/run"));
+            Assert.Contains(exec.Commands, c => c == "taskkill /IM stress.exe /T /F");
+        }
+        finally { File.Delete(exe); }
+    }
 }

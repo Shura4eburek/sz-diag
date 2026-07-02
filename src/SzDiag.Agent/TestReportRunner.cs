@@ -27,7 +27,9 @@ public sealed class TestReportRunner
     {
         var now = _now();
         var timestamp = now.ToString("yyyyMMdd-HHmmss");
-        var output = _runner.Run(_suite, sz, _hostname, now);
+        // Стресс-тесты держат нагрузку минутами — уводим с потока обработчика SignalR,
+        // чтобы не блокировать соединение (heartbeat идёт своим путём).
+        var output = await Task.Run(() => _runner.Run(_suite, sz, _hostname, now), ct);
 
         var md = ReportMarkdownBuilder.Build(output.Report);
         await _link.UploadReportFileAsync(

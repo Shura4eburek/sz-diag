@@ -34,6 +34,29 @@ public static class ReportMarkdownBuilder
                     sb.AppendLine("```");
                 }
             }
+            else if (s.Kind == TestStepKind.App)
+            {
+                if (s.Command is not null)
+                {
+                    sb.AppendLine($"`{s.Command}`");
+                    sb.AppendLine();
+                }
+                if (s.Error is not null)
+                {
+                    sb.AppendLine($"ошибка запуска: {s.Error}");
+                    sb.AppendLine();
+                }
+                if (!string.IsNullOrEmpty(s.Output))
+                {
+                    sb.AppendLine("```");
+                    sb.AppendLine(s.Output);
+                    sb.AppendLine("```");
+                    sb.AppendLine();
+                }
+                sb.AppendLine(s.ScreenshotFile is not null
+                    ? $"![[{s.ScreenshotFile}]]"
+                    : "скрин под нагрузкой недоступен");
+            }
             else // Screenshot
             {
                 sb.AppendLine(s.Error is not null

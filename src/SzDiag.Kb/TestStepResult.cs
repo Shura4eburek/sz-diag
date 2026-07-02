@@ -1,6 +1,6 @@
 namespace SzDiag.Kb;
 
-public enum TestStepKind { Command, Screenshot }
+public enum TestStepKind { Command, Screenshot, App }
 
 /// <summary>Результат одного шага прогона.</summary>
 public sealed record TestStepResult(

@@ -6,6 +6,19 @@
     { "type": "command", "name": "Драйверы", "run": "driverquery" },
     { "type": "command", "name": "Ошибки System (48ч)", "run": "Get-WinEvent -FilterHashtable @{LogName='System';Level=1,2;StartTime=(Get-Date).AddHours(-48)} -ErrorAction SilentlyContinue | Select-Object -First 50 TimeCreated,Id,ProviderName,Message | Format-List" },
     { "type": "command", "name": "GPU (dxdiag)", "run": "$t=\"$env:TEMP\\dxdiag.txt\"; dxdiag /t $t; Start-Sleep 3; Get-Content $t" },
-    { "type": "screenshot", "name": "Состояние экрана" }
+
+    { "type": "app", "name": "TM5 — память (Extreme1@anta777, 10 мин)",
+      "exe": "tools\\tm5\\TM5.exe",
+      "args": "",
+      "durationSeconds": 600,
+      "killImage": "TM5.exe" },
+
+    { "type": "app", "name": "FurMark — GPU (стресс, 5 мин)",
+      "exe": "tools\\furmark\\furmark.exe",
+      "args": "--demo furmark-gl --width 1920 --height 1080 --max-time 600",
+      "durationSeconds": 300,
+      "killImage": "furmark.exe" },
+
+    { "type": "screenshot", "name": "Состояние экрана (финал)" }
   ]
 }
