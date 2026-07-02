@@ -11,4 +11,5 @@ public sealed class AgentOptions
     public double HeartbeatSeconds { get; set; } = 20;
     public string StatePath { get; set; } = @"C:\ProgramData\szdiag\state.json";
     public string TestSuitePath { get; set; } = "testsuite.json";
+    public string LogPath { get; set; } = @"logs\agent.log";
 }

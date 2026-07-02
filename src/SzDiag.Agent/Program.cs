@@ -1,6 +1,15 @@
 using System.Runtime.InteropServices;
+using System.Text;
 using Microsoft.Extensions.Configuration;
 using SzDiag.Agent;
+
+// UTF-8 в консоли — иначе кириллица превращается в «?» на Windows.
+try
+{
+    Console.OutputEncoding = Encoding.UTF8;
+    Console.InputEncoding = Encoding.UTF8;
+}
+catch { /* вывод может быть перенаправлен — не критично */ }
 
 var config = new ConfigurationBuilder()
     .SetBasePath(AppContext.BaseDirectory)
@@ -9,6 +18,13 @@ var config = new ConfigurationBuilder()
     .Build();
 var opts = new AgentOptions();
 config.Bind(opts);
+
+// Лог-файл рядом с exe: переживает падение и закрытие окна консоли.
+var logPath = Path.IsPathRooted(opts.LogPath)
+    ? opts.LogPath
+    : Path.Combine(AppContext.BaseDirectory, opts.LogPath);
+var logFile = AgentLog.Init(logPath);
+Console.SetOut(new TeeTextWriter(Console.Out, logFile));
 
 var ps = new PowerShellRunner();
 
@@ -19,6 +35,9 @@ if (args.Length >= 2 && args[0] == "--revert")
     if (st is not null) new WindowsSystemAccessManager(ps, args[1]).Revert(st);
     return 0;
 }
+
+try
+{
 
 Console.Write("Введите номер СЗ: ");
 var sz = (Console.ReadLine() ?? "").Trim();
@@ -91,6 +110,21 @@ cts.Cancel();
 try { await heartbeat; } catch (OperationCanceledException) { }
 Console.WriteLine("Готово.");
 return 0;
+
+}
+catch (Exception ex)
+{
+    Console.WriteLine();
+    Console.WriteLine($"[ФАТАЛ] Агент упал: {ex}");
+    Console.WriteLine($"Лог сохранён: {logPath}");
+    Console.WriteLine("Нажмите любую клавишу для выхода…");
+    try { Console.ReadKey(intercept: true); } catch { /* нет консоли — просто выходим */ }
+    return 1;
+}
+finally
+{
+    logFile.Flush();
+}
 
 /// <summary>Ловит CTRL_CLOSE_EVENT (крестик окна) и запускает откат.</summary>
 sealed class ConsoleCloseGuard : IDisposable
