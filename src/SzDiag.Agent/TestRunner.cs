@@ -124,14 +124,23 @@ public sealed class TestRunner
             if (grace > 0) Thread.Sleep(TimeSpan.FromSeconds(grace));
             waited = grace;
 
-            // В режиме до-завершения снимаем скриншот раньше (пока тул работает),
-            // т.к. после самозакрытия на экране уже рабочий стол.
-            if (step.RunToCompletion)
+            // В режиме до-завершения без детектора окна снимаем скриншот раньше (пока тул
+            // работает) — с детектором скриншот снимаем ровно в момент появления окна.
+            if (step.RunToCompletion && step.CompletionWindowClass is null)
                 shotFile = Capture(shots, ref shotN);
 
             while (waited < dur)
             {
-                if (!IsProcessAlive(procName)) { earlyExit = true; break; }
+                var done = step.CompletionWindowClass is not null
+                    ? HasCompletionWindow(procName, step.CompletionWindowClass)
+                    : !IsProcessAlive(procName);
+                if (done)
+                {
+                    earlyExit = true;
+                    if (step.CompletionWindowClass is not null)
+                        shotFile = Capture(shots, ref shotN);
+                    break;
+                }
                 var chunk = Math.Min(15, dur - waited);
                 Thread.Sleep(TimeSpan.FromSeconds(chunk));
                 waited += chunk;
@@ -144,8 +153,11 @@ public sealed class TestRunner
         if (!step.RunToCompletion)
             shotFile = Capture(shots, ref shotN);
 
-        // Стресс-режим всегда убивает дерево; режим до-завершения — только если завис (таймаут).
-        if (!step.RunToCompletion || timedOut)
+        // Самозакрывшийся тул (RunToCompletion без детектора окна, чистый ранний выход) —
+        // единственный случай, когда процесса уже нет и убивать нечего. Во всех остальных
+        // (стресс, таймаут, детектор окна — тул сам не закрылся, просто показал модалку) — kill.
+        var selfClosed = earlyExit && step.CompletionWindowClass is null;
+        if (!step.RunToCompletion || !selfClosed)
             _exec.Run($"taskkill /IM {image} /T /F");
 
         // Опц. текст-лог результата (встраивается в отчёт).
@@ -208,5 +220,47 @@ public sealed class TestRunner
     {
         var r = _exec.Run($"@(Get-Process -Name '{procName}' -ErrorAction SilentlyContinue).Count");
         return int.TryParse(r.StdOut.Trim(), out var n) && n > 0;
+    }
+
+    /// <summary>
+    /// Есть ли у процесса procName видимое top-level окно с Win32-классом windowClass
+    /// (напр. "#32770" — стандартный MessageBox). Нужно тулам, которые не завершают
+    /// процесс сами, а виснут на модалке "готово" (TM5) — EnumWindows точнее заголовка
+    /// окна, т.к. у модалки он совпадает с заголовком главного окна.
+    /// </summary>
+    private bool HasCompletionWindow(string procName, string windowClass)
+    {
+        var script = $$"""
+            $sig = @'
+            using System;
+            using System.Runtime.InteropServices;
+            using System.Text;
+            public class SzDiagWin32 {
+                public delegate bool EnumWindowsProc(IntPtr hWnd, IntPtr lParam);
+                [DllImport("user32.dll")] public static extern bool EnumWindows(EnumWindowsProc lpEnumFunc, IntPtr lParam);
+                [DllImport("user32.dll")] public static extern uint GetWindowThreadProcessId(IntPtr hWnd, out uint lpdwProcessId);
+                [DllImport("user32.dll")] public static extern int GetClassName(IntPtr hWnd, StringBuilder lpClassName, int nMaxCount);
+                [DllImport("user32.dll")] public static extern bool IsWindowVisible(IntPtr hWnd);
+            }
+            '@
+            Add-Type -TypeDefinition $sig -ErrorAction SilentlyContinue
+            $targetPids = @((Get-Process -Name '{{procName}}' -ErrorAction SilentlyContinue).Id)
+            $found = $false
+            $cb = {
+                param($hWnd, $lParam)
+                $procId = 0
+                [SzDiagWin32]::GetWindowThreadProcessId($hWnd, [ref]$procId) | Out-Null
+                if (($targetPids -contains $procId) -and [SzDiagWin32]::IsWindowVisible($hWnd)) {
+                    $sb = New-Object System.Text.StringBuilder 256
+                    [SzDiagWin32]::GetClassName($hWnd, $sb, 256) | Out-Null
+                    if ($sb.ToString() -eq '{{windowClass}}') { $script:found = $true }
+                }
+                return $true
+            }
+            [SzDiagWin32]::EnumWindows($cb, [IntPtr]::Zero) | Out-Null
+            $found
+            """;
+        var r = _exec.Run(script);
+        return r.StdOut.Trim().Equals("True", StringComparison.OrdinalIgnoreCase);
     }
 }

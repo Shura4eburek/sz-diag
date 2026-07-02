@@ -12,6 +12,12 @@ namespace SzDiag.Agent;
 ///                         DurationSeconds (таймаут-предохранитель), скриншот в
 ///                         процессе; ранний выход — норма, не ошибка (OCCT: гоняет
 ///                         расписание и сам закрывается, отдав отчёт).
+///                       • RunToCompletion=true + CompletionWindowClass: тул сам не
+///                         закрывается (TM5 виснет на модалке "тест завершён") — вместо
+///                         самозавершения ждём появления окна с этим Win32-классом
+///                         (напр. "#32770" — стандартный MessageBox) у процесса,
+///                         снимаем скриншот (с самой модалкой) и всё равно убиваем
+///                         дерево — не дожидаясь DurationSeconds.
 ///                       Опц. ResultFile — небольшой текст-лог, встраивается в отчёт;
 ///                       ArtifactFile — файл-артефакт (напр. HTML-отчёт OCCT), не
 ///                       встраивается, а прикладывается к отчёту ссылкой и заливается
@@ -30,4 +36,5 @@ public sealed record TestStep(
     string? KillImage = null,
     string? ResultFile = null,
     bool RunToCompletion = false,
-    string? ArtifactFile = null);
+    string? ArtifactFile = null,
+    string? CompletionWindowClass = null);

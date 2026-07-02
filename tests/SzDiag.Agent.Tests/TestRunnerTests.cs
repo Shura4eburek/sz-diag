@@ -98,6 +98,19 @@ public class TestRunnerTests
         }
     }
 
+    /// <summary>Как RecordingExecutor, но зонд EnumWindows отвечает "окно найдено".</summary>
+    private sealed class WindowDetectingExecutor : ICommandExecutor
+    {
+        public List<string> Commands { get; } = new();
+        public CommandResult Run(string command)
+        {
+            Commands.Add(command);
+            return command.Contains("EnumWindows")
+                ? new CommandResult(0, "True", "")
+                : new CommandResult(0, "", "");
+        }
+    }
+
     [Fact]
     public void Run_AppStep_MissingExe_RecordsErrorAndContinues()
     {
@@ -193,6 +206,33 @@ public class TestRunnerTests
             Assert.DoesNotContain("{workdir}", step.Command);
             Assert.Contains(workDir, step.Command);
             Assert.Contains(exec.Commands, c => c.StartsWith("Start-Process") && c.Contains(workDir) && !c.Contains("{workdir}"));
+        }
+        finally { File.Delete(exe); }
+    }
+
+    [Fact]
+    public void Run_AppStep_CompletionWindowDetected_CapturesScreenshotAndStillKills()
+    {
+        var exe = Path.GetTempFileName();
+        try
+        {
+            var png = new byte[] { 1, 2, 3 };
+            var exec = new WindowDetectingExecutor();   // EnumWindows -> "True" -> модалка сразу найдена
+            var runner = new TestRunner(exec, new FakeCapturer(new ScreenCapture(png, null)), initialGraceSeconds: 0);
+            var suite = new TestSuite { Steps = new[]
+            {
+                new TestStep("app", "TM5", Exe: exe, DurationSeconds: 5,
+                    KillImage: "TM5.exe", RunToCompletion: true, CompletionWindowClass: "#32770"),
+            } };
+
+            var output = runner.Run(suite, "156864", "PC-1", At);
+
+            var step = output.Report.Steps.Single();
+            Assert.Null(step.Error);
+            Assert.Null(step.Output);                    // обнаружение окна = норма, без warning
+            Assert.Equal("screen-1.png", step.ScreenshotFile);
+            // TM5 сам не закрывается — даже после обнаружения модалки дерево убиваем.
+            Assert.Contains(exec.Commands, c => c.StartsWith("taskkill"));
         }
         finally { File.Delete(exe); }
     }

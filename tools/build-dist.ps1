@@ -40,9 +40,11 @@ if (-not (Test-Path secrets\svc_diag_key)) {
     Write-Host "-- ключ secrets\svc_diag_key уже есть"
 }
 
-# 2. Публикация self-contained single-file exe
+# 2. Публикация self-contained single-file exe.
+# Чистим только сами билды (hub/cli/agent) — dist\host\kb и szdiag.db это runtime-данные
+# живого хаба (история СЗ, база знаний), а не билд-артефакт: пересборка их не должна сносить.
 Write-Host "-- публикую hub / cli / agent (минуту)"
-Remove-Item dist -Recurse -Force -ErrorAction SilentlyContinue
+Remove-Item dist\host\hub, dist\host\cli, dist\client -Recurse -Force -ErrorAction SilentlyContinue
 $common = "-c","Release","-r","win-x64","--self-contained","-p:PublishSingleFile=true","-v","q","--nologo"
 dotnet publish src/SzDiag.Hub @common -o dist/host/hub | Out-Null
 dotnet publish src/SzDiag.Cli @common -o dist/host/cli | Out-Null

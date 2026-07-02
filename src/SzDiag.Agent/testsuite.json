@@ -7,11 +7,13 @@
     { "type": "command", "name": "Ошибки System (48ч)", "run": "Get-WinEvent -FilterHashtable @{LogName='System';Level=1,2;StartTime=(Get-Date).AddHours(-48)} -ErrorAction SilentlyContinue | Select-Object -First 50 TimeCreated,Id,ProviderName,Message | Format-List" },
     { "type": "command", "name": "GPU (dxdiag)", "run": "$t=\"$env:TEMP\\dxdiag.txt\"; dxdiag /t $t; Start-Sleep 3; Get-Content $t" },
 
-    { "type": "app", "name": "TM5 — память (Extreme1@anta777, 10 мин)",
+    { "type": "app", "name": "TM5 — память (Extreme1@anta777, до завершения)",
       "exe": "tools\\tm5\\TM5.exe",
       "args": "",
-      "durationSeconds": 600,
-      "killImage": "TM5.exe" },
+      "durationSeconds": 1800,
+      "killImage": "TM5.exe",
+      "runToCompletion": true,
+      "completionWindowClass": "#32770" },
 
     { "type": "app", "name": "OCCT — комбинированный + Power (расписание, HTML-отчёт)",
       "exe": "tools\\occt\\OCCTCmd.exe",
