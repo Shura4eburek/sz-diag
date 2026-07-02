@@ -33,7 +33,9 @@ if (-not (Get-Command ssh-keygen -ErrorAction SilentlyContinue)) { throw "Не �
 New-Item -ItemType Directory secrets -Force | Out-Null
 if (-not (Test-Path secrets\svc_diag_key)) {
     Write-Host "-- генерирую ключ secrets\svc_diag_key"
-    ssh-keygen -t ed25519 -f secrets\svc_diag_key -N '""' -C szdiag-service -q
+    # Через cmd: PowerShell ломает пустой пароль (-N '""' даёт литеральные кавычки,
+    # ключ выходит зашифрованным). В cmd `-N ""` — честный пустой пароль.
+    cmd /c 'ssh-keygen -t ed25519 -f secrets\svc_diag_key -C szdiag-service -N "" -q'
 } else {
     Write-Host "-- ключ secrets\svc_diag_key уже есть"
 }
@@ -46,6 +48,17 @@ dotnet publish src/SzDiag.Hub @common -o dist/host/hub | Out-Null
 dotnet publish src/SzDiag.Cli @common -o dist/host/cli | Out-Null
 dotnet publish src/SzDiag.Agent @common -o dist/client | Out-Null
 Copy-Item secrets\svc_diag_key.pub dist\client\service_key.pub -Force
+
+# 2b. Портативные стресс-утилиты (TM5 / OCCT / Superposition / FurMark и пр.).
+# Кладутся в client-tools\<name>\ (в .gitignore — бинарники и лицензии не коммитим),
+# при сборке уезжают в dist\client\tools\. Пути в testsuite.json — tools\<name>\...
+if (Test-Path client-tools) {
+    Write-Host "-- копирую client-tools -> dist\client\tools"
+    New-Item -ItemType Directory dist\client\tools -Force | Out-Null
+    Copy-Item client-tools\* dist\client\tools\ -Recurse -Force
+} else {
+    Write-Host "-- client-tools нет: стресс-утилиты не вложены (шаги app сообщат 'не найден exe')"
+}
 
 # 3. Конфиги (абсолютные пути хоста — под ЭТУ машину; относительные — агенту)
 $kb = ("$root\dist\host\kb").Replace('\', '\\')
