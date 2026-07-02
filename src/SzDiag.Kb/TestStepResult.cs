@@ -10,4 +10,5 @@ public sealed record TestStepResult(
     string? Output = null,
     int? ExitCode = null,
     string? Error = null,
-    string? ScreenshotFile = null);
+    string? ScreenshotFile = null,
+    string? ArtifactFile = null);

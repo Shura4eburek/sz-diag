@@ -10,7 +10,7 @@ config.local.*
 kb/
 data/
 
-# Портативные стресс-утилиты (лицензионные бинарники TM5/OCCT/Superposition/FurMark)
+# Портативные стресс-утилиты (лицензионные бинарники TM5/OCCT/3DMark/FurMark)
 client-tools/
 
 # Логи

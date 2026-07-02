@@ -13,11 +13,25 @@
       "durationSeconds": 600,
       "killImage": "TM5.exe" },
 
+    { "type": "app", "name": "OCCT — комбинированный + Power (расписание, HTML-отчёт)",
+      "exe": "tools\\occt\\OCCTCmd.exe",
+      "args": "test --schedule=\"{workdir}\\schedule.json\" --auto-start=true --auto-close=true --auto-save-report=true --report-file=\"{workdir}\\occt-report.html\" --overwrite-report-file=true --auto-enable-sensors=true",
+      "durationSeconds": 780,
+      "killImage": "OCCTCmd.exe",
+      "runToCompletion": true,
+      "artifactFile": "tools\\occt\\occt-report.html" },
+
     { "type": "app", "name": "FurMark — GPU (стресс, 5 мин)",
       "exe": "tools\\furmark\\furmark.exe",
       "args": "--demo furmark-gl --width 1920 --height 1080 --max-time 600",
       "durationSeconds": 300,
       "killImage": "furmark.exe" },
+
+    { "type": "app", "name": "3DMark — GPU Time Spy (бесконечный стресс-цикл, 5 мин)",
+      "exe": "tools\\3dmark\\3DMarkCmd.exe",
+      "args": "-d timespy.3dmdef -l 0 --systeminfomonitor on --audio off",
+      "durationSeconds": 300,
+      "killImage": "3DMarkCmd.exe" },
 
     { "type": "screenshot", "name": "Состояние экрана (финал)" }
   ]

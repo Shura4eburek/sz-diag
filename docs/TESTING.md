@@ -22,6 +22,20 @@ cd sz-diag
 
 Нужен установленный **.NET 8 SDK** и OpenSSH client (`ssh-keygen`).
 
+### Стресс-утилиты (опционально, для шагов `app`)
+
+Тяжёлые бинарники (TM5 / OCCT / FurMark / 3DMark) в репо не лежат — их кладут в
+`client-tools\<tool>\`, откуда `build-dist.ps1` копирует в `dist\client\tools\`.
+Пути в `testsuite.json` — `tools\<tool>\...`. Если папки нет — соответствующий шаг
+просто отметится «не найден exe» и прогон продолжится.
+
+- **OCCT**: `client-tools\occt\` = `OCCTCmd.exe` + `schedule.json` (взять из
+  `deploy\occt\`) + файл лицензии `*.oke`. Гонит Combined+Power, отдаёт HTML-отчёт
+  артефактом. Подробно — `deploy\occt\README.md`.
+- **3DMark**: `client-tools\3dmark\` = **полная установка** 3DMark (не только
+  `3DMarkCmd.exe`, но и ассеты/DLC + `.3dmdef`). Шаг гонит Time Spy бесконечным
+  циклом (`-l 0`) и снимает скрин под нагрузкой.
+
 ## 1. Хост: открыть порт и запустить hub
 
 Порт (PowerShell **от админа**, один раз):

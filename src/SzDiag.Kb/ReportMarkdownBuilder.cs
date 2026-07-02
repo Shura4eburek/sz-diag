@@ -56,6 +56,11 @@ public static class ReportMarkdownBuilder
                 sb.AppendLine(s.ScreenshotFile is not null
                     ? $"![[{s.ScreenshotFile}]]"
                     : "скрин под нагрузкой недоступен");
+                if (s.ArtifactFile is not null)
+                {
+                    sb.AppendLine();
+                    sb.AppendLine($"Отчёт: [[{s.ArtifactFile}]]");
+                }
             }
             else // Screenshot
             {

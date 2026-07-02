@@ -37,5 +37,8 @@ public sealed class TestReportRunner
 
         foreach (var (fileName, bytes) in output.Screenshots)
             await _link.UploadReportFileAsync(new UploadReportPart(sz, timestamp, fileName, bytes), ct);
+
+        foreach (var (fileName, bytes) in output.Artifacts)
+            await _link.UploadReportFileAsync(new UploadReportPart(sz, timestamp, fileName, bytes), ct);
     }
 }

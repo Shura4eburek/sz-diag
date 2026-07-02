@@ -2,25 +2,39 @@ using SzDiag.Kb;
 
 namespace SzDiag.Agent;
 
-/// <summary>Результат прогона: отчёт + байты скриншотов по именам файлов.</summary>
-public sealed record TestRunOutput(TestReport Report, IReadOnlyDictionary<string, byte[]> Screenshots);
+/// <summary>
+/// Результат прогона: отчёт + байты скриншотов и артефактов по именам файлов.
+/// Артефакты — произвольные файлы, которые произвёл тул (напр. HTML-отчёт OCCT):
+/// заливаются на hub так же, как скриншоты, но в report.md идут ссылкой, а не встраиваются.
+/// </summary>
+public sealed record TestRunOutput(
+    TestReport Report,
+    IReadOnlyDictionary<string, byte[]> Screenshots,
+    IReadOnlyDictionary<string, byte[]> Artifacts);
 
 /// <summary>Выполняет шаги набора: команды и скриншоты. Падение шага фиксируется, прогон продолжается.</summary>
 public sealed class TestRunner
 {
     private readonly ICommandExecutor _exec;
     private readonly IScreenCapturer _capturer;
+    private readonly int _initialGraceSeconds;
 
-    public TestRunner(ICommandExecutor exec, IScreenCapturer capturer)
+    /// <param name="initialGraceSeconds">
+    /// Пауза после старта exe до первой проверки «жив ли процесс» — даёт стресс-тулам
+    /// подняться, прежде чем считать ранний выход крэшем. В тестах ставится в 0.
+    /// </param>
+    public TestRunner(ICommandExecutor exec, IScreenCapturer capturer, int initialGraceSeconds = 8)
     {
         _exec = exec;
         _capturer = capturer;
+        _initialGraceSeconds = initialGraceSeconds;
     }
 
     public TestRunOutput Run(TestSuite suite, string sz, string hostname, DateTimeOffset now)
     {
         var steps = new List<TestStepResult>();
         var shots = new Dictionary<string, byte[]>();
+        var artifacts = new Dictionary<string, byte[]>();
         var shotN = 0;
 
         foreach (var step in suite.Steps)
@@ -44,7 +58,7 @@ public sealed class TestRunner
 
             if (step.Type.Equals("app", StringComparison.OrdinalIgnoreCase))
             {
-                RunApp(step, steps, shots, ref shotN);
+                RunApp(step, steps, shots, artifacts, ref shotN);
                 continue;
             }
 
@@ -62,20 +76,27 @@ public sealed class TestRunner
             }
         }
 
-        return new TestRunOutput(new TestReport(sz, hostname, now, steps), shots);
+        return new TestRunOutput(new TestReport(sz, hostname, now, steps), shots, artifacts);
     }
 
     /// <summary>
-    /// Стресс-тест: запуск exe → держим под нагрузкой до DurationSeconds → скриншот →
-    /// убить дерево процессов → опц. лог результата. Если процесс не удержался (крэш,
-    /// лицензия, нет условий) — не спим таймер вхолостую, а выходим сразу и помечаем это.
+    /// App-шаг в двух режимах.
+    /// Стресс (RunToCompletion=false): запуск exe → держим под нагрузкой до DurationSeconds
+    /// → скриншот → kill дерева. Ранний выход процесса (крэш/лицензия) — сигнал в отчёт.
+    /// До завершения (RunToCompletion=true): запуск → скриншот в процессе → ждём
+    /// самозавершения до DurationSeconds (предохранитель) → опц. kill если завис. Ранний
+    /// выход — норма (тул отработал расписание и закрылся), не помечаем ошибкой.
+    /// Опц. ResultFile встраивается в отчёт; ArtifactFile прикладывается ссылкой + на hub.
     /// </summary>
     private void RunApp(TestStep step, List<TestStepResult> steps,
-        Dictionary<string, byte[]> shots, ref int shotN)
+        Dictionary<string, byte[]> shots, Dictionary<string, byte[]> artifacts, ref int shotN)
     {
         var exeRel = step.Exe ?? "";
         var exe = Path.IsPathRooted(exeRel) ? exeRel : Path.Combine(AppContext.BaseDirectory, exeRel);
-        var cmdLine = string.IsNullOrWhiteSpace(step.Args) ? exeRel : $"{exeRel} {step.Args}";
+        var workDir = Path.GetDirectoryName(exe)!;
+        // Подстановка {workdir} в аргументах → абсолютный каталог exe (пути к schedule/report).
+        var args = (step.Args ?? "").Replace("{workdir}", workDir);
+        var cmdLine = string.IsNullOrWhiteSpace(args) ? exeRel : $"{exeRel} {args}";
 
         if (string.IsNullOrWhiteSpace(exeRel) || !File.Exists(exe))
         {
@@ -85,22 +106,29 @@ public sealed class TestRunner
         }
 
         var dur = step.DurationSeconds is > 0 ? step.DurationSeconds.Value : 60;
-        var workDir = Path.GetDirectoryName(exe)!;
         var image = string.IsNullOrWhiteSpace(step.KillImage) ? Path.GetFileName(exe) : step.KillImage;
         var procName = Path.GetFileNameWithoutExtension(image);
         string? launchError = null;
         var earlyExit = false;
+        var timedOut = false;
         var waited = 0;
+        string? shotFile = null;
 
         try
         {
-            var argPart = string.IsNullOrWhiteSpace(step.Args) ? "" : $" -ArgumentList '{step.Args}'";
+            var argPart = string.IsNullOrWhiteSpace(args) ? "" : $" -ArgumentList '{args}'";
             _exec.Run($"Start-Process -FilePath '{exe}' -WorkingDirectory '{workDir}'{argPart}");
 
-            // Грейс на запуск/инициализацию, дальше следим, что процесс жив.
-            var grace = Math.Min(8, dur);
-            Thread.Sleep(TimeSpan.FromSeconds(grace));
+            // Грейс на запуск/инициализацию.
+            var grace = Math.Min(_initialGraceSeconds, dur);
+            if (grace > 0) Thread.Sleep(TimeSpan.FromSeconds(grace));
             waited = grace;
+
+            // В режиме до-завершения снимаем скриншот раньше (пока тул работает),
+            // т.к. после самозакрытия на экране уже рабочий стол.
+            if (step.RunToCompletion)
+                shotFile = Capture(shots, ref shotN);
+
             while (waited < dur)
             {
                 if (!IsProcessAlive(procName)) { earlyExit = true; break; }
@@ -108,42 +136,71 @@ public sealed class TestRunner
                 Thread.Sleep(TimeSpan.FromSeconds(chunk));
                 waited += chunk;
             }
+            if (!earlyExit) timedOut = true;   // досидели до предела, процесс ещё жив
         }
         catch (Exception ex) { launchError = ex.Message; }
 
-        // Скриншот (под нагрузкой, если процесс ещё жив).
-        string? shotFile = null;
-        var cap = _capturer.Capture();
-        if (cap.Png is not null)
-        {
-            shotN++;
-            shotFile = $"screen-{shotN}.png";
-            shots[shotFile] = cap.Png;
-        }
+        // Скриншот под нагрузкой для стресс-режима (в конце окна ожидания).
+        if (!step.RunToCompletion)
+            shotFile = Capture(shots, ref shotN);
 
-        // Убить дерево процессов (по имени образа — переживает лаунчеры).
-        _exec.Run($"taskkill /IM {image} /T /F");
+        // Стресс-режим всегда убивает дерево; режим до-завершения — только если завис (таймаут).
+        if (!step.RunToCompletion || timedOut)
+            _exec.Run($"taskkill /IM {image} /T /F");
 
-        // Опц. лог результата.
+        // Опц. текст-лог результата (встраивается в отчёт).
         string? output = null;
-        if (!string.IsNullOrWhiteSpace(step.ResultFile))
+        var resolvedResult = Resolve(step.ResultFile);
+        if (resolvedResult is not null)
+            try { if (File.Exists(resolvedResult)) output = File.ReadAllText(resolvedResult); } catch { /* нет лога — не критично */ }
+
+        // Опц. файл-артефакт (напр. HTML-отчёт OCCT): заливается на hub, в отчёте — ссылкой.
+        string? artifactName = null;
+        var resolvedArtifact = Resolve(step.ArtifactFile);
+        if (resolvedArtifact is not null && File.Exists(resolvedArtifact))
         {
-            var rf = Path.IsPathRooted(step.ResultFile)
-                ? step.ResultFile
-                : Path.Combine(AppContext.BaseDirectory, step.ResultFile);
-            try { if (File.Exists(rf)) output = File.ReadAllText(rf); } catch { /* нет лога — не критично */ }
+            try
+            {
+                artifactName = Path.GetFileName(resolvedArtifact);
+                artifacts[artifactName] = File.ReadAllBytes(resolvedArtifact);
+            }
+            catch { artifactName = null; /* не смогли прочитать — не критично */ }
         }
 
-        // Ранний выход процесса — важный сигнал (крэш/лицензия), выносим в отчёт.
-        if (earlyExit)
+        // Ранний выход: для стресс-режима это сигнал (крэш/лицензия); для до-завершения — норма.
+        if (earlyExit && !step.RunToCompletion)
         {
             var note = $"⚠ процесс '{procName}' завершился раньше срока (~{waited}с) — " +
                        "вероятно крэш, лицензия или нет условий запуска";
             output = string.IsNullOrEmpty(output) ? note : note + "\n\n" + output;
         }
+        // До-завершения, но упёрлись в предохранитель — тоже сигнал (тул не закрылся сам).
+        if (timedOut && step.RunToCompletion)
+        {
+            var note = $"⚠ процесс '{procName}' не завершился за {dur}с — убит по таймауту";
+            output = string.IsNullOrEmpty(output) ? note : note + "\n\n" + output;
+        }
 
         steps.Add(new TestStepResult(step.Name, TestStepKind.App, Command: cmdLine,
-            Output: output, ScreenshotFile: shotFile, Error: launchError));
+            Output: output, ScreenshotFile: shotFile, ArtifactFile: artifactName, Error: launchError));
+    }
+
+    /// <summary>Снимок экрана в словарь скриншотов; возвращает имя файла или null.</summary>
+    private string? Capture(Dictionary<string, byte[]> shots, ref int shotN)
+    {
+        var cap = _capturer.Capture();
+        if (cap.Png is null) return null;
+        shotN++;
+        var fn = $"screen-{shotN}.png";
+        shots[fn] = cap.Png;
+        return fn;
+    }
+
+    /// <summary>Относительный путь резолвится рядом с exe агента; null → null.</summary>
+    private static string? Resolve(string? p)
+    {
+        if (string.IsNullOrWhiteSpace(p)) return null;
+        return Path.IsPathRooted(p) ? p : Path.Combine(AppContext.BaseDirectory, p);
     }
 
     /// <summary>Жив ли хоть один процесс с таким именем (без .exe).</summary>

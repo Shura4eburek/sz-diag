@@ -140,4 +140,60 @@ public class TestRunnerTests
         }
         finally { File.Delete(exe); }
     }
+
+    [Fact]
+    public void Run_AppStep_RunToCompletion_CleanExit_NoErrorCapturesArtifact_NoKill()
+    {
+        var exe = Path.GetTempFileName();
+        var artifact = Path.GetTempFileName();
+        var artifactBytes = new byte[] { 4, 2, 4, 2 };
+        File.WriteAllBytes(artifact, artifactBytes);
+        try
+        {
+            var png = new byte[] { 5, 5 };
+            var exec = new RecordingExecutor();   // IsProcessAlive -> "" -> процесс не жив (самозавершился)
+            var runner = new TestRunner(exec, new FakeCapturer(new ScreenCapture(png, null)), initialGraceSeconds: 0);
+            var suite = new TestSuite { Steps = new[]
+            {
+                new TestStep("app", "OCCT", Exe: exe, Args: "test", DurationSeconds: 5,
+                    KillImage: "occtcmd.exe", RunToCompletion: true, ArtifactFile: artifact),
+            } };
+
+            var output = runner.Run(suite, "156864", "PC-1", At);
+
+            var step = output.Report.Steps.Single();
+            Assert.Null(step.Error);
+            Assert.Null(step.Output);                                  // ранний выход = норма, без warning
+            Assert.Equal(Path.GetFileName(artifact), step.ArtifactFile);
+            Assert.Equal(artifactBytes, output.Artifacts[Path.GetFileName(artifact)]);
+            Assert.Equal("screen-1.png", step.ScreenshotFile);
+            Assert.DoesNotContain(exec.Commands, c => c.StartsWith("taskkill")); // сам закрылся — не убиваем
+        }
+        finally { File.Delete(exe); File.Delete(artifact); }
+    }
+
+    [Fact]
+    public void Run_AppStep_SubstitutesWorkdirTokenInArgs()
+    {
+        var exe = Path.GetTempFileName();
+        try
+        {
+            var workDir = Path.GetDirectoryName(exe)!;
+            var exec = new RecordingExecutor();
+            var runner = new TestRunner(exec, new FakeCapturer(new ScreenCapture(new byte[] { 1 }, null)),
+                initialGraceSeconds: 0);
+            var suite = new TestSuite { Steps = new[]
+            {
+                new TestStep("app", "OCCT", Exe: exe, Args: "--report=\"{workdir}\\r.html\"", DurationSeconds: 1),
+            } };
+
+            var output = runner.Run(suite, "156864", "PC-1", At);
+
+            var step = output.Report.Steps.Single();
+            Assert.DoesNotContain("{workdir}", step.Command);
+            Assert.Contains(workDir, step.Command);
+            Assert.Contains(exec.Commands, c => c.StartsWith("Start-Process") && c.Contains(workDir) && !c.Contains("{workdir}"));
+        }
+        finally { File.Delete(exe); }
+    }
 }

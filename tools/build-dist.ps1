@@ -49,7 +49,7 @@ dotnet publish src/SzDiag.Cli @common -o dist/host/cli | Out-Null
 dotnet publish src/SzDiag.Agent @common -o dist/client | Out-Null
 Copy-Item secrets\svc_diag_key.pub dist\client\service_key.pub -Force
 
-# 2b. Портативные стресс-утилиты (TM5 / OCCT / Superposition / FurMark и пр.).
+# 2b. Портативные стресс-утилиты (TM5 / OCCT / 3DMark / FurMark и пр.).
 # Кладутся в client-tools\<name>\ (в .gitignore — бинарники и лицензии не коммитим),
 # при сборке уезжают в dist\client\tools\. Пути в testsuite.json — tools\<name>\...
 if (Test-Path client-tools) {
