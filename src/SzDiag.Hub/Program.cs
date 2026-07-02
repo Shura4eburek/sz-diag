@@ -35,7 +35,12 @@ builder.Services.AddHostedService<OfflineSweeper>();
 builder.Services.AddSingleton<IAgentCommandSender, SignalRAgentCommandSender>();
 builder.Services.AddSingleton<SessionCloser>();
 builder.Services.AddSingleton<TestRunTrigger>();
-builder.Services.AddSignalR(o => o.MaximumReceiveMessageSize = 10 * 1024 * 1024);
+builder.Services.AddSignalR(o =>
+{
+    o.MaximumReceiveMessageSize = 10 * 1024 * 1024;
+    // Внутренний сервис в доверенной сети — отдаём агенту реальный текст ошибки.
+    o.EnableDetailedErrors = true;
+});
 
 var app = builder.Build();
 
