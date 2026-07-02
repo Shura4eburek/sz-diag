@@ -79,9 +79,13 @@ public sealed class WindowsSystemAccessManager : ISystemAccessManager
         }
 
         // 5. Учётка svc-diag (админ), идемпотентно: снести остаток, затем создать.
+        // New-LocalUser (а не `net user /add`): последний при пароле >14 символов
+        // требует интерактивного «продолжить? (Y/N)» и падает без stdin.
         var password = GeneratePassword();
-        _ps.Run($"net user {spec.ServiceAccount} /delete", throwOnError: false);
-        _ps.Run($"net user {spec.ServiceAccount} '{password}' /add");
+        _ps.Run($"Remove-LocalUser -Name '{spec.ServiceAccount}' -ErrorAction SilentlyContinue", throwOnError: false);
+        _ps.Run($"New-LocalUser -Name '{spec.ServiceAccount}' " +
+                $"-Password (ConvertTo-SecureString '{password}' -AsPlainText -Force) " +
+                "-AccountNeverExpires -PasswordNeverExpires | Out-Null");
         _ps.Run($"Add-LocalGroupMember -SID {AdminsSid} -Member {spec.ServiceAccount} -ErrorAction SilentlyContinue",
             throwOnError: false);
         state.CreatedUser = true;
@@ -156,7 +160,7 @@ public sealed class WindowsSystemAccessManager : ISystemAccessManager
         }
 
         if (state.CreatedUser)
-            _ps.Run($"net user {state.ServiceAccount} /delete", throwOnError: false);
+            _ps.Run($"Remove-LocalUser -Name '{state.ServiceAccount}' -ErrorAction SilentlyContinue", throwOnError: false);
 
         if (state.StartedSshService)
             _ps.Run("Stop-Service sshd -ErrorAction SilentlyContinue; " +
