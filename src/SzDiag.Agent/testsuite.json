@@ -7,7 +7,7 @@
     { "type": "command", "name": "Ошибки System (48ч)", "run": "Get-WinEvent -FilterHashtable @{LogName='System';Level=1,2;StartTime=(Get-Date).AddHours(-48)} -ErrorAction SilentlyContinue | Select-Object -First 50 TimeCreated,Id,ProviderName,Message | Format-List" },
     { "type": "command", "name": "GPU (dxdiag)", "run": "$t=\"$env:TEMP\\dxdiag.txt\"; dxdiag /t $t; Start-Sleep 3; Get-Content $t" },
 
-    { "type": "app", "name": "TM5 — память (Extreme1@anta777, до завершения)",
+    { "type": "app", "id": "tm5", "name": "TM5 — память (Extreme1@anta777, до завершения)",
       "exe": "tools\\tm5\\TM5.exe",
       "args": "",
       "durationSeconds": 1800,
@@ -15,7 +15,7 @@
       "runToCompletion": true,
       "completionWindowClass": "#32770" },
 
-    { "type": "app", "name": "OCCT — комбинированный + Power (расписание, HTML-отчёт)",
+    { "type": "app", "id": "occt", "name": "OCCT — комбинированный + Power (расписание, HTML-отчёт)",
       "exe": "tools\\occt\\OCCTCmd.exe",
       "args": "test --schedule=\"{workdir}\\schedule.json\" --auto-start=true --auto-close=true --auto-save-report=true --report-file=\"{workdir}\\occt-report.html\" --overwrite-report-file=true --auto-enable-sensors=true",
       "durationSeconds": 780,
@@ -23,13 +23,13 @@
       "runToCompletion": true,
       "artifactFile": "tools\\occt\\occt-report.html" },
 
-    { "type": "app", "name": "FurMark — GPU (стресс, 5 мин)",
+    { "type": "app", "id": "furmark", "name": "FurMark — GPU (стресс, 5 мин)",
       "exe": "tools\\furmark\\furmark.exe",
       "args": "--demo furmark-gl --width 1920 --height 1080 --max-time 600",
       "durationSeconds": 300,
       "killImage": "furmark.exe" },
 
-    { "type": "app", "name": "3DMark — GPU Time Spy (бесконечный стресс-цикл, 5 мин)",
+    { "type": "app", "id": "3dmark", "name": "3DMark — GPU Time Spy (бесконечный стресс-цикл, 5 мин)",
       "exe": "tools\\3dmark\\3DMarkCmd.exe",
       "args": "-d timespy.3dmdef -l 0 --systeminfomonitor on --audio off",
       "durationSeconds": 300,

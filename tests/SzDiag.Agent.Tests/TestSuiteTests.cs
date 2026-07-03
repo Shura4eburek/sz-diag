@@ -26,6 +26,18 @@ public class TestSuiteTests : IDisposable
         Assert.Null(suite.Steps[1].Run);
     }
 
+    [Fact]
+    public void Load_ParsesStepId()
+    {
+        File.WriteAllText(_path, """
+            { "steps": [ { "type": "app", "name": "OCCT", "id": "occt", "exe": "x" } ] }
+            """);
+
+        var suite = TestSuite.Load(_path);
+
+        Assert.Equal("occt", suite.Steps[0].Id);
+    }
+
     public void Dispose()
     {
         if (File.Exists(_path)) File.Delete(_path);

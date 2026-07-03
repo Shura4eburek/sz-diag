@@ -37,4 +37,5 @@ public sealed record TestStep(
     string? ResultFile = null,
     bool RunToCompletion = false,
     string? ArtifactFile = null,
-    string? CompletionWindowClass = null);
+    string? CompletionWindowClass = null,
+    string? Id = null);
