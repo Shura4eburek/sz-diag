@@ -106,7 +106,7 @@ Get-NetFirewallRule -DisplayName "szdiag-ssh-*"    # пусто
 | CLI/агент: `connection refused` / 401 | Hub не слушает нужный порт или не открыт firewall; токены не совпали. Проверь `dist\host\hub\appsettings.json` (`Urls`, `Hub.*Token`) и правило firewall. |
 | `Test-NetConnection ... False` | Клиент не в той сети. Собери с `-HubIp <правильный IP хоста>` (у хоста может быть несколько адресов: LAN/VPN). |
 | Агент: «hub не найден в сети» | Хост и клиент в разных сегментах (роутер/VPN/VLAN без broadcast) — автообнаружение не проходит. Укажи `HubUrl` вручную в `dist\client\appsettings.json` или пересобери с `-HubIp <IP-хоста>`. Проверь также, что открыт UDP-порт 5098 на хосте. |
-| Агент требует OpenSSH, а его нет и WU недоступен | Поставь один раз вручную: `Add-WindowsCapability -Online -Name OpenSSH.Server~~~~0.0.1.0` (от админа), затем запусти агента. |
+| Агент требует OpenSSH, а его нет и WU недоступен | Раньше висел на «Открываю доступ…» навечно; теперь падает за 2 мин с сообщением «OpenSSH не ставится — нет доступа к Windows Update». Поставь один раз вручную: `Add-WindowsCapability -Online -Name OpenSSH.Server~~~~0.0.1.0` (от админа, при наличии интернета — либо в момент, когда сеть появится), затем запусти агента снова. |
 
 ## Автотесты (без хоста/клиента)
 ```powershell
