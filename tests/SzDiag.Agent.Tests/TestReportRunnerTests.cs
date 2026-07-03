@@ -21,7 +21,7 @@ public class TestReportRunnerTests
         public Task RegisterAsync(string sz, string hostname, CancellationToken ct = default) => Task.CompletedTask;
         public Task HeartbeatAsync(string sz, CancellationToken ct = default) => Task.CompletedTask;
         public void OnRevert(Func<string, Task> handler) { }
-        public void OnRunTests(Func<string, Task> handler) { }
+        public void OnRunTests(Func<string, string?, Task> handler) { }
         public Task UploadReportFileAsync(UploadReportPart part, CancellationToken ct = default)
         {
             Uploaded.Add(part);

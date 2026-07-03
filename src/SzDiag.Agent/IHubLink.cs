@@ -10,8 +10,8 @@ public interface IHubLink
     /// <summary>Подписка на команду revert от hub (sz → callback).</summary>
     void OnRevert(Func<string, Task> handler);
 
-    /// <summary>Подписка на команду прогона тестов от hub (sz → callback).</summary>
-    void OnRunTests(Func<string, Task> handler);
+    /// <summary>Подписка на команду прогона тестов от hub (sz, filter → callback).</summary>
+    void OnRunTests(Func<string, string?, Task> handler);
 
     Task UploadReportFileAsync(SzDiag.Contracts.UploadReportPart part, CancellationToken ct = default);
 

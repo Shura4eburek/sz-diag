@@ -76,6 +76,9 @@ await session.StartAsync();
 Announce($"СЗ {sz}: доступ открыт ● online. Хост {Environment.MachineName}.",
     $"СЗ {sz}: доступ открыт [green]● online[/]. Хост {Environment.MachineName}.");
 
+// Стартовая активность в таблице CLI: простаиваем, готовы к прогону.
+try { await link.ReportActivityAsync(sz, "— готов", null); } catch { /* статус не критичен */ }
+
 // Тест-раннер: по команде hub RunTests прогнать набор и залить отчёт.
 var suitePath = ResolvePath(opts.TestSuitePath);
 if (File.Exists(suitePath))
@@ -84,17 +87,31 @@ if (File.Exists(suitePath))
     var reportRunner = new TestReportRunner(
         new TestRunner(new PowerShellCommandExecutor(ps), new GdiScreenCapturer()),
         suite, link, Environment.MachineName);
-    link.OnRunTests(async runSz =>
+    link.OnRunTests(async (runSz, filter) =>
     {
-        Announce($"Прогон тестов для СЗ {runSz}…", $"[grey]Прогон тестов для СЗ {runSz}…[/]");
+        var scope = string.IsNullOrWhiteSpace(filter) ? "полный прогон" : $"фильтр {filter}";
+        Announce($"Прогон тестов для СЗ {runSz} ({scope})…", $"[grey]Прогон тестов для СЗ {runSz} ({scope})…[/]");
         try
         {
-            await reportRunner.RunAndUploadAsync(runSz);
-            Announce("Отчёт залит на hub.", "[green]Отчёт залит на hub.[/]");
+            var outcome = await reportRunner.RunAndUploadAsync(runSz, filter);
+            if (!outcome.Ran)
+            {
+                var ids = string.Join(", ", outcome.AvailableIds);
+                Announce($"Не найдено шагов по фильтру '{filter}'. Доступные: {ids}",
+                    $"[yellow]Не найдено шагов по фильтру '{Markup.Escape(filter ?? "")}'.[/] Доступные: {Markup.Escape(ids)}");
+                await link.ReportActivityAsync(runSz, "— готов", null);
+            }
+            else
+            {
+                Announce("Отчёт залит на hub.", "[green]Отчёт залит на hub.[/]");
+                var mark = outcome.AllClean ? "✓" : "⚠";
+                await link.ReportActivityAsync(runSz, $"готов · последний: {outcome.RanLabel} {mark}", null);
+            }
         }
         catch (Exception ex)
         {
             Announce($"Ошибка прогона: {ex.Message}", $"[red]Ошибка прогона:[/] {Markup.Escape(ex.Message)}");
+            try { await link.ReportActivityAsync(runSz, "готов · последний: ошибка ⚠", null); } catch { }
         }
     });
 }
