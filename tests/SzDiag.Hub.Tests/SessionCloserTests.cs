@@ -14,7 +14,7 @@ public class SessionCloserTests
             Sent.Add((connectionId, sz));
             return Task.CompletedTask;
         }
-        public Task SendRunTestsAsync(string connectionId, string sz, CancellationToken ct = default) => Task.CompletedTask;
+        public Task SendRunTestsAsync(string connectionId, string sz, string? filter, CancellationToken ct = default) => Task.CompletedTask;
     }
 
     private sealed class SpyStore : ISessionStore

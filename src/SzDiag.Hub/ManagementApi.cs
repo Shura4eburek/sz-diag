@@ -27,8 +27,8 @@ public static class ManagementApi
         group.MapPost("/sessions/{sz}/close", async (string sz, SessionCloser closer) =>
             await closer.CloseAsync(sz) ? Results.Ok() : Results.NotFound());
 
-        group.MapPost("/sessions/{sz}/test", async (string sz, TestRunTrigger trigger) =>
-            await trigger.TriggerAsync(sz) ? Results.Ok() : Results.NotFound());
+        group.MapPost("/sessions/{sz}/test", async (string sz, string? filter, TestRunTrigger trigger) =>
+            await trigger.TriggerAsync(sz, filter) ? Results.Ok() : Results.NotFound());
 
         group.MapGet("/sessions/{sz}/target", (string sz, SessionRegistry reg, IOptions<HubOptions> opts) =>
         {

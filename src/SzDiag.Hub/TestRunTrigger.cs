@@ -12,11 +12,11 @@ public sealed class TestRunTrigger
         _sender = sender;
     }
 
-    public async Task<bool> TriggerAsync(string sz, CancellationToken ct = default)
+    public async Task<bool> TriggerAsync(string sz, string? filter = null, CancellationToken ct = default)
     {
         var connId = _registry.TryGetConnectionId(sz);
         if (connId is null) return false;
-        await _sender.SendRunTestsAsync(connId, sz, ct);
+        await _sender.SendRunTestsAsync(connId, sz, filter, ct);
         return true;
     }
 }

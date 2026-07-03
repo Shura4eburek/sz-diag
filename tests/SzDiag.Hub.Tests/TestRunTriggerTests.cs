@@ -8,9 +8,9 @@ public class TestRunTriggerTests
     private sealed class SpySender : IAgentCommandSender
     {
         public List<(string conn, string sz)> Reverts { get; } = new();
-        public List<(string conn, string sz)> Tests { get; } = new();
+        public List<(string conn, string sz, string? filter)> Tests { get; } = new();
         public Task SendRevertAsync(string c, string sz, CancellationToken ct = default) { Reverts.Add((c, sz)); return Task.CompletedTask; }
-        public Task SendRunTestsAsync(string c, string sz, CancellationToken ct = default) { Tests.Add((c, sz)); return Task.CompletedTask; }
+        public Task SendRunTestsAsync(string c, string sz, string? filter, CancellationToken ct = default) { Tests.Add((c, sz, filter)); return Task.CompletedTask; }
     }
 
     [Fact]
@@ -24,7 +24,20 @@ public class TestRunTriggerTests
         var ok = await trigger.TriggerAsync("156864");
 
         Assert.True(ok);
-        Assert.Equal(("conn-1", "156864"), sender.Tests.Single());
+        Assert.Equal(("conn-1", "156864", (string?)null), sender.Tests.Single());
+    }
+
+    [Fact]
+    public async Task Trigger_WithFilter_PassesFilterThrough()
+    {
+        var reg = new SessionRegistry();
+        reg.Register("156864", "10.0.0.42", "PC-1", "conn-1");
+        var sender = new SpySender();
+        var trigger = new TestRunTrigger(reg, sender);
+
+        await trigger.TriggerAsync("156864", "occt");
+
+        Assert.Equal("occt", sender.Tests.Single().filter);
     }
 
     [Fact]

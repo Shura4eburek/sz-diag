@@ -4,5 +4,5 @@ namespace SzDiag.Hub;
 public interface IAgentCommandSender
 {
     Task SendRevertAsync(string connectionId, string sz, CancellationToken ct = default);
-    Task SendRunTestsAsync(string connectionId, string sz, CancellationToken ct = default);
+    Task SendRunTestsAsync(string connectionId, string sz, string? filter, CancellationToken ct = default);
 }
