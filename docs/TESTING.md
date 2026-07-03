@@ -62,11 +62,16 @@ cd <путь>\dist\client
 
 ## 3. Хост: диагностика через CLI
 
+Столбец «Активность» в `list`/`watch` показывает, что идёт на машине: `Тест OCCT 5мин 44сек`
+(время тикает), `готов · последний: TM5 ✓` в простое, `—` для offline.
+
 ```powershell
 cd dist\host
 .\szcli list                # 156864 ● online
 .\szcli target 156864       # ssh svc-diag@<ip>
-.\szcli test run 156864     # в окне агента: «Прогон тестов…» → «Отчёт залит на hub»
+.\szcli test run 156864     # весь набор: «Прогон тестов…» → «Отчёт залит на hub»
+.\szcli test run 156864 occt        # только OCCT
+.\szcli test run 156864 tm5,furmark # подмножество шагов (id через запятую)
 ```
 
 SSH-вход по ключу:
