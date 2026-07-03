@@ -25,6 +25,7 @@ public sealed class HubDiscoveryResponder : BackgroundService
         try
         {
             udp = new UdpClient(new IPEndPoint(IPAddress.Any, _listenPort));
+            DisableConnectionReset(udp);
         }
         catch (SocketException)
         {
@@ -52,5 +53,18 @@ public sealed class HubDiscoveryResponder : BackgroundService
                 catch { /* отправитель мог уйти из сети — не критично */ }
             }
         }
+    }
+
+    /// <summary>
+    /// На Windows отправка UDP-ответа отправителю, который уже ушёл из сети, иногда прилетает
+    /// обратно ICMP Port Unreachable, из-за чего следующий ReceiveAsync падает с SocketException
+    /// (WSAECONNRESET) — без этой настройки получался бесконечный тугой цикл retry в ExecuteAsync.
+    /// SIO_UDP_CONNRESET отключает этот сигнал для connectionless-сокета.
+    /// </summary>
+    private static void DisableConnectionReset(UdpClient udp)
+    {
+        const int SioUdpConnReset = -1744830452; // 0x9800000C
+        try { udp.Client.IOControl((IOControlCode)SioUdpConnReset, new byte[] { 0, 0, 0, 0 }, null); }
+        catch { /* не Windows или не поддерживается — не критично, просто не подавили сигнал */ }
     }
 }
