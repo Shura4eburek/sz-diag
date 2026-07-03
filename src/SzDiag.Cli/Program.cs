@@ -4,9 +4,20 @@ using Spectre.Console;
 using SzDiag.Cli;
 using SzDiag.Kb;
 
-// UTF-8 в консоли — иначе кириллица и рамки таблицы ломаются на Windows (особенно
-// заметно в live-перерисовке `watch`, где кодировка сбивает расчёт курсора построчно).
+// UTF-8 в консоли — иначе кириллица и рамки таблицы ломаются на Windows.
 try { Console.OutputEncoding = Encoding.UTF8; } catch { /* вывод может быть перенаправлен — не критично */ }
+
+// Часть Windows-терминалов не до конца корректно обрабатывает ANSI-цветовые
+// escape-последовательности (Spectre.Console автодетект иногда даёт ложный "поддерживает") —
+// из-за этого крашенные ячейки (Статус) съезжают по ширине, хотя некрашеные (СЗ, IP, Хост)
+// рендерятся ровно. Отключаем ANSI/цвет совсем — тот же режим, что и в тестах рендерера,
+// где вёрстка всегда собирается верно. Теряем цвет, выигрываем гарантированное выравнивание.
+AnsiConsole.Console = AnsiConsole.Create(new AnsiConsoleSettings
+{
+    Ansi = AnsiSupport.No,
+    ColorSystem = ColorSystemSupport.NoColors,
+    Out = new AnsiConsoleOutput(Console.Out),
+});
 
 var config = new ConfigurationBuilder()
     .SetBasePath(AppContext.BaseDirectory)
