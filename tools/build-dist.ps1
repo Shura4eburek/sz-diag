@@ -47,24 +47,59 @@ if (-not (Test-Path secrets\svc_diag_key)) {
 # Чистим только сами билды (hub/cli/agent) — dist\host\kb и szdiag.db это runtime-данные
 # живого хаба (история СЗ, база знаний), а не билд-артефакт: пересборка их не должна сносить.
 Write-Host "-- публикую hub / cli / agent (минуту)"
-Remove-Item dist\host\hub, dist\host\cli, dist\client -Recurse -Force -ErrorAction SilentlyContinue
 $common = "-c","Release","-r","win-x64","--self-contained","-p:PublishSingleFile=true","-v","q","--nologo"
 
-# dotnet.exe — внешний процесс: $ErrorActionPreference="Stop" на его код возврата не
-# действует. Без явной проверки $LASTEXITCODE неудачная публикация (например, exe
-# залочен уже запущенным процессом) молча проходит мимо — вывод у dotnet publish
-# заглушен через Out-Null, и скрипт бодро репортует "Готово", хотя файл не обновился.
+# Публикуем во временную папку рядом и меняем местами со старой ТОЛЬКО после успеха —
+# иначе неудачная публикация (напр. exe залочен уже запущенным процессом: szcli/hub/агент
+# открыты в другом окне) может снести старую рабочую версию раньше, чем станет ясно, что
+# новая не соберётся. dotnet.exe — внешний процесс, $ErrorActionPreference="Stop" на его
+# код возврата не действует, и вывод заглушен через Out-Null — без явной проверки
+# $LASTEXITCODE такая неудача проходит молча, а скрипт бодро репортует "Готово".
 function Publish($project, $out) {
-    dotnet publish $project @common -o $out | Out-Null
+    $staging = "$out.new"
+    $backup = "$out.old"
+    Remove-Item $staging -Recurse -Force -ErrorAction SilentlyContinue
+    dotnet publish $project @common -o $staging | Out-Null
     if ($LASTEXITCODE -ne 0) {
-        throw "dotnet publish $project упал (код $LASTEXITCODE). Частая причина — exe уже " +
-              "запущен (szcli/hub/агент открыты в другом окне) и файл залочен. Закрой их и повтори."
+        Remove-Item $staging -Recurse -Force -ErrorAction SilentlyContinue
+        throw "dotnet publish $project упал (код $LASTEXITCODE). Старая версия в $out не тронута."
+    }
+
+    # Переименование папки — одна атомарная операция метаданных, не трогает хендлы уже
+    # открытых файлов внутри. Поштучное Remove-Item -Recurse на залоченной папке удаляет
+    # файлы один за другим и падает на первом залоченном — оставляя папку НАПОЛОВИНУ
+    # снесённой (ровно так один раз и потерялся appsettings.json). Rename либо срабатывает
+    # целиком, либо не срабатывает вообще — старая версия остаётся невредимой в любом случае.
+    if (Test-Path $out) {
+        Remove-Item $backup -Recurse -Force -ErrorAction SilentlyContinue
+        try { Rename-Item $out (Split-Path $backup -Leaf) -ErrorAction Stop }
+        catch {
+            throw "Собрано в $staging, но $out залочен (запущен hub/cli/агент из этой папки?) " +
+                  "и не переименовался. Закрой процесс и запусти сборку ещё раз. Старая версия " +
+                  "в $out цела и не тронута."
+        }
+    }
+    Move-Item $staging $out
+    Remove-Item $backup -Recurse -Force -ErrorAction SilentlyContinue
+}
+# Три компонента независимы (напр. hub может быть живым сервером и залоченным, пока мы
+# правим только agent/cli) — сбой одного не должен мешать пересобрать остальные. Копим
+# ошибки и валимся с сводкой только в самом конце, после того как попробовали все три.
+$failed = @()
+foreach ($p in @(
+    @{ Project = "src/SzDiag.Hub"; Out = "dist/host/hub" },
+    @{ Project = "src/SzDiag.Cli"; Out = "dist/host/cli" },
+    @{ Project = "src/SzDiag.Agent"; Out = "dist/client" }
+)) {
+    try { Publish $p.Project $p.Out }
+    catch {
+        Write-Host "-- ПРОПУСК $($p.Project): $($_.Exception.Message)" -ForegroundColor Yellow
+        $failed += $p.Project
     }
 }
-Publish "src/SzDiag.Hub" "dist/host/hub"
-Publish "src/SzDiag.Cli" "dist/host/cli"
-Publish "src/SzDiag.Agent" "dist/client"
-Copy-Item secrets\svc_diag_key.pub dist\client\service_key.pub -Force
+if (Test-Path dist\client\SzDiag.Agent.exe) {
+    Copy-Item secrets\svc_diag_key.pub dist\client\service_key.pub -Force
+}
 
 # 2b. Портативные стресс-утилиты (TM5 / OCCT / 3DMark / FurMark и пр.).
 # Кладутся в client-tools\<name>\ (в .gitignore — бинарники и лицензии не коммитим),
@@ -95,7 +130,9 @@ $hubCfg = @"
   }
 }
 "@
-Set-Content -Path dist\host\hub\appsettings.json -Value $hubCfg -Encoding utf8
+# Пишем конфиг только если папка компонента реально существует — если его publish выше
+# провалился и старой копии тоже никогда не было (напр. самый первый запуск), писать некуда.
+if (Test-Path dist\host\hub) { Set-Content -Path dist\host\hub\appsettings.json -Value $hubCfg -Encoding utf8 }
 
 $cliCfg = @"
 {
@@ -104,7 +141,7 @@ $cliCfg = @"
   "KbRoot": "$kb"
 }
 "@
-Set-Content -Path dist\host\cli\appsettings.json -Value $cliCfg -Encoding utf8
+if (Test-Path dist\host\cli) { Set-Content -Path dist\host\cli\appsettings.json -Value $cliCfg -Encoding utf8 }
 
 $hubUrlValue = if ([string]::IsNullOrWhiteSpace($HubIp)) { "" } else { "http://$($HubIp):$($Port)" }
 
@@ -121,7 +158,7 @@ $agentCfg = @"
   "TestSuitePath": "testsuite.json"
 }
 "@
-Set-Content -Path dist\client\appsettings.json -Value $agentCfg -Encoding utf8
+if (Test-Path dist\client) { Set-Content -Path dist\client\appsettings.json -Value $agentCfg -Encoding utf8 }
 
 # 4. Удобные лаунчеры на хосте (single-quoted here-string — литералы)
 $startHub = @'
@@ -139,10 +176,17 @@ $szcli = @'
 Set-Content -Path dist\host\szcli.cmd -Value $szcli -Encoding ascii
 
 Write-Host ""
-Write-Host "== Готово =="
+if ($failed.Count -gt 0) {
+    Write-Host "== Готово частично — не пересобрались: $($failed -join ', ') ==" -ForegroundColor Yellow
+    Write-Host "Старые версии этих компонентов не тронуты и продолжают работать. Закрой их процессы и запусти сборку ещё раз."
+} else {
+    Write-Host "== Готово =="
+}
 Write-Host "Хост:   dist\host\   (start-hub.cmd, szcli.cmd)"
 Write-Host "Клиент: dist\client\ (SzDiag.Agent.exe + ключ + testsuite)"
 Write-Host "Гайд:   docs\TESTING.md"
 Write-Host "Открой порт на хосте (от админа):"
 Write-Host "  New-NetFirewallRule -DisplayName szdiag-hub-$Port -Direction Inbound -Protocol TCP -LocalPort $Port -Action Allow"
 Write-Host "  New-NetFirewallRule -DisplayName szdiag-discovery-5098 -Direction Inbound -Protocol UDP -LocalPort 5098 -Action Allow"
+
+if ($failed.Count -gt 0) { exit 1 }
