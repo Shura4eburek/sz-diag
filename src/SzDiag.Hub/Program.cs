@@ -33,6 +33,8 @@ builder.Services.AddSingleton<IReportStore>(sp =>
     return new KbReportStore(opts.KnowledgeBaseRoot);
 });
 builder.Services.AddHostedService<OfflineSweeper>();
+builder.Services.AddHostedService(sp =>
+    new HubDiscoveryResponder(sp.GetRequiredService<IOptions<HubOptions>>()));
 builder.Services.AddSingleton<IAgentCommandSender, SignalRAgentCommandSender>();
 builder.Services.AddSingleton<SessionCloser>();
 builder.Services.AddSingleton<TestRunTrigger>();

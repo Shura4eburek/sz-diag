@@ -22,4 +22,7 @@ public sealed class HubOptions
 
     /// <summary>Период проверки sweeper'ом.</summary>
     public TimeSpan SweepInterval { get; set; } = TimeSpan.FromSeconds(15);
+
+    /// <summary>TCP-порт, на котором слушает hub (для UDP-автообнаружения — что отдавать агенту).</summary>
+    public int Port { get; set; } = 5099;
 }
