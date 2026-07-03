@@ -2,6 +2,12 @@ using System.Security.Cryptography;
 
 namespace SzDiag.Agent;
 
+/// <summary>OpenSSH не удалось поставить (нет доступа к Windows Update) — истёк таймаут.</summary>
+public sealed class OpenSshUnavailableException : Exception
+{
+    public OpenSshUnavailableException(string message) : base(message) { }
+}
+
 /// <summary>
 /// Реальная Windows-реализация. Open применяет шаги и прогрессивно пишет RevertState
 /// в файл (переживает краш). Revert откатывает по флагам, обратный порядок, идемпотентно.
@@ -12,6 +18,7 @@ public sealed class WindowsSystemAccessManager : ISystemAccessManager
 {
     private const string AdminsSid = "S-1-5-32-544";
     private const string TokenPolicyPath = @"HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System";
+    private static readonly TimeSpan OpenSshInstallTimeout = TimeSpan.FromMinutes(2);
     private static readonly string AdminAuthKeys =
         Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData), "ssh", "administrators_authorized_keys");
 
@@ -44,7 +51,17 @@ public sealed class WindowsSystemAccessManager : ISystemAccessManager
         var sshdExists = sshdStatus.Length > 0;
         if (!sshdExists)
         {
-            _ps.Run("Add-WindowsCapability -Online -Name OpenSSH.Server~~~~0.0.1.0");
+            try
+            {
+                _ps.Run("Add-WindowsCapability -Online -Name OpenSSH.Server~~~~0.0.1.0",
+                    timeout: OpenSshInstallTimeout);
+            }
+            catch (PowerShellTimeoutException)
+            {
+                throw new OpenSshUnavailableException(
+                    "OpenSSH не ставится — нет доступа к Windows Update (истёк таймаут " +
+                    $"{OpenSshInstallTimeout.TotalMinutes:0} мин). Проверьте интернет на клиенте и запустите агента заново.");
+            }
             state.InstalledOpenSsh = true;
             Persist();
         }
