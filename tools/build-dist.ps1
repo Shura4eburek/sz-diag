@@ -4,9 +4,11 @@
   генерит SSH-ключ сервиса и пишет конфиги.
 
 .PARAMETER HubIp
-  Адрес хоста для конфига агента. По умолчанию localhost (хост=клиент).
-  Клиент — отдельная машина: укажи LAN-IP хоста, напр.
+  Адрес хоста для конфига агента. По умолчанию пусто — агент сам найдёт hub через
+  автообнаружение в локальной сети (UDP-broadcast, см. HubDiscovery). Если клиент в
+  другой сети/VPN без broadcast, или нужен жёсткий адрес — укажи явно:
     .\tools\build-dist.ps1 -HubIp 192.168.94.239
+    .\tools\build-dist.ps1 -HubIp localhost
 
 .PARAMETER Port
   Порт hub (по умолчанию 5099).
@@ -15,7 +17,7 @@
   Общий токен hub/cli/agent (по умолчанию dev-token).
 #>
 param(
-    [string]$HubIp = "localhost",
+    [string]$HubIp = "",
     [int]$Port = 5099,
     [string]$Token = "dev-token"
 )
@@ -24,7 +26,8 @@ $ErrorActionPreference = "Stop"
 $root = Split-Path $PSScriptRoot -Parent
 Set-Location $root
 
-Write-Host "== sz-diag: сборка dist (HubIp=$HubIp Port=$Port) =="
+$hubIpLabel = if ([string]::IsNullOrWhiteSpace($HubIp)) { "авто (UDP-обнаружение)" } else { $HubIp }
+Write-Host "== sz-diag: сборка dist (HubIp=$hubIpLabel Port=$Port) =="
 
 if (-not (Get-Command dotnet -ErrorAction SilentlyContinue)) { throw "Не найден dotnet SDK." }
 if (-not (Get-Command ssh-keygen -ErrorAction SilentlyContinue)) { throw "Не найден ssh-keygen (OpenSSH client)." }
@@ -72,6 +75,7 @@ $hubCfg = @"
   "Hub": {
     "AgentToken": "$Token",
     "ManagementToken": "$Token",
+    "Port": $Port,
     "SqliteConnectionString": "Data Source=$db",
     "KnowledgeBaseRoot": "$kb",
     "HeartbeatTimeout": "00:01:00",
@@ -90,9 +94,11 @@ $cliCfg = @"
 "@
 Set-Content -Path dist\host\cli\appsettings.json -Value $cliCfg -Encoding utf8
 
+$hubUrlValue = if ([string]::IsNullOrWhiteSpace($HubIp)) { "" } else { "http://$($HubIp):$($Port)" }
+
 $agentCfg = @"
 {
-  "HubUrl": "http://$($HubIp):$($Port)",
+  "HubUrl": "$hubUrlValue",
   "AgentToken": "$Token",
   "ServiceAccount": "svc-diag",
   "ServicePublicKeyPath": "service_key.pub",
@@ -127,3 +133,4 @@ Write-Host "Клиент: dist\client\ (SzDiag.Agent.exe + ключ + testsuite)
 Write-Host "Гайд:   docs\TESTING.md"
 Write-Host "Открой порт на хосте (от админа):"
 Write-Host "  New-NetFirewallRule -DisplayName szdiag-hub-$Port -Direction Inbound -Protocol TCP -LocalPort $Port -Action Allow"
+Write-Host "  New-NetFirewallRule -DisplayName szdiag-discovery-5098 -Direction Inbound -Protocol UDP -LocalPort 5098 -Action Allow"
