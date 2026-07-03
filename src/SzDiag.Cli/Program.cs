@@ -1,7 +1,12 @@
+using System.Text;
 using Microsoft.Extensions.Configuration;
 using Spectre.Console;
 using SzDiag.Cli;
 using SzDiag.Kb;
+
+// UTF-8 в консоли — иначе кириллица и рамки таблицы ломаются на Windows (особенно
+// заметно в live-перерисовке `watch`, где кодировка сбивает расчёт курсора построчно).
+try { Console.OutputEncoding = Encoding.UTF8; } catch { /* вывод может быть перенаправлен — не критично */ }
 
 var config = new ConfigurationBuilder()
     .SetBasePath(AppContext.BaseDirectory)
