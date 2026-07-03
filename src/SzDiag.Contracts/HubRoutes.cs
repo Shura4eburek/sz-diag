@@ -20,4 +20,7 @@ public static class HubRoutes
 
     // Агент -> hub: загрузить файл отчёта.
     public const string UploadReportFile = nameof(UploadReportFile);
+
+    // Агент -> hub: сообщить текущую активность (метка + время старта).
+    public const string ReportActivity = nameof(ReportActivity);
 }

@@ -7,4 +7,6 @@ public sealed record SessionInfo(
     string Hostname,
     SessionStatus Status,
     DateTimeOffset ConnectedAt,
-    DateTimeOffset LastHeartbeat);
+    DateTimeOffset LastHeartbeat,
+    string Activity = "",
+    DateTimeOffset? ActivitySince = null);

@@ -28,6 +28,13 @@ public sealed class SessionRegistry
         return true;
     }
 
+    public bool SetActivity(string sz, string activity, DateTimeOffset? since)
+    {
+        if (!_bySz.TryGetValue(sz, out var e)) return false;
+        _bySz[sz] = e with { Info = e.Info with { Activity = activity, ActivitySince = since } };
+        return true;
+    }
+
     public string? MarkOfflineByConnection(string connectionId)
     {
         foreach (var (sz, e) in _bySz)

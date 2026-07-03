@@ -83,4 +83,35 @@ public class SessionRegistryTests
         var reg = NewRegistry();
         Assert.Null(reg.TryGetConnectionId("000000"));
     }
+
+    [Fact]
+    public void SetActivity_UpdatesActivityAndSince()
+    {
+        var reg = NewRegistry();
+        reg.Register("156864", "10.0.0.42", "PC-1", "conn-1");
+        var since = new DateTimeOffset(2026, 7, 1, 12, 0, 0, TimeSpan.Zero);
+
+        var ok = reg.SetActivity("156864", "Тест OCCT", since);
+
+        Assert.True(ok);
+        var s = reg.GetActive().Single();
+        Assert.Equal("Тест OCCT", s.Activity);
+        Assert.Equal(since, s.ActivitySince);
+    }
+
+    [Fact]
+    public void SetActivity_UnknownSz_ReturnsFalse()
+        => Assert.False(NewRegistry().SetActivity("000000", "x", null));
+
+    [Fact]
+    public void Heartbeat_PreservesActivity()
+    {
+        var reg = NewRegistry();
+        reg.Register("156864", "10.0.0.42", "PC-1", "conn-1");
+        reg.SetActivity("156864", "Тест OCCT", DateTimeOffset.UtcNow);
+
+        reg.Heartbeat("156864");
+
+        Assert.Equal("Тест OCCT", reg.GetActive().Single().Activity);
+    }
 }
