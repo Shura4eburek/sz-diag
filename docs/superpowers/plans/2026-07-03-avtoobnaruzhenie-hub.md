@@ -262,6 +262,7 @@ public sealed class HubDiscoveryResponder : BackgroundService
         try
         {
             udp = new UdpClient(new IPEndPoint(IPAddress.Any, _listenPort));
+            DisableConnectionReset(udp);
         }
         catch (SocketException)
         {
@@ -289,6 +290,19 @@ public sealed class HubDiscoveryResponder : BackgroundService
                 catch { /* отправитель мог уйти из сети — не критично */ }
             }
         }
+    }
+
+    /// <summary>
+    /// На Windows отправка UDP-ответа отправителю, который уже ушёл из сети, иногда прилетает
+    /// обратно ICMP Port Unreachable, из-за чего следующий ReceiveAsync падает с SocketException
+    /// (WSAECONNRESET) — без этой настройки получался бесконечный тугой цикл retry в ExecuteAsync.
+    /// SIO_UDP_CONNRESET отключает этот сигнал для connectionless-сокета.
+    /// </summary>
+    private static void DisableConnectionReset(UdpClient udp)
+    {
+        const int SioUdpConnReset = -1744830452; // 0x9800000C
+        try { udp.Client.IOControl((IOControlCode)SioUdpConnReset, new byte[] { 0, 0, 0, 0 }, null); }
+        catch { /* не Windows или не поддерживается — не критично, просто не подавили сигнал */ }
     }
 }
 ```
@@ -416,7 +430,15 @@ public static class HubDiscovery
         var payload = Encoding.UTF8.GetBytes(DiscoveryProtocol.BuildRequest(token));
 
         using var udp = new UdpClient();
+        // Явный bind ДО старта ReceiveLoopAsync: UdpClient() иначе привязывается лениво при
+        // первом Send, а ReceiveAsync на ещё не забинженном сокете кидает исключение
+        // синхронно (не await-suspend) — catch{continue} в ReceiveLoopAsync тогда крутится
+        // на этом же потоке и никогда не доходит до SendAsync ниже, который и должен был
+        // выполнить bind. Итог — livelock на 100% CPU (обнаружено при первом прогоне тестов
+        // этой задачи — testhost завис на несколько минут). Явный Bind разрывает эту цепочку.
+        udp.Client.Bind(new IPEndPoint(IPAddress.Any, 0));
         udp.EnableBroadcast = true;
+        DisableConnectionReset(udp);
 
         using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
         var receiveTask = ReceiveLoopAsync(udp, linkedCts.Token);
@@ -462,6 +484,19 @@ public static class HubDiscovery
             if (DiscoveryProtocol.TryParseResponse(text, out var hubPort))
                 return $"http://{result.RemoteEndPoint.Address}:{hubPort}";
         }
+    }
+
+    /// <summary>
+    /// На Windows отправка UDP на адрес без слушателя иногда прилетает обратно ICMP Port
+    /// Unreachable, из-за чего следующий ReceiveAsync падает с SocketException (WSAECONNRESET) —
+    /// без этой настройки получался бесконечный тугой цикл retry в ReceiveLoopAsync.
+    /// SIO_UDP_CONNRESET отключает этот сигнал для connectionless-сокета.
+    /// </summary>
+    private static void DisableConnectionReset(UdpClient udp)
+    {
+        const int SioUdpConnReset = -1744830452; // 0x9800000C
+        try { udp.Client.IOControl((IOControlCode)SioUdpConnReset, new byte[] { 0, 0, 0, 0 }, null); }
+        catch { /* не Windows или не поддерживается — не критично, просто не подавили сигнал */ }
     }
 
     /// <summary>Широковещательные адреса всех локальных IPv4-подсетей + 255.255.255.255 подстраховкой.</summary>
