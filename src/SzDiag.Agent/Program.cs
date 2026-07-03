@@ -89,7 +89,15 @@ var link = new SignalRHubLink(hubUrl, opts.AgentToken);
 var session = new AgentSession(manager, link, spec, Environment.MachineName);
 
 Announce($"Открываю доступ для СЗ {sz}…", $"[grey]Открываю доступ для СЗ {sz}…[/]");
-await session.StartAsync();
+try
+{
+    await session.StartAsync();
+}
+catch (OpenSshUnavailableException ex)
+{
+    Announce(ex.Message, $"[red]{Markup.Escape(ex.Message)}[/]");
+    return 1;
+}
 Announce($"СЗ {sz}: доступ открыт ● online. Хост {Environment.MachineName}.",
     $"СЗ {sz}: доступ открыт [green]● online[/]. Хост {Environment.MachineName}.");
 
