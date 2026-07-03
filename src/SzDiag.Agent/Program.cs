@@ -68,7 +68,24 @@ var spec = new AccessSpec(sz, opts.ServiceAccount, pubKey, opts.SshPort,
     TimeSpan.FromHours(opts.WatchdogHours));
 
 var manager = new WindowsSystemAccessManager(ps, opts.StatePath);
-var link = new SignalRHubLink(opts.HubUrl, opts.AgentToken);
+
+var hubUrl = opts.HubUrl;
+if (string.IsNullOrWhiteSpace(hubUrl))
+{
+    Announce("Ищу hub в сети…", "[grey]Ищу hub в сети…[/]");
+    try
+    {
+        hubUrl = await HubDiscovery.FindHubAsync(opts.AgentToken);
+        Announce($"Hub найден: {hubUrl}", $"Hub найден: [green]{hubUrl}[/]");
+    }
+    catch (HubNotFoundException ex)
+    {
+        Announce(ex.Message, $"[red]{Markup.Escape(ex.Message)}[/]");
+        return 1;
+    }
+}
+
+var link = new SignalRHubLink(hubUrl, opts.AgentToken);
 var session = new AgentSession(manager, link, spec, Environment.MachineName);
 
 Announce($"Открываю доступ для СЗ {sz}…", $"[grey]Открываю доступ для СЗ {sz}…[/]");
