@@ -23,9 +23,13 @@ public static class SessionTableRenderer
 
         foreach (var s in sessions.OrderBy(x => x.Sz))
         {
+            // Без юникод-глифов (●/○) — не в каждом шрифте консоли есть их отрисовка,
+            // из-за чего колонка резервирует место под невидимый символ и текст съезжает.
+            // Фиксированная ширина ("online " с хвостовым пробелом) — чтобы колонка не
+            // "гуляла" между кадрами в live-перерисовке (szcli watch).
             var status = s.Status == SessionStatus.Online
-                ? "[green]● online[/]"
-                : "[grey]○ offline[/]";
+                ? "[green]online [/]"
+                : "[grey]offline[/]";
             table.AddRow(s.Sz, status, s.Ip, s.Hostname, ActivityCell(s, nowV));
         }
         return table;
