@@ -186,6 +186,24 @@ public class TestRunnerTests
     }
 
     [Fact]
+    public void Run_InvokesOnStepForEachStepInOrder()
+    {
+        var runner = new TestRunner(
+            new FakeExecutor(new() { ["systeminfo"] = new CommandResult(0, "OS", "") }),
+            new FakeCapturer(new ScreenCapture(null, "n/a")));
+        var suite = new TestSuite { Steps = new[]
+        {
+            new TestStep("command", "Система", "systeminfo"),
+            new TestStep("screenshot", "Экран"),
+        } };
+
+        var seen = new List<string>();
+        runner.Run(suite, "156864", "PC-1", At, s => seen.Add(s.Name));
+
+        Assert.Equal(new[] { "Система", "Экран" }, seen);
+    }
+
+    [Fact]
     public void Run_AppStep_SubstitutesWorkdirTokenInArgs()
     {
         var exe = Path.GetTempFileName();

@@ -30,7 +30,8 @@ public sealed class TestRunner
         _initialGraceSeconds = initialGraceSeconds;
     }
 
-    public TestRunOutput Run(TestSuite suite, string sz, string hostname, DateTimeOffset now)
+    public TestRunOutput Run(TestSuite suite, string sz, string hostname, DateTimeOffset now,
+        Action<TestStep>? onStep = null)
     {
         var steps = new List<TestStepResult>();
         var shots = new Dictionary<string, byte[]>();
@@ -39,6 +40,8 @@ public sealed class TestRunner
 
         foreach (var step in suite.Steps)
         {
+            onStep?.Invoke(step);
+
             if (step.Type.Equals("screenshot", StringComparison.OrdinalIgnoreCase))
             {
                 var cap = _capturer.Capture();
