@@ -45,8 +45,12 @@ switch (command)
         break;
 
     case "test" when args.Length >= 3 && args[1].Equals("run", StringComparison.OrdinalIgnoreCase):
-        if (await client.TriggerTestAsync(args[2]))
-            AnsiConsole.MarkupLineInterpolated($"[green]СЗ {args[2]}: прогон тестов запущен[/] на агенте (отчёт появится в kb по завершении).");
+        var testFilter = args.Length >= 4 ? args[3] : null;
+        if (await client.TriggerTestAsync(args[2], testFilter))
+        {
+            var scope = testFilter is null ? "весь набор" : $"фильтр: {testFilter}";
+            AnsiConsole.MarkupLineInterpolated($"[green]СЗ {args[2]}: прогон запущен[/] ({scope}) на агенте (отчёт появится в kb).");
+        }
         else
             AnsiConsole.MarkupLineInterpolated($"[red]СЗ {args[2]} не найдена[/] среди активных.");
         break;
@@ -59,7 +63,7 @@ switch (command)
               [yellow]szcli list[/]             однократный список
               [yellow]szcli close[/] [blue]<СЗ>[/]         закрыть СЗ (revert на агенте)
               [yellow]szcli target[/] [blue]<СЗ>[/]        SSH-адрес по номеру СЗ
-              [yellow]szcli test run[/] [blue]<СЗ>[/]      запустить прогон тестов
+              [yellow]szcli test run[/] [blue]<СЗ>[/] [grey][[occt|tm5,furmark|…]][/]  прогон тестов (все или по id)
               [yellow]szcli kb[/] …               работа с базой знаний
             """);
         break;

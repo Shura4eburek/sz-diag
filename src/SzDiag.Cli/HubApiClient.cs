@@ -32,9 +32,12 @@ public sealed class HubApiClient : IHubApiClient
         return await resp.Content.ReadFromJsonAsync<TargetInfo>(ct);
     }
 
-    public async Task<bool> TriggerTestAsync(string sz, CancellationToken ct = default)
+    public async Task<bool> TriggerTestAsync(string sz, string? filter = null, CancellationToken ct = default)
     {
-        var resp = await _http.PostAsync($"/api/sessions/{sz}/test", null, ct);
+        var url = string.IsNullOrWhiteSpace(filter)
+            ? $"/api/sessions/{sz}/test"
+            : $"/api/sessions/{sz}/test?filter={Uri.EscapeDataString(filter)}";
+        var resp = await _http.PostAsync(url, null, ct);
         return resp.StatusCode == HttpStatusCode.OK;
     }
 }

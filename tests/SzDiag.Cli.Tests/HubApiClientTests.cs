@@ -85,4 +85,15 @@ public class HubApiClientTests
         var client = NewClient(new StubHandler(HttpStatusCode.NotFound));
         Assert.False(await client.TriggerTestAsync("000000"));
     }
+
+    [Fact]
+    public async Task TriggerTest_WithFilter_AppendsQuery()
+    {
+        var handler = new StubHandler(HttpStatusCode.OK);
+        var client = NewClient(handler);
+
+        await client.TriggerTestAsync("156864", "occt");
+
+        Assert.Contains("filter=occt", handler.LastRequest!.RequestUri!.Query);
+    }
 }
