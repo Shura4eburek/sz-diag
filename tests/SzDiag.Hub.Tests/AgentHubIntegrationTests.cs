@@ -74,6 +74,23 @@ public class AgentHubIntegrationTests : IClassFixture<WebApplicationFactory<Prog
         await conn.DisposeAsync();
     }
 
+    [Fact]
+    public async Task ReportActivity_UpdatesRegistry()
+    {
+        var conn = BuildConnection("test-token");
+        await conn.StartAsync();
+        await conn.InvokeAsync(HubRoutes.Register, new RegisterRequest("156866", "PC-3"));
+
+        await conn.InvokeAsync(HubRoutes.ReportActivity, "156866", "Тест OCCT", DateTimeOffset.UtcNow);
+
+        var reg = _factory.Services.GetRequiredService<SessionRegistry>();
+        var s = reg.GetActive().Single(x => x.Sz == "156866");
+        Assert.Equal("Тест OCCT", s.Activity);
+        Assert.NotNull(s.ActivitySince);
+
+        await conn.DisposeAsync();
+    }
+
     public void Dispose()
     {
         SqliteConnection.ClearAllPools();

@@ -36,6 +36,12 @@ public sealed class AgentHub : Microsoft.AspNetCore.SignalR.Hub
         return Task.CompletedTask;
     }
 
+    public Task ReportActivity(string sz, string activity, DateTimeOffset? since)
+    {
+        _registry.SetActivity(sz, activity, since);
+        return Task.CompletedTask;
+    }
+
     public Task UploadReportFile(UploadReportPart part)
     {
         _reports.Save(part.Sz, part.Timestamp, part.FileName, part.Content);
