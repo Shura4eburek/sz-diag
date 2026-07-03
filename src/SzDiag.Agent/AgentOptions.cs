@@ -2,7 +2,9 @@ namespace SzDiag.Agent;
 
 public sealed class AgentOptions
 {
-    public string HubUrl { get; set; } = "http://localhost:5000";
+    /// <summary>Адрес hub'а. Пусто — автообнаружение по UDP-broadcast (см. HubDiscovery).
+    /// Непустое значение — явный override, автообнаружение не запускается.</summary>
+    public string HubUrl { get; set; } = "";
     public string AgentToken { get; set; } = "";
     public string ServiceAccount { get; set; } = "svc-diag";
     public string ServicePublicKeyPath { get; set; } = "service_key.pub";
