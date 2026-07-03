@@ -57,4 +57,54 @@ public class TestReportRunnerTests
         var ts = link.Uploaded.Select(u => u.Timestamp).Distinct().Single();
         Assert.Equal("20260701-123000", ts);
     }
+
+    private static TestStep App(string id) => new("app", id.ToUpperInvariant(), Id: id, Exe: "x");
+
+    [Fact]
+    public void FilterSteps_NullFilter_ReturnsAll()
+    {
+        var steps = new[] { App("occt"), App("tm5") };
+        Assert.Equal(2, TestReportRunner.FilterSteps(steps, null).Count);
+    }
+
+    [Fact]
+    public void FilterSteps_ById_CaseInsensitive()
+    {
+        var steps = new[] { App("occt"), App("tm5") };
+        Assert.Equal("occt", Assert.Single(TestReportRunner.FilterSteps(steps, "OCCT")).Id);
+    }
+
+    [Fact]
+    public void FilterSteps_Multiple_ReturnsSubset()
+    {
+        var steps = new[] { App("occt"), App("tm5"), App("furmark") };
+        Assert.Equal(2, TestReportRunner.FilterSteps(steps, "tm5,furmark").Count);
+    }
+
+    [Fact]
+    public void FilterSteps_UnknownId_Empty()
+        => Assert.Empty(TestReportRunner.FilterSteps(new[] { App("occt") }, "nope"));
+
+    [Fact]
+    public void AvailableIds_ReturnsOnlyNonEmpty()
+    {
+        var steps = new TestStep[] { new("command", "Система", "systeminfo"), App("occt") };
+        Assert.Equal(new[] { "occt" }, TestReportRunner.AvailableIds(steps));
+    }
+
+    [Fact]
+    public async Task RunAndUpload_UnknownFilter_DoesNotRunOrUpload()
+    {
+        var suite = new TestSuite { Steps = new[] { App("occt") } };
+        var link = new CapturingLink();
+        var reportRunner = new TestReportRunner(
+            new TestRunner(new FakeExecutor(), new FakeCapturer()), suite, link, "PC-1",
+            () => new DateTimeOffset(2026, 7, 1, 12, 0, 0, TimeSpan.Zero));
+
+        var outcome = await reportRunner.RunAndUploadAsync("156864", "nope");
+
+        Assert.False(outcome.Ran);
+        Assert.Empty(link.Uploaded);
+        Assert.Contains("occt", outcome.AvailableIds);
+    }
 }
