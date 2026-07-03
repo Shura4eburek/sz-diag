@@ -15,5 +15,8 @@ public interface IHubLink
 
     Task UploadReportFileAsync(SzDiag.Contracts.UploadReportPart part, CancellationToken ct = default);
 
+    /// <summary>Агент -> hub: текущая активность (метка + время старта; since=null — простой).</summary>
+    Task ReportActivityAsync(string sz, string activity, DateTimeOffset? since, CancellationToken ct = default);
+
     ValueTask DisposeAsync();
 }

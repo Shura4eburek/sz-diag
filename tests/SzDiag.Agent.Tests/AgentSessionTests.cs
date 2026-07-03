@@ -37,6 +37,8 @@ public class AgentSessionTests
             Uploaded.Add(part);
             return Task.CompletedTask;
         }
+        public Task ReportActivityAsync(string sz, string activity, DateTimeOffset? since, CancellationToken ct = default)
+            => Task.CompletedTask;
         public ValueTask DisposeAsync() { Disposed = true; return ValueTask.CompletedTask; }
 
         public Task FireRevert(string sz) => _onRevert!(sz);

@@ -27,6 +27,12 @@ public class TestReportRunnerTests
             Uploaded.Add(part);
             return Task.CompletedTask;
         }
+        public List<(string sz, string activity, DateTimeOffset? since)> Activities { get; } = new();
+        public Task ReportActivityAsync(string sz, string activity, DateTimeOffset? since, CancellationToken ct = default)
+        {
+            Activities.Add((sz, activity, since));
+            return Task.CompletedTask;
+        }
         public ValueTask DisposeAsync() => ValueTask.CompletedTask;
     }
 

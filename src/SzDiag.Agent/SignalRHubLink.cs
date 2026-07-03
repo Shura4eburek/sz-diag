@@ -33,5 +33,8 @@ public sealed class SignalRHubLink : IHubLink
     public Task UploadReportFileAsync(UploadReportPart part, CancellationToken ct = default)
         => _conn.InvokeAsync(HubRoutes.UploadReportFile, part, ct);
 
+    public Task ReportActivityAsync(string sz, string activity, DateTimeOffset? since, CancellationToken ct = default)
+        => _conn.SendAsync(HubRoutes.ReportActivity, sz, activity, since, ct);
+
     public ValueTask DisposeAsync() => _conn.DisposeAsync();
 }
