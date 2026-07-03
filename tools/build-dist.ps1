@@ -49,9 +49,21 @@ if (-not (Test-Path secrets\svc_diag_key)) {
 Write-Host "-- публикую hub / cli / agent (минуту)"
 Remove-Item dist\host\hub, dist\host\cli, dist\client -Recurse -Force -ErrorAction SilentlyContinue
 $common = "-c","Release","-r","win-x64","--self-contained","-p:PublishSingleFile=true","-v","q","--nologo"
-dotnet publish src/SzDiag.Hub @common -o dist/host/hub | Out-Null
-dotnet publish src/SzDiag.Cli @common -o dist/host/cli | Out-Null
-dotnet publish src/SzDiag.Agent @common -o dist/client | Out-Null
+
+# dotnet.exe — внешний процесс: $ErrorActionPreference="Stop" на его код возврата не
+# действует. Без явной проверки $LASTEXITCODE неудачная публикация (например, exe
+# залочен уже запущенным процессом) молча проходит мимо — вывод у dotnet publish
+# заглушен через Out-Null, и скрипт бодро репортует "Готово", хотя файл не обновился.
+function Publish($project, $out) {
+    dotnet publish $project @common -o $out | Out-Null
+    if ($LASTEXITCODE -ne 0) {
+        throw "dotnet publish $project упал (код $LASTEXITCODE). Частая причина — exe уже " +
+              "запущен (szcli/hub/агент открыты в другом окне) и файл залочен. Закрой их и повтори."
+    }
+}
+Publish "src/SzDiag.Hub" "dist/host/hub"
+Publish "src/SzDiag.Cli" "dist/host/cli"
+Publish "src/SzDiag.Agent" "dist/client"
 Copy-Item secrets\svc_diag_key.pub dist\client\service_key.pub -Force
 
 # 2b. Портативные стресс-утилиты (TM5 / OCCT / 3DMark / FurMark и пр.).
