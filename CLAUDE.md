@@ -28,7 +28,9 @@ dotnet test --filter FullyQualifiedName~RevertCoordinator   # один клас�
 `build-dist.ps1` публикует self-contained single-file exe (win-x64), генерит SSH-ключ
 `secrets\svc_diag_key`, пишет конфиги/лаунчеры. Результат: `dist\host\` (hub + cli,
 `start-hub.cmd`, `szcli.cmd`) и `dist\client\` (agent + `service_key.pub` + `testsuite.json`).
-Ручной e2e-прогон и траблшутинг — в [docs/TESTING.md](docs/TESTING.md).
+Ручной e2e-прогон и траблшутинг — в [docs/TESTING.md](docs/TESTING.md), включая раздел
+про headless-управление по SSH (GUI-тулзы без десктопа падают/висят — обход через
+`schtasks /it /rl highest`, но UAC/Secure Desktop так не обойти).
 
 Целевой фреймворк — **net8.0**. Файл сборки должен быть **UTF-8 с BOM** (PowerShell 5.1
 иначе ломает кириллицу — см. коммит 3e60857).

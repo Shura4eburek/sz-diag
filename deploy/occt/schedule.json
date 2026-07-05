@@ -4,7 +4,7 @@
     "IsPrivate":  false,
     "Periods":  [
                     {
-                        "Duration":  "00:05:00",
+                        "Duration":  "00:30:00",
                         "Version":  "140020052000",
                         "IsInfinite":  false,
                         "TestType":  "Combined",
@@ -439,7 +439,7 @@
                                                             }
                     },
                     {
-                        "Duration":  "00:05:00",
+                        "Duration":  "00:30:00",
                         "Version":  "140020052000",
                         "IsInfinite":  false,
                         "TestType":  "PowerSupply",

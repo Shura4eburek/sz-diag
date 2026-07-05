@@ -31,7 +31,8 @@ public sealed class SessionRegistry
     public bool SetActivity(string sz, string activity, DateTimeOffset? since)
     {
         if (!_bySz.TryGetValue(sz, out var e)) return false;
-        _bySz[sz] = e with { Info = e.Info with { Activity = activity, ActivitySince = since } };
+        var now = _time.GetUtcNow();
+        _bySz[sz] = e with { Info = e.Info with { Activity = activity, ActivitySince = since, Status = SessionStatus.Online, LastHeartbeat = now } };
         return true;
     }
 
