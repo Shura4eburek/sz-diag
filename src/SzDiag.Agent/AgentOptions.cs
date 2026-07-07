@@ -14,4 +14,8 @@ public sealed class AgentOptions
     public string StatePath { get; set; } = @"C:\ProgramData\szdiag\state.json";
     public string TestSuitePath { get; set; } = "testsuite.json";
     public string LogPath { get; set; } = @"logs\agent.log";
+    /// <summary>Папка с портативным sshd.exe/ssh-keygen.exe (рядом с exe: dist\client\ssh).</summary>
+    public string SshBinDir { get; set; } = "ssh";
+    /// <summary>Рабочая папка sshd на клиенте: host-ключи, конфиг, лог, authorized_keys.</summary>
+    public string SshWorkDir { get; set; } = @"C:\ProgramData\szdiag\ssh";
 }

@@ -10,8 +10,8 @@ public sealed class RevertState
     public string AuthorizedKeyComment { get; set; } = "";
 
     public bool CreatedUser { get; set; }
-    public bool InstalledOpenSsh { get; set; }
-    public bool StartedSshService { get; set; }
+    public bool StoppedSystemSshd { get; set; }
+    public bool GeneratedHostKeys { get; set; }
     public bool AddedFirewallRule { get; set; }
     public bool WroteAuthorizedKey { get; set; }
     public bool CreatedAuthorizedKeysFile { get; set; }

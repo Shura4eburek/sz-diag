@@ -16,7 +16,9 @@ public class RevertStateStoreTests : IDisposable
             CreatedUser = true,
             SetTokenPolicy = true,
             TokenPolicyPreviousValue = null,
-            FirewallRuleName = "szdiag-ssh"
+            FirewallRuleName = "szdiag-ssh",
+            StoppedSystemSshd = true,
+            GeneratedHostKeys = true
         };
 
         RevertStateStore.Save(_path, state);
@@ -28,6 +30,8 @@ public class RevertStateStoreTests : IDisposable
         Assert.True(loaded.SetTokenPolicy);
         Assert.Null(loaded.TokenPolicyPreviousValue);
         Assert.Equal("szdiag-ssh", loaded.FirewallRuleName);
+        Assert.True(loaded.StoppedSystemSshd);
+        Assert.True(loaded.GeneratedHostKeys);
     }
 
     [Fact]

@@ -2,32 +2,25 @@ using System.Security.Cryptography;
 
 namespace SzDiag.Agent;
 
-/// <summary>OpenSSH не удалось поставить (нет доступа к Windows Update) — истёк таймаут.</summary>
-public sealed class OpenSshUnavailableException : Exception
-{
-    public OpenSshUnavailableException(string message) : base(message) { }
-}
-
 /// <summary>
 /// Реальная Windows-реализация. Open применяет шаги и прогрессивно пишет RevertState
 /// в файл (переживает краш). Revert откатывает по флагам, обратный порядок, идемпотентно.
-/// Ключ администратора кладётся в administrators_authorized_keys (OpenSSH на Windows
-/// игнорирует per-user authorized_keys для членов Administrators).
+/// SSH-доступ поднимается портативным sshd (PortableSshServer) — системная служба
+/// OpenSSH и Windows Update не задействуются; ключ идёт в собственный AuthorizedKeysFile.
 /// </summary>
 public sealed class WindowsSystemAccessManager : ISystemAccessManager
 {
     private const string AdminsSid = "S-1-5-32-544";
     private const string TokenPolicyPath = @"HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System";
-    private static readonly TimeSpan OpenSshInstallTimeout = TimeSpan.FromMinutes(2);
-    private static readonly string AdminAuthKeys =
-        Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData), "ssh", "administrators_authorized_keys");
 
     private readonly PowerShellRunner _ps;
+    private readonly PortableSshServer _sshd;
     private readonly string _statePath;
 
-    public WindowsSystemAccessManager(PowerShellRunner ps, string statePath)
+    public WindowsSystemAccessManager(PowerShellRunner ps, PortableSshServer sshd, string statePath)
     {
         _ps = ps;
+        _sshd = sshd;
         _statePath = statePath;
     }
 
@@ -44,33 +37,14 @@ public sealed class WindowsSystemAccessManager : ISystemAccessManager
         void Persist() => RevertStateStore.Save(_statePath, state);
         Persist();
 
-        // 1. OpenSSH Server: сначала быстрая проверка службы. Медленный Get/Add-WindowsCapability
-        // (DISM/Windows Update) вызываем ТОЛЬКО если службы sshd вообще нет.
-        var sshdStatus = _ps.Run("(Get-Service sshd -ErrorAction SilentlyContinue).Status",
+        // 1. Если системный sshd запущен — он держит порт 22. Гасим на время сессии,
+        // вернём при откате. Мы поднимаем СВОЙ sshd и не зависим от состояния системного.
+        var systemSshdStatus = _ps.Run("(Get-Service sshd -ErrorAction SilentlyContinue).Status",
             throwOnError: false).StdOut.Trim();
-        var sshdExists = sshdStatus.Length > 0;
-        if (!sshdExists)
+        if (systemSshdStatus.Contains("Running"))
         {
-            try
-            {
-                _ps.Run("Add-WindowsCapability -Online -Name OpenSSH.Server~~~~0.0.1.0",
-                    timeout: OpenSshInstallTimeout);
-            }
-            catch (PowerShellTimeoutException)
-            {
-                throw new OpenSshUnavailableException(
-                    "OpenSSH не ставится — нет доступа к Windows Update (истёк таймаут " +
-                    $"{OpenSshInstallTimeout.TotalMinutes:0} мин). Проверьте интернет на клиенте и запустите агента заново.");
-            }
-            state.InstalledOpenSsh = true;
-            Persist();
-        }
-
-        // 2. Запустить службу, если ещё не Running (иначе не трогаем — значит стояла до нас).
-        if (!sshdStatus.Contains("Running"))
-        {
-            _ps.Run("Set-Service sshd -StartupType Automatic; Start-Service sshd");
-            state.StartedSshService = true;
+            _ps.Run("Stop-Service sshd -Force -ErrorAction SilentlyContinue", throwOnError: false);
+            state.StoppedSystemSshd = true;
             Persist();
         }
 
@@ -108,24 +82,12 @@ public sealed class WindowsSystemAccessManager : ISystemAccessManager
         state.CreatedUser = true;
         Persist();
 
-        // 6. administrators_authorized_keys + ACL
+        // 6. Поднять портативный sshd со свежими ключами и нашим authorized_keys.
+        // Ключ пишется в рабочую папку sshd (PortableSshServer), не в системный
+        // administrators_authorized_keys — мы полностью владеем своим sshd.
         var keyLine = $"{spec.ServicePublicKey.Trim()} {state.AuthorizedKeyComment}";
-        if (!File.Exists(AdminAuthKeys))
-        {
-            Directory.CreateDirectory(Path.GetDirectoryName(AdminAuthKeys)!);
-            File.WriteAllText(AdminAuthKeys, keyLine + Environment.NewLine);
-            state.CreatedAuthorizedKeysFile = true;
-            _ps.Run($"icacls '{AdminAuthKeys}' /inheritance:r " +
-                    "/grant 'SYSTEM:F' /grant 'BUILTIN\\Administrators:F'");
-        }
-        else
-        {
-            // Идемпотентно: убрать прежние строки с нашей меткой, затем дописать свежую.
-            var kept = File.ReadAllLines(AdminAuthKeys)
-                .Where(l => !l.Contains(state.AuthorizedKeyComment)).ToList();
-            kept.Add(keyLine);
-            File.WriteAllLines(AdminAuthKeys, kept);
-        }
+        _sshd.Start(spec.SshPort, keyLine);
+        state.GeneratedHostKeys = true;
         state.WroteAuthorizedKey = true;
         Persist();
 
@@ -150,16 +112,12 @@ public sealed class WindowsSystemAccessManager : ISystemAccessManager
             _ps.Run($"Unregister-ScheduledTask -TaskName '{state.WatchdogTaskName}' -Confirm:$false " +
                     "-ErrorAction SilentlyContinue", throwOnError: false);
 
-        if (state.WroteAuthorizedKey && File.Exists(AdminAuthKeys))
+        // Наш sshd — дочерний, при живом агенте убьётся тут; при watchdog-ревёрте
+        // (агент уже мёртв) процесса нет, но ключи/конфиг на диске надо снять.
+        _sshd.Stop();
+        if (state.GeneratedHostKeys && Directory.Exists(_sshd.WorkDir))
         {
-            if (state.CreatedAuthorizedKeysFile)
-                File.Delete(AdminAuthKeys);
-            else
-            {
-                var kept = File.ReadAllLines(AdminAuthKeys)
-                    .Where(l => !l.Contains(state.AuthorizedKeyComment));
-                File.WriteAllLines(AdminAuthKeys, kept);
-            }
+            try { Directory.Delete(_sshd.WorkDir, recursive: true); } catch { /* залочен — не критично */ }
         }
 
         if (state.AddedFirewallRule)
@@ -179,12 +137,9 @@ public sealed class WindowsSystemAccessManager : ISystemAccessManager
         if (state.CreatedUser)
             _ps.Run($"Remove-LocalUser -Name '{state.ServiceAccount}' -ErrorAction SilentlyContinue", throwOnError: false);
 
-        if (state.StartedSshService)
-            _ps.Run("Stop-Service sshd -ErrorAction SilentlyContinue; " +
-                    "Set-Service sshd -StartupType Disabled -ErrorAction SilentlyContinue", throwOnError: false);
-
-        if (state.InstalledOpenSsh)
-            _ps.Run("Remove-WindowsCapability -Online -Name OpenSSH.Server~~~~0.0.1.0", throwOnError: false);
+        // Вернуть системный sshd, если гасили его на время сессии.
+        if (state.StoppedSystemSshd)
+            _ps.Run("Start-Service sshd -ErrorAction SilentlyContinue", throwOnError: false);
 
         RevertStateStore.Delete(_statePath);
     }

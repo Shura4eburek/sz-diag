@@ -43,7 +43,17 @@ var ps = new PowerShellRunner();
 if (args.Length >= 2 && args[0] == "--revert")
 {
     var st = RevertStateStore.Load(args[1]);
-    if (st is not null) new WindowsSystemAccessManager(ps, args[1]).Revert(st);
+    if (st is not null)
+    {
+        var revertOpts = new AgentOptions();
+        config.Bind(revertOpts);
+        var revertSshd = new PortableSshServer(
+            Path.IsPathRooted(revertOpts.SshBinDir)
+                ? revertOpts.SshBinDir
+                : Path.Combine(AppContext.BaseDirectory, revertOpts.SshBinDir),
+            revertOpts.SshWorkDir, ps);
+        new WindowsSystemAccessManager(ps, revertSshd, args[1]).Revert(st);
+    }
     return 0;
 }
 
@@ -67,7 +77,9 @@ var pubKey = File.ReadAllText(ResolvePath(opts.ServicePublicKeyPath));
 var spec = new AccessSpec(sz, opts.ServiceAccount, pubKey, opts.SshPort,
     TimeSpan.FromHours(opts.WatchdogHours));
 
-var manager = new WindowsSystemAccessManager(ps, opts.StatePath);
+var sshBinDir = ResolvePath(opts.SshBinDir);
+var sshd = new PortableSshServer(sshBinDir, opts.SshWorkDir, ps);
+var manager = new WindowsSystemAccessManager(ps, sshd, opts.StatePath);
 
 var hubUrl = opts.HubUrl;
 if (string.IsNullOrWhiteSpace(hubUrl))
@@ -93,9 +105,10 @@ try
 {
     await session.StartAsync();
 }
-catch (OpenSshUnavailableException ex)
+catch (SshdStartException ex)
 {
-    Announce(ex.Message, $"[red]{Markup.Escape(ex.Message)}[/]");
+    Announce($"Не удалось поднять SSH: {ex.Message}",
+        $"[red]Не удалось поднять SSH:[/] {Markup.Escape(ex.Message)}");
     return 1;
 }
 Announce($"СЗ {sz}: доступ открыт ● online. Хост {Environment.MachineName}.",
