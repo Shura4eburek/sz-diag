@@ -101,12 +101,14 @@ Get-NetFirewallRule -DisplayName "szdiag-ssh-*"    # пусто
 | Симптом | Причина / решение |
 |---|---|
 | `DirectoryNotFoundException: service_key.pub` | Старый билд с абсолютным путём. Пересобери `build-dist.ps1` (пути теперь относительные, рядом с exe). |
-| Агент завис на «Открываю доступ», ничего дальше | Старый билд дёргал медленный `Get-WindowsCapability -Online`. Пересобери — теперь при живом `sshd` он не лезет в Windows Update. |
+| Агент завис на «Открываю доступ», ничего дальше | Устарело: старый билд дёргал медленный `Add-WindowsCapability -Online` (Windows Update). Теперь агент носит свой портативный sshd (`dist\client\ssh`) и вообще не лезет в WU — пересобери. |
 | `New-NetFirewallRule: file already exists` | Остаток от прерванного запуска. Новый агент идемпотентен — просто запусти снова, подчистит сам. |
 | CLI/агент: `connection refused` / 401 | Hub не слушает нужный порт или не открыт firewall; токены не совпали. Проверь `dist\host\hub\appsettings.json` (`Urls`, `Hub.*Token`) и правило firewall. |
 | `Test-NetConnection ... False` | Клиент не в той сети. Собери с `-HubIp <правильный IP хоста>` (у хоста может быть несколько адресов: LAN/VPN). |
 | Агент: «hub не найден в сети» | Хост и клиент в разных сегментах (роутер/VPN/VLAN без broadcast) — автообнаружение не проходит. Укажи `HubUrl` вручную в `dist\client\appsettings.json` или пересобери с `-HubIp <IP-хоста>`. Проверь также, что открыт UDP-порт 5098 на хосте. |
-| Агент требует OpenSSH, а его нет и WU недоступен | Раньше висел на «Открываю доступ…» навечно; теперь падает за 2 мин с сообщением «OpenSSH не ставится — нет доступа к Windows Update». Поставь один раз вручную: `Add-WindowsCapability -Online -Name OpenSSH.Server~~~~0.0.1.0` (от админа, при наличии интернета — либо в момент, когда сеть появится), затем запусти агента снова. |
+| Агент упал на `Start-Service sshd` / битые host-ключи | Больше не воспроизводится: агент носит свой портативный sshd (`dist\client\ssh`) и генерит свежие host-ключи каждую сессию. Системная служба sshd не используется. |
+| `Не удалось поднять SSH: sshd не стартовал: <причина>` | Портативный sshd упал сразу. Причина — последние строки его лога (`C:\ProgramData\szdiag\ssh\sshd.log`). Часто: sshd под админ-токеном не смог создать logon-token (см. e2e-раздел про SYSTEM). |
+| `dist\client\ssh` пуст / нет sshd.exe | `build-dist.ps1` не скачал портативный OpenSSH (нет интернета на хосте при первой сборке). Положи распакованный OpenSSH-Win64 в `client-tools\ssh\` вручную и пересобери. |
 
 ## Headless-автоматизация по SSH: грабли и обходы
 
@@ -189,7 +191,35 @@ Station/Desktop**. Любой GUI-процесс, запущенный напр�
   `Get-ItemProperty HKLM:\...\Uninstall\*` и снеси `MsiExec.exe /X{guid} /qn`
   отдельно, если папка `Program Files (x86)\Futuremark` осталась.
 
+## E2e портативного sshd (три сценария)
+
+Проверять на реальной клиентской машине после `build-dist.ps1`:
+
+1. **Чистая машина** (системного sshd нет вообще) — агент должен открыть доступ без
+   Windows Update. Раньше тут висло на «Открываю доступ».
+2. **Рабочий системный sshd** — агент гасит его на сессию (`StoppedSystemSshd`),
+   поднимает свой, при закрытии СЗ системный возвращается (`Get-Service sshd` → Running).
+3. **Битый системный sshd** — наличие битых системных host-ключей больше не влияет:
+   агент их не трогает, использует свои.
+
+**Проверка token-privilege (ключевой риск).** sshd обычно работает под LocalSystem
+(нужен SeTcbPrivilege для создания logon-token). Наш sshd — дочерний процесс
+админ-агента. Проверь: после «Открываю доступ» подключись с хоста
+`ssh -i secrets\svc_diag_key -o StrictHostKeyChecking=no svc-diag@<IP> "whoami"`.
+- Если `whoami` вернул `<машина>\svc-diag` — token-privilege ОК, план А работает.
+- Если в `sshd.log` (`C:\ProgramData\szdiag\ssh\sshd.log`) видно `unable to create
+  logon token` / вход отваливается — сработал риск из спеки. Фолбэк (план Б):
+  запускать sshd не напрямую, а транзиентной scheduled task под SYSTEM (привязать к
+  сессии, чистить тем же watchdog). Это отдельная доработка `PortableSshServer.Start`.
+
+Проверка чистоты после закрытия СЗ (на клиенте, админ):
+```powershell
+net user svc-diag                                  # «пользователь не найден»
+Get-NetFirewallRule -DisplayName "szdiag-ssh-*"    # пусто
+Test-Path C:\ProgramData\szdiag\ssh                # False (host-ключи снесены)
+```
+
 ## Автотесты (без хоста/клиента)
 ```powershell
-dotnet test    # вся логика, ~76 тестов
+dotnet test    # вся логика, ~117 тестов
 ```
