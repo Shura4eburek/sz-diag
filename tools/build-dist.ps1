@@ -32,6 +32,27 @@ Write-Host "== sz-diag: сборка dist (HubIp=$hubIpLabel Port=$Port) =="
 if (-not (Get-Command dotnet -ErrorAction SilentlyContinue)) { throw "Не найден dotnet SDK." }
 if (-not (Get-Command ssh-keygen -ErrorAction SilentlyContinue)) { throw "Не найден ssh-keygen (OpenSSH client)." }
 
+# 0. Портативный Win32-OpenSSH для клиента (sshd.exe и ко). Качаем один раз с GitHub,
+# кэшируем распакованным в client-tools\ssh — в git не коммитим (как OCCT/TM5).
+$sshCache = "client-tools\ssh"
+if (-not (Test-Path "$sshCache\sshd.exe")) {
+    Write-Host "-- качаю портативный OpenSSH (один раз, ~10 МБ)"
+    $rel = "https://github.com/PowerShell/Win32-OpenSSH/releases/download/v9.5.0.0p1-Beta/OpenSSH-Win64.zip"
+    $zip = "$env:TEMP\OpenSSH-Win64.zip"
+    New-Item -ItemType Directory $sshCache -Force | Out-Null
+    try {
+        Invoke-WebRequest -Uri $rel -OutFile $zip -UseBasicParsing
+        Expand-Archive $zip "$env:TEMP\OpenSSH-Win64" -Force
+        Copy-Item "$env:TEMP\OpenSSH-Win64\OpenSSH-Win64\*" $sshCache -Recurse -Force
+        Remove-Item $zip -Force -ErrorAction SilentlyContinue
+    } catch {
+        throw "Не удалось скачать портативный OpenSSH ($rel): $($_.Exception.Message). " +
+              "Проверь интернет на хосте или положи распакованные бинарники в $sshCache вручную."
+    }
+} else {
+    Write-Host "-- портативный OpenSSH уже в кэше ($sshCache)"
+}
+
 # 1. SSH-ключ сервиса (приватный остаётся на хосте, публичный уедет агенту)
 New-Item -ItemType Directory secrets -Force | Out-Null
 if (-not (Test-Path secrets\svc_diag_key)) {
@@ -110,6 +131,15 @@ if (Test-Path client-tools) {
     Copy-Item client-tools\* dist\client\tools\ -Recurse -Force
 } else {
     Write-Host "-- client-tools нет: стресс-утилиты не вложены (шаги app сообщат 'не найден exe')"
+}
+
+# Портативный sshd рядом с агентом: dist\client\ssh
+if (Test-Path dist\client\SzDiag.Agent.exe) {
+    Write-Host "-- копирую OpenSSH -> dist\client\ssh"
+    New-Item -ItemType Directory dist\client\ssh -Force | Out-Null
+    Copy-Item "$sshCache\sshd.exe","$sshCache\ssh-keygen.exe","$sshCache\sftp-server.exe" dist\client\ssh\ -Force
+    # dll-зависимости (libcrypto и пр.) лежат рядом с exe в релизе — берём все dll.
+    Copy-Item "$sshCache\*.dll" dist\client\ssh\ -Force -ErrorAction SilentlyContinue
 }
 
 # 3. Конфиги (абсолютные пути хоста — под ЭТУ машину; относительные — агенту)
