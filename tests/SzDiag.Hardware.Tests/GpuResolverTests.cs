@@ -19,21 +19,37 @@ public class GpuResolverTests : IDisposable
 
     private sealed class FakeScraper : IGpuScraper
     {
-        private readonly PciDevice? _result;
-        public bool Called { get; private set; }
-        public FakeScraper(PciDevice? result) => _result = result;
+        private readonly PciDevice? _device;
+        private readonly ScrapedCard? _card;
+        private readonly Exception? _cardThrows;
+        public bool DeviceCalled { get; private set; }
+        public bool CardCalled { get; private set; }
+
+        public FakeScraper(PciDevice? device = null, ScrapedCard? card = null, Exception? cardThrows = null)
+        { _device = device; _card = card; _cardThrows = cardThrows; }
+
         public Task<PciDevice?> ScrapeAsync(PciId id, CancellationToken ct = default)
+        { DeviceCalled = true; return Task.FromResult(_device); }
+
+        public Task<ScrapedCard?> ScrapeCardAsync(PciId id, string? model, CancellationToken ct = default)
         {
-            Called = true;
-            return Task.FromResult(_result);
+            CardCalled = true;
+            if (_cardThrows is not null) throw _cardThrows;
+            return Task.FromResult(_card);
         }
     }
+
+    private static ScrapedCard Card() => new(
+        "1462", "5362", "MSI", "Ventus 2x OC Plus",
+        "16384 MB", "GDDR7", "2407 MHz", "2602 MHz", "1750 MHz",
+        "180.0 W", "180.0 W", "1x HDMI, 3x DisplayPort", "2025-03-15", "98.06.1F.00.CD",
+        "https://www.techpowerup.com/vgabios/275654/");
 
     [Fact]
     public async Task Resolve_Hit_FromCache_ScraperNotCalled()
     {
         var repo = await SeededRepoAsync();
-        var scraper = new FakeScraper(null);
+        var scraper = new FakeScraper();
         var res = await new GpuResolver(repo, scraper)
             .ResolveAsync(PciId.Parse(@"PCI\VEN_10DE&DEV_2D04&SUBSYS_53621462&REV_A1"));
 
@@ -41,20 +57,20 @@ public class GpuResolverTests : IDisposable
         Assert.Equal("GeForce RTX 5060 Ti", res.Model);
         Assert.Equal("NVIDIA Corporation", res.VendorName);
         Assert.Equal("MSI", res.SubVendorName);
-        Assert.False(scraper.Called);
+        Assert.False(scraper.DeviceCalled);
     }
 
     [Fact]
     public async Task Resolve_Miss_ScraperFills_AndPersists()
     {
         var repo = await SeededRepoAsync();
-        var scraper = new FakeScraper(new PciDevice("10de", "ffff", "GH100 [H100]", "GH100", "H100"));
+        var scraper = new FakeScraper(device: new PciDevice("10de", "ffff", "GH100 [H100]", "GH100", "H100"));
         var resolver = new GpuResolver(repo, scraper);
 
         var res = await resolver.ResolveAsync(PciId.Parse(@"PCI\VEN_10DE&DEV_FFFF"));
         Assert.Equal(GpuSource.Scraper, res.Source);
         Assert.Equal("H100", res.Model);
-        Assert.True(scraper.Called);
+        Assert.True(scraper.DeviceCalled);
 
         // записано в БД — повторный резолв берёт из кэша
         var again = await resolver.ResolveAsync(PciId.Parse(@"PCI\VEN_10DE&DEV_FFFF"));
@@ -72,6 +88,51 @@ public class GpuResolverTests : IDisposable
         Assert.Null(res.Model);
         Assert.Equal("NVIDIA Corporation", res.VendorName);
         Assert.Equal("MSI", res.SubVendorName);
+    }
+
+    [Fact]
+    public async Task Resolve_CardMiss_ScraperFills_AndPersists()
+    {
+        var repo = await SeededRepoAsync();
+        var scraper = new FakeScraper(card: Card());
+        var resolver = new GpuResolver(repo, scraper);
+
+        var res = await resolver.ResolveAsync(PciId.Parse(@"PCI\VEN_10DE&DEV_2D04&SUBSYS_53621462&REV_A1"));
+        Assert.NotNull(res.Card);
+        Assert.Equal("Ventus 2x OC Plus", res.Card!.CardName);
+        Assert.Equal("5362", res.SubDeviceId);
+        Assert.True(scraper.CardCalled);
+
+        // повторный резолв — карта из БД, скрапер card не зван
+        var scraper2 = new FakeScraper(card: Card());
+        var again = await new GpuResolver(repo, scraper2).ResolveAsync(
+            PciId.Parse(@"PCI\VEN_10DE&DEV_2D04&SUBSYS_53621462&REV_A1"));
+        Assert.NotNull(again.Card);
+        Assert.False(scraper2.CardCalled);
+    }
+
+    [Fact]
+    public async Task Resolve_CardScraperBlocked_CardNull_DeviceIntact()
+    {
+        var repo = await SeededRepoAsync();
+        var scraper = new FakeScraper(cardThrows: new ScrapeBlockedException("blocked"));
+        var res = await new GpuResolver(repo, scraper).ResolveAsync(
+            PciId.Parse(@"PCI\VEN_10DE&DEV_2D04&SUBSYS_53621462&REV_A1"));
+
+        Assert.Null(res.Card);
+        Assert.Equal("GeForce RTX 5060 Ti", res.Model);   // device-часть цела
+    }
+
+    [Fact]
+    public async Task Resolve_NoSubDevice_CardScraperNotCalled()
+    {
+        var repo = await SeededRepoAsync();
+        var scraper = new FakeScraper(card: Card());
+        var res = await new GpuResolver(repo, scraper).ResolveAsync(
+            PciId.Parse(@"PCI\VEN_10DE&DEV_2D04"));        // без SUBSYS
+
+        Assert.Null(res.Card);
+        Assert.False(scraper.CardCalled);
     }
 
     public void Dispose()
