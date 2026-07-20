@@ -54,9 +54,12 @@ dotnet test --filter FullyQualifiedName~RevertCoordinator   # один клас�
   тест-раннер и заливает отчёт. `--revert <statePath>` — режим watchdog/автозакрытия.
 - **SzDiag.Hardware** — определение видеокарты по Windows PCI hardware ID
   (`PCI\VEN_..&DEV_..&SUBSYS_..`). `PciId.Parse` разбирает id, `PciIdsParser` парсит базу
-  pci.ids, `GpuRepository` (SQLite `gpu.db`) хранит вендоров/устройства, `GpuResolver`
-  резолвит по кэш-паттерну БД→miss→`IGpuScraper`→запись. TPU-скрапер отложен (Cloudflare)
-  за заглушкой `NotImplementedGpuScraper`. CLI: `szcli hw import/update/resolve`.
+  pci.ids, `GpuRepository` (SQLite `gpu.db`) хранит вендоров/устройства/платы, `GpuResolver`
+  резолвит по кэш-паттерну БД→miss→`IGpuScraper`→запись. Живой `VgaBiosScraper`
+  (`TechPowerUpClient` + `VgaBiosParser` на AngleSharp) дорезолвивает точную партнёрскую
+  плату (SKU) и спеки прошивки из TechPowerUp VGA BIOS collection по subsystem ID (таблица
+  `card`); `gpu-specs`-каталог за интерактивной CAPTCHA — вне scope, `NotImplementedGpuScraper`
+  остаётся заглушкой device-фоллбэка. CLI: `szcli hw import/update/resolve`.
 - **SzDiag.Kb** — работа с базой знаний в формате Obsidian-vault (`KbPaths` — единственное
   место с именами папок: `СЗ/`, `Заказы/`, `Дефекты/`, `Компоненты/`, `Устройства/`,
   `Симптомы/`). Hub пишет сюда скелет по каждой СЗ и отчёты. По СЗ, помимо каркаса,
