@@ -69,7 +69,9 @@ public static class VgaBiosParser
 
         // Свободный VBIOS-блок: выходы и лимиты мощности — регулярками по тексту тела.
         // Singleline: блок «Connectors» — многострочный список, точка должна перекрывать переводы строк.
-        var body = doc.Body?.TextContent ?? "";
+        // Скоуп только на VBIOS-блок (table.biosinternals) — чтобы «Connectors»/«Board power limit»
+        // из других частей страницы не подменяли выходы/питание. Фоллбэк на тело — если блока нет.
+        var body = doc.QuerySelector("table.biosinternals")?.TextContent ?? doc.Body?.TextContent ?? "";
         static string? Rx(string text, string pattern) =>
             System.Text.RegularExpressions.Regex.Match(text, pattern, System.Text.RegularExpressions.RegexOptions.Singleline) is { Success: true } m
                 ? m.Groups[1].Value.Trim() : null;

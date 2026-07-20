@@ -68,6 +68,7 @@ public sealed class GpuResolver
                 catch (NotSupportedException) { /* заглушка */ }
                 catch (ScrapeBlockedException) { /* TPU за challenge */ }
                 catch (HttpRequestException) { /* сеть недоступна */ }
+                catch (OperationCanceledException) when (!ct.IsCancellationRequested) { /* таймаут HttpClient, а не отмена вызывающего */ }
             }
         }
 

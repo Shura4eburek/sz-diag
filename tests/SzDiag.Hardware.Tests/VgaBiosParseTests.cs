@@ -40,8 +40,7 @@ public class VgaBiosParseTests
         Assert.Equal("98.06.1F.00.CD", d.VbiosVersion);
     }
 
-    [Fact]
-    [Trait("live", "true")]
+    [LiveFact]   // по умолчанию пропущен; SZDIAG_LIVE=1 dotnet test — для ручного прогона
     public async Task Live_ScrapeCard_Msi5060Ti_ResolvesBoard()
     {
         var id = PciId.Parse(@"PCI\VEN_10DE&DEV_2D04&SUBSYS_53511462&REV_A1"); // subdev 5351 = Ventus 2x OC Plus
