@@ -30,10 +30,50 @@ public sealed class KnowledgeBaseScaffolder : IKnowledgeBaseScaffolder
         return dir;
     }
 
+    public string EnsureSummarySkeleton(string sz)
+    {
+        EnsureSkeleton(sz);
+        var path = _paths.Summary(sz);
+        WriteIfMissing(path, SummaryNote(sz));
+        return path;
+    }
+
     private static void WriteIfMissing(string path, string content)
     {
         if (!File.Exists(path)) File.WriteAllText(path, content);
     }
+
+    private static string SummaryNote(string sz) =>
+        $"""
+        # Вывод по СЗ {sz}
+
+        ## 📞 Для клиента
+        > Простым языком, без терминов. Копируется в колл-центр как есть.
+
+        **Что с устройством:** …
+        **Что сделали:** …
+        **Итог / рекомендации:** …
+
+        ---
+
+        ## 🔧 Технический разбор
+        *для сервиса и обучения — клиенту не отдаётся*
+
+        **Симптом (со слов клиента):** …
+
+        **Показания диагностики:**
+        - …
+        - 🔗 сырой прогон: [[report]]
+
+        **Рассуждение:** …
+
+        **Диагноз:** …
+
+        **Что помогло:** …
+
+        **Паттерн:** [[симптом]]
+
+        """;
 
     private static string HomeNote(string sz, string date) =>
         $"""
@@ -43,10 +83,16 @@ public sealed class KnowledgeBaseScaffolder : IKnowledgeBaseScaffolder
         дефект: []
         заменено: []
         устройство: ""
+        симптом: []
+        статус: ""
+        вердикт: ""
         дата: {date}
         ---
 
         # СЗ {sz}
+
+        ## Вывод
+        ![[вывод]]
 
         ## Дефект
         ![[request]]

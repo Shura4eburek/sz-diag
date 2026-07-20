@@ -27,4 +27,19 @@ public class KbPathsTests
         Assert.Equal(Path.Combine("/vault", "СЗ", "156864", "reports", "20260701-120000"),
             p.ReportDir("156864", "20260701-120000"));
     }
+
+    [Fact]
+    public void Summary_IsSzFolderPlusVyvodMd()
+    {
+        var p = new KbPaths("/vault");
+        Assert.Equal(Path.Combine("/vault", "СЗ", "156864", "вывод.md"), p.Summary("156864"));
+    }
+
+    [Fact]
+    public void SymptomNote_UnderSymptomsFolder()
+    {
+        var p = new KbPaths("/vault");
+        Assert.Equal(Path.Combine("/vault", "Симптомы", "Фризы под нагрузкой.md"),
+            p.SymptomNote("Фризы под нагрузкой"));
+    }
 }

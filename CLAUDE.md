@@ -48,13 +48,17 @@ dotnet test --filter FullyQualifiedName~RevertCoordinator   # один клас�
   `SessionRegistry` (in-memory активные СЗ) + `SqliteSessionStore` (история). `OfflineSweeper`
   (hosted service) метит СЗ офлайн по таймауту heartbeat.
 - **SzDiag.Cli** (`szcli`) — тонкий клиент к `/api`. Команды: `watch` (по умолчанию),
-  `list`, `close <СЗ>`, `target <СЗ>`, `test run <СЗ>`, `kb …`.
+  `list`, `close <СЗ>`, `target <СЗ>`, `test run <СЗ>`, `kb record/summary/search …`.
 - **SzDiag.Agent** — консоль на клиенте (`net8.0`, требует прав админа, `app.manifest`).
   Открывает доступ, коннектится к hub по SignalR, шлёт heartbeat, по команде hub гоняет
   тест-раннер и заливает отчёт. `--revert <statePath>` — режим watchdog/автозакрытия.
 - **SzDiag.Kb** — работа с базой знаний в формате Obsidian-vault (`KbPaths` — единственное
-  место с именами папок: `СЗ/`, `Заказы/`, `Дефекты/`, `Компоненты/`, `Устройства/`).
-  Hub пишет сюда скелет по каждой СЗ и отчёты.
+  место с именами папок: `СЗ/`, `Заказы/`, `Дефекты/`, `Компоненты/`, `Устройства/`,
+  `Симптомы/`). Hub пишет сюда скелет по каждой СЗ и отчёты. По СЗ, помимо каркаса,
+  пишется `вывод.md` — итоговый вывод (блок «Для клиента» для колл-центра + технический
+  разбор для обучения диагностике); паттерны «симптом → причина» копятся в `Симптомы/` и
+  линкуются из техразбора. Единый индексируемый frontmatter живёт в `<sz>.md`; `вывод.md`
+  встраивается через `![[вывод]]` без своего YAML (иначе Dataview задваивает СЗ).
 
 **Аутентификация:** pre-shared токены. Агент↔hub — заголовок `X-SzDiag-Token`
 (middleware в `Program.cs`); CLI↔hub — `X-SzDiag-Mgmt-Token` (endpoint filter). Оба

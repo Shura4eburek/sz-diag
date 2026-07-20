@@ -68,6 +68,24 @@ public class KbRecorderTests : IDisposable
     }
 
     [Fact]
+    public void Record_SymptomStatusVerdict_MergedAndSymptomNoteCreated()
+    {
+        NewRecorder().Record(new RecordRequest
+        {
+            Sz = "156864",
+            Symptoms = new[] { "Фризы под нагрузкой" },
+            Status = "готово",
+            Verdict = "подтверждён"
+        });
+
+        var home = File.ReadAllText(_paths.HomeNote("156864"));
+        Assert.Contains("симптом: [\"[[Фризы под нагрузкой]]\"]", home);
+        Assert.Contains("статус: готово", home);
+        Assert.Contains("вердикт: подтверждён", home);
+        Assert.True(File.Exists(_paths.SymptomNote("Фризы под нагрузкой")));
+    }
+
+    [Fact]
     public void Record_Twice_IsIdempotent()
     {
         var rec = NewRecorder();

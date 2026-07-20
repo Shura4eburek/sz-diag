@@ -36,6 +36,43 @@ public class KnowledgeBaseScaffolderTests : IDisposable
     }
 
     [Fact]
+    public void HomeNote_ContainsNewFrontmatterKeysAndSummaryEmbed()
+    {
+        var s = NewScaffolder();
+        var dir = s.EnsureSkeleton("156864");
+
+        var home = File.ReadAllText(Path.Combine(dir, "156864.md"));
+        Assert.Contains("симптом: []", home);
+        Assert.Contains("статус: \"\"", home);
+        Assert.Contains("вердикт: \"\"", home);
+        Assert.Contains("![[вывод]]", home);
+    }
+
+    [Fact]
+    public void EnsureSummarySkeleton_CreatesVyvodWithBothBlocks()
+    {
+        var s = NewScaffolder();
+        var path = s.EnsureSummarySkeleton("156864");
+
+        Assert.True(File.Exists(path));
+        var text = File.ReadAllText(path);
+        Assert.Contains("## 📞 Для клиента", text);
+        Assert.Contains("## 🔧 Технический разбор", text);
+    }
+
+    [Fact]
+    public void EnsureSummarySkeleton_ExistingFile_NotOverwritten()
+    {
+        var s = NewScaffolder();
+        var path = s.EnsureSummarySkeleton("156864");
+        File.WriteAllText(path, "МОЙ РАЗБОР");
+
+        s.EnsureSummarySkeleton("156864");
+
+        Assert.Equal("МОЙ РАЗБОР", File.ReadAllText(path));
+    }
+
+    [Fact]
     public void EnsureSkeleton_ExistingDir_DoesNotOverwrite()
     {
         var s = NewScaffolder();

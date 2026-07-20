@@ -10,4 +10,7 @@ public sealed class RecordRequest
     public IReadOnlyList<string> Replaced { get; init; } = Array.Empty<string>();
     public IReadOnlyList<string> Findings { get; init; } = Array.Empty<string>();
     public IReadOnlyList<string> Actions { get; init; } = Array.Empty<string>();
+    public IReadOnlyList<string> Symptoms { get; init; } = Array.Empty<string>();
+    public string? Status { get; init; }
+    public string? Verdict { get; init; }
 }
