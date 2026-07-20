@@ -77,6 +77,8 @@ public static class VgaBiosParser
                 ? m.Groups[1].Value.Trim() : null;
 
         var outputs = Rx(body, @"Connectors\s+(.+?)\s+Board power limit");
+        if (outputs is not null)   // «1x HDMI\n3x DisplayPort» → одна строка
+            outputs = System.Text.RegularExpressions.Regex.Replace(outputs, @"\s+", " ");
         var target = Rx(body, @"Target:\s*([\d.]+\s*W)");
         var limit  = Rx(body, @"Limit:\s*([\d.]+\s*W)");
 

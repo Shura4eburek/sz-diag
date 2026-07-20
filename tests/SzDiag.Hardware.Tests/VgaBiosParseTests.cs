@@ -35,8 +35,7 @@ public class VgaBiosParseTests
         Assert.Equal("1750 MHz", d.MemoryClock);
         Assert.Equal("180.0 W", d.PowerTarget);
         Assert.Equal("180.0 W", d.PowerLimit);
-        Assert.Contains("HDMI", d.Outputs);
-        Assert.Contains("DisplayPort", d.Outputs);
+        Assert.Equal("1x HDMI 3x DisplayPort", d.Outputs);   // многострочный блок схлопнут в строку
         Assert.Equal("98.06.1F.00.CD", d.VbiosVersion);
     }
 
