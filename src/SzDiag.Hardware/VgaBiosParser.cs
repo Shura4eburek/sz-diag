@@ -41,4 +41,48 @@ public static class VgaBiosParser
         }
         return rows;
     }
+
+    public static VgaBiosDetail ParseDetail(string html)
+    {
+        var doc = Html.ParseDocument(html);
+
+        // Таблица «Graphics Card Info»: <tr><th>Label:</th><td>Value</td></tr>
+        var map = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var tr in doc.QuerySelectorAll("table tr"))
+        {
+            var th = tr.QuerySelector("th");
+            var td = tr.QuerySelector("td");
+            if (th is null || td is null) continue;
+            var key = th.TextContent.Trim().TrimEnd(':').Trim();
+            if (!map.ContainsKey(key)) map[key] = td.TextContent.Trim();
+        }
+        string? Get(string k) => map.TryGetValue(k, out var v) && v.Length > 0 ? v : null;
+
+        // Subsystem Id: «1462 5351» → subven / subdev (lowercase hex)
+        string? subVen = null, subDev = null;
+        var sub = Get("Subsystem Id");
+        if (sub is not null)
+        {
+            var parts = sub.Split(new[] { ' ' }, StringSplitOptions.RemoveEmptyEntries);
+            if (parts.Length == 2) { subVen = parts[0].ToLowerInvariant(); subDev = parts[1].ToLowerInvariant(); }
+        }
+
+        // Свободный VBIOS-блок: выходы и лимиты мощности — регулярками по тексту тела.
+        // Singleline: блок «Connectors» — многострочный список, точка должна перекрывать переводы строк.
+        var body = doc.Body?.TextContent ?? "";
+        static string? Rx(string text, string pattern) =>
+            System.Text.RegularExpressions.Regex.Match(text, pattern, System.Text.RegularExpressions.RegexOptions.Singleline) is { Success: true } m
+                ? m.Groups[1].Value.Trim() : null;
+
+        var outputs = Rx(body, @"Connectors\s+(.+?)\s+Board power limit");
+        var target = Rx(body, @"Target:\s*([\d.]+\s*W)");
+        var limit  = Rx(body, @"Limit:\s*([\d.]+\s*W)");
+
+        return new VgaBiosDetail(
+            subVen, subDev,
+            Get("Memory Size"), Get("Memory Type"),
+            Get("GPU Clock"), Get("Boost Clock"), Get("Memory Clock"),
+            target, limit, outputs,
+            Get("VBIOS Version"));
+    }
 }
