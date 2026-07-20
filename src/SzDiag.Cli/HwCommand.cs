@@ -41,7 +41,7 @@ public static class HwCommand
             try { id = PciId.Parse(args[1]); }
             catch (FormatException ex) { Console.WriteLine(ex.Message); return; }
 
-            var res = await new GpuResolver(repo, new NotImplementedGpuScraper()).ResolveAsync(id);
+            var res = await new GpuResolver(repo, new VgaBiosScraper()).ResolveAsync(id);
             Print(res);
             return;
         }
@@ -81,5 +81,27 @@ public static class HwCommand
               Ревизия:  {r.Revision ?? "—"}
               Источник: {source}
             """);
+
+        if (r.Card is { } card)
+        {
+            Console.WriteLine("  Плата (TPU VGA BIOS):");
+            var title = string.Join(" ", new[] { card.Manufacturer, r.Model, card.CardName }
+                .Where(s => !string.IsNullOrWhiteSpace(s)));
+            if (title.Length > 0) Console.WriteLine($"    Карта:    {title}");
+            if (card.MemorySize is not null || card.MemoryType is not null)
+                Console.WriteLine($"    Память:   {card.MemorySize} {card.MemoryType}".TrimEnd());
+            if (card.CoreClock is not null)
+                Console.WriteLine($"    Частоты:  {card.CoreClock} / {card.BoostClock} / {card.MemoryClock} (core/boost/mem)");
+            if (card.PowerTarget is not null)
+                Console.WriteLine($"    Питание:  target {card.PowerTarget}, limit {card.PowerLimit}");
+            if (card.Outputs is not null)
+                Console.WriteLine($"    Выходы:   {card.Outputs}");
+            if (card.VbiosVersion is not null)
+                Console.WriteLine($"    VBIOS:    {card.VbiosVersion} ({card.DateCompiled})");
+        }
+        else if (r.SubDeviceId is not null)
+        {
+            Console.WriteLine("  Плата:    не определена (нет subsystem-матча в TPU / источник недоступен)");
+        }
     }
 }
