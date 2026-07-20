@@ -63,6 +63,31 @@ public sealed class EntityNoteWriter
         ```
         """);
 
+    public void EnsureSymptom(string symptom) => Ensure(_paths.SymptomNote(symptom),
+        $"""
+        ---
+        тип: симптом
+        симптом: {symptom}
+        дата_обновления: ""
+        ---
+
+        # Симптом: {symptom}
+
+        ## Как распознать
+        …
+
+        ## Что проверять (по порядку)
+        1. …
+
+        ## Наблюдавшиеся причины
+        - …
+
+        ## Связанные СЗ (авто)
+        ```dataview
+        list from "СЗ" where contains(симптом, this.file.link) sort дата desc
+        ```
+        """);
+
     public void EnsureMoc() => Ensure(_paths.Moc,
         """
         # База знаний — карта
@@ -82,6 +107,11 @@ public sealed class EntityNoteWriter
         flatten дефект as d
         group by d
         sort length(rows) desc
+        ```
+
+        ## Симптомы
+        ```dataview
+        list from "Симптомы" where тип = "симптом" sort file.name asc
         ```
         """);
 
