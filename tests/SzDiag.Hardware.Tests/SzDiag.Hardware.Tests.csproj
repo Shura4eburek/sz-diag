@@ -24,4 +24,8 @@
     <ProjectReference Include="..\..\src\SzDiag.Hardware\SzDiag.Hardware.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <None Include="fixtures\**\*.html" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
 </Project>
