@@ -39,4 +39,15 @@ public class VgaBiosParseTests
         Assert.Contains("DisplayPort", d.Outputs);
         Assert.Equal("98.06.1F.00.CD", d.VbiosVersion);
     }
+
+    [Fact]
+    [Trait("live", "true")]
+    public async Task Live_ScrapeCard_Msi5060Ti_ResolvesBoard()
+    {
+        var id = PciId.Parse(@"PCI\VEN_10DE&DEV_2D04&SUBSYS_53511462&REV_A1"); // subdev 5351 = Ventus 2x OC Plus
+        var card = await new VgaBiosScraper().ScrapeCardAsync(id, "GeForce RTX 5060 Ti");
+        Assert.NotNull(card);
+        Assert.Equal("MSI", card!.Manufacturer);
+        Assert.Contains("Ventus", card.CardName);
+    }
 }
