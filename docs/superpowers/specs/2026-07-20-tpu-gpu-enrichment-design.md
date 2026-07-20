@@ -1,57 +1,88 @@
-# TPU-обогащение видях: спеки модели + плата по subsystem
+# TPU-обогащение видях: точная плата + спеки из VGA BIOS collection
 
 Дата: 2026-07-20
 
 ## Цель
 
-Резолвер (`SzDiag.Hardware`) сейчас по PCI ID отдаёт вендора, чип, референс-модель и
-партнёра (субвендор `1462 → MSI`) из pci.ids. Не хватает двух вещей, которых в pci.ids
-нет:
+Резолвер (`SzDiag.Hardware`) по PCI ID отдаёт вендора, чип, референс-модель и партнёра
+(субвендор `1462 → MSI`) из pci.ids. Не хватает двух вещей, которых в pci.ids нет:
 
-1. **Спеки референс-модели** (надёжная часть) — память (размер/тип/шина), техпроцесс,
-   TBP, **разъёмы питания**, видеовыходы, дата выхода. Диагностически полезно: питание,
-   «нет сигнала», оценка поколения.
-2. **Точная плата по subsystem** (best-effort) — из `SUBSYS_53621462` (субдевайс `5362`)
-   вытащить конкретную партнёрскую SKU (напр. «MSI Ventus»). Источник неструктурный,
-   поэтому честно best-effort.
+1. **Точная партнёрская плата (SKU)** по subsystem — из `SUBSYS_53621462` (субдевайс
+   `5362`) вытащить конкретную карту, напр. «MSI RTX 5060 Ti Ventus 2x OC Plus».
+2. **Спеки конкретной платы** — память (размер/тип), частоты (core/boost/mem), лимит
+   мощности платы (≈TBP), видеовыходы, версия VBIOS, дата. Диагностически полезно:
+   питание, «нет сигнала», оценка железки.
 
-Источник — TechPowerUp. `IGpuScraper` был заглушкой ровно под этот шаг; теперь прошиваем
-живую реализацию.
+Источник — TechPowerUp **VGA BIOS collection** (`/vgabios/`). `IGpuScraper` был заглушкой
+ровно под этот шаг; теперь прошиваем живую реализацию.
 
 ## Разведка (спайк 2026-07-20)
 
-Щупали руками (`curl` + браузерный UA) с сервисного бокса:
+Щупали руками (`curl` + браузерный UA) с сервисного бокса. **Важная поправка к
+первоначальной гипотезе:**
 
-- **Cloudflare не блочит.** `gpu-specs` и `vgabios` отдают HTTP 200 с полным HTML, без
-  JS-challenge. Прошлый затык был в fetch-инфре Anthropic, а не в самом боксе. Значит
-  **headless-браузер / Playwright / FlareSolverr не нужны** — хватает `HttpClient` +
-  HTML-парсер. (Оговорка: Cloudflare может закрутить гайки позже — держим за интерфейсом
-  и детектим challenge, см. «Обработка ошибок».)
-- **Спеки — server-side.** На `gpu-specs`-странице TDP/шина/память лежат прямо в
-  разметке, парсятся. URL угадывать нельзя (`.c4293` увёл на чужую карту) — резолвим
-  через поиск/список gpu-specs.
-- **subsystem→плата существует** — VGA BIOS collection. Детальная страница прошивки
-  (`/vgabios/275654/...`) отдала: `Subsystem Id: 1462 5351`, `Device Id: 0x10DE 0x2D04`,
-  `Manufacturer: MSI`, `Model: RTX 5060 Ti` + «Ventus» в теле. Точная торговая SKU лежит
-  в теле/имени файла неструктурно → best-effort.
+- **`gpu-specs` (каталог спеков) — за интерактивной bot-CAPTCHA.** Тело страницы —
+  «Automated bot check in progress… Drag the handle to the target» (Turnstile-стиль),
+  стабильно на всех попытках. Каталожные поля (шина в битах, техпроцесс, физразъёмы
+  питания, дата релиза) оттуда без ручного решения капчи не достать. **Вне scope.**
+- **`/vgabios/` (search + detail) — открыт, server-side HTML, без challenge.** И, что
+  ключевое, отдаёт и точную плату, и реальные спеки конкретной прошивки. Значит
+  **headless-браузер / Playwright не нужны** — обычный `HttpClient` + HTML-парсер.
+
+### Что реально отдаёт vgabios
+
+**Search-список** (`table.bioslist tbody tr`) — уже структурно, включая торговое имя:
+
+```html
+<td class="mfgr">MSI</td>
+<td class="name" data-id="275654">
+  <a href="/vgabios/275654/msi-rtx5060ti-16384-250315-2">RTX 5060 Ti 16 GB</a>
+  <div class="cardname">Ventus 2x OC Plus</div>          <!-- точная SKU -->
+</td>
+<td>2025-03-15 00:00:00</td>   <!-- Date compiled -->
+<td>98.06.1F.00.CD</td>        <!-- VBIOS Version -->
+<td>PCI-E</td>                 <!-- Interface -->
+<td>2407 / 1750 / 2602</td>    <!-- Core / Mem / Boost -->
+<td>GDDR7</td>                 <!-- Memory -->
+```
+
+Фильтры формы: `manufacturer`, `model`, `memType`, `memSize`, `architecture`, `version`,
+`interface`, `since`. **Subsystem-фильтра нет** → точный subsystem-матч добираем фетчем
+detail-страниц кандидатов.
+
+**Detail-страница** (`/vgabios/<id>/...`) — таблица `<tr><th>Label:</th><td>Value</td>`:
+
+```
+Manufacturer: MSI      Model: RTX 5060 Ti      Device Id: 10DE 2D04
+Subsystem Id: 1462 5351      Interface: PCI-E
+Memory Size: 16384 MB      Memory Type: GDDR7
+GPU Clock: 2407 MHz      Boost Clock: 2602 MHz      Memory Clock: 1750 MHz
+VBIOS Version: 98.06.1F.00.CD
+```
+
+Плюс свободный VBIOS-блок ниже: `Connectors 1x HDMI 3x DisplayPort`,
+`Board power limit  Target: 180.0 W  Limit: 180.0 W`.
+
+**Только на detail есть Subsystem Id** — он и есть ключ матча.
 
 ## Архитектура
 
 Механизм — `HttpClient` + **AngleSharp** (лёгкая NuGet, CSS-селекторы; новая зависимость
-только у `SzDiag.Hardware`, только на сервисном боксе, на клиента не заезжает). Живой
-скрапер по TPU реализует уже существующий `IGpuScraper`, расширенный двумя методами.
-Кэш-first ⇒ по TPU ходим только на miss — нагрузки почти нет.
+только у `SzDiag.Hardware`, только на сервисном боксе — на клиента не заезжает). Живой
+скрапер по vgabios реализует существующий `IGpuScraper`, расширенный одним методом
+`ScrapeCardAsync`. Кэш-first ⇒ по TPU ходим только на miss.
 
 Компоненты (каждый — один файл, одна ответственность):
 
 - **`TechPowerUpClient.cs`** — низкоуровневый фетч: GET с браузерным UA и таймаутом,
-  детект Cloudflare-challenge (кидает `ScrapeBlockedException`), общий хелпер загрузки
-  HTML в AngleSharp-документ. Единственное место с сетью.
-- **`TechPowerUpScraper.cs`** (реализует `IGpuScraper`) — три метода (см. ниже): парсинг
-  gpu-specs и vgabios через `TechPowerUpClient` + AngleSharp-селекторы.
-- **`GpuRepository.cs`** — расширяем: таблицы `device_spec`, `board`; методы
-  `LookupSpec/UpsertSpec`, `LookupBoard/UpsertBoard`.
-- **`GpuResolver.cs`** — две новые ветки miss (спеки, плата).
+  детект bot-challenge (`Automated bot check` / `Drag the handle` → `ScrapeBlockedException`),
+  парс HTML в AngleSharp-документ. Единственное место с сетью.
+- **`VgaBiosScraper.cs`** (реализует `IGpuScraper`) — `ScrapeCardAsync`: поиск в
+  vgabios по производителю+модели, фетч detail-кандидатов, матч по Subsystem Id, сбор
+  `ScrapedCard`. `ScrapeAsync` (device-модель) остаётся броском `NotSupportedException` —
+  device-фоллбэк вне scope (pci.ids покрывает).
+- **`GpuRepository.cs`** — расширяем: таблица `card`; методы `LookupCard`/`UpsertCard`.
+- **`GpuResolver.cs`** — одна новая ветка miss (карта по subsystem).
 
 `NotImplementedGpuScraper` остаётся дефолтом до прошивки живого — обратную совместимость
 не ломаем.
@@ -61,75 +92,61 @@
 ```csharp
 public interface IGpuScraper
 {
-    // существующий: дорезолвить модель устройства, которого нет в pci.ids
+    // существующий: device-модель, которой нет в pci.ids. Живьём не реализуем (вне scope).
     Task<PciDevice?> ScrapeAsync(PciId id, CancellationToken ct = default);
 
-    // новый: спеки референс-модели по vendor/device (+ известное имя модели для поиска)
-    Task<GpuSpecs?> ScrapeSpecsAsync(string vendorId, string deviceId, string? model,
-        CancellationToken ct = default);
-
-    // новый: точная плата по subsystem (best-effort)
-    Task<GpuBoard?> ScrapeBoardAsync(PciId id, CancellationToken ct = default);
+    // новый: точная плата + спеки по subsystem из vgabios. model — имя из pci.ids для поиска.
+    Task<ScrapedCard?> ScrapeCardAsync(PciId id, string? model, CancellationToken ct = default);
 }
 ```
 
-Одна когезивная ответственность («достать из внешнего источника»), один consumer
-(`GpuResolver`), один injection-point — поэтому не дробим на три интерфейса.
-`NotImplementedGpuScraper` реализует все три метода броском `NotSupportedException`.
+Один consumer (`GpuResolver`), один injection-point — не дробим на интерфейсы.
+`NotImplementedGpuScraper` реализует оба метода броском `NotSupportedException`.
 
 ## Модель данных
 
-### DTO
+### DTO (`ScrapedCard.cs`)
 
 ```csharp
-public sealed record GpuSpecs(
-    string? Chip, string? Model,
-    string? MemorySize, string? MemoryType, string? MemoryBus,
-    string? ProcessNode, string? Tbp, string? PowerConnectors,
-    string? Outputs, string? ReleaseDate,
-    string SourceUrl);
-
-public sealed record GpuBoard(
+public sealed record ScrapedCard(
     string SubVendorId, string SubDeviceId,
-    string? Manufacturer, string? BoardName,
-    string? DeviceId, string SourceUrl);
+    string? Manufacturer, string? CardName,
+    string? MemorySize, string? MemoryType,
+    string? CoreClock, string? BoostClock, string? MemoryClock,
+    string? PowerTarget, string? PowerLimit,
+    string? Outputs, string? DateCompiled, string? VbiosVersion,
+    string SourceUrl);
 ```
 
-Все поля спеков nullable — на странице может не быть части данных; сохраняем что есть.
-`GpuBoard.BoardName` — best-effort (может остаться null, если торговое имя не выцепилось;
-`Manufacturer` при этом обычно известен).
+Всё, кроме subsystem-id и `SourceUrl`, nullable — на странице может не быть части полей;
+сохраняем что есть. `CardName` — точная SKU («Ventus 2x OC Plus»); при промахе матча
+остаётся null.
 
 ### Схема SQLite (добавляется к vendor/device)
 
 ```sql
-CREATE TABLE IF NOT EXISTS device_spec (
-    vendor_id        TEXT NOT NULL,
-    device_id        TEXT NOT NULL,
-    memory_size      TEXT NULL,
-    memory_type      TEXT NULL,
-    memory_bus       TEXT NULL,
-    process_node     TEXT NULL,
-    tbp              TEXT NULL,
-    power_connectors TEXT NULL,
-    outputs          TEXT NULL,
-    release_date     TEXT NULL,
-    source_url       TEXT NOT NULL,
-    PRIMARY KEY (vendor_id, device_id)
-);
-CREATE TABLE IF NOT EXISTS board (
+CREATE TABLE IF NOT EXISTS card (
     sub_vendor_id TEXT NOT NULL,
     sub_device_id TEXT NOT NULL,
-    device_id     TEXT NULL,
     manufacturer  TEXT NULL,
-    board_name    TEXT NULL,
+    card_name     TEXT NULL,
+    memory_size   TEXT NULL,
+    memory_type   TEXT NULL,
+    core_clock    TEXT NULL,
+    boost_clock   TEXT NULL,
+    memory_clock  TEXT NULL,
+    power_target  TEXT NULL,
+    power_limit   TEXT NULL,
+    outputs       TEXT NULL,
+    date_compiled TEXT NULL,
+    vbios_version TEXT NULL,
     source_url    TEXT NOT NULL,
     PRIMARY KEY (sub_vendor_id, sub_device_id)
 );
 ```
 
-Спеки — на референс-модель (ключ `vendor_id+device_id`), одинаковы для всех плат чипа.
-Плата — на subsystem (`sub_vendor_id+sub_device_id`). Разные TBP конкретных плат Ventus
-vs Gaming не храним (глубоко, YAGNI) — TBP берём референсный.
+Плата+спеки — одна сущность (приходят с одной detail-страницы, ключ — subsystem). Разбивать
+на `board`/`device_spec` смысла нет (один источник).
 
 ### Результат резолва (расширение `GpuResolution`)
 
@@ -139,34 +156,36 @@ public sealed record GpuResolution(
     string DeviceId, string? DeviceName, string? Chip, string? Model,
     string? SubVendorId, string? SubVendorName, string? SubDeviceId,
     string? Revision, GpuSource Source,
-    GpuSpecs? Specs, GpuBoard? Board);
+    ScrapedCard? Card);
 ```
 
-Добавлены `SubDeviceId`, `Specs`, `Board`. `Source` (`Cache`/`Scraper`/`Unresolved`)
-по-прежнему про device-модель. Спеки/плата — независимые best-effort довески: их
-отсутствие не меняет `Source` и не роняет резолв.
+Добавлены `SubDeviceId` и `Card`. `Source` (`Cache`/`Scraper`/`Unresolved`) по-прежнему про
+device-модель. `Card` — независимый best-effort довесок: его отсутствие не меняет `Source`
+и не роняет резолв.
 
 ## Порядок резолва (расширенный кэш-паттерн)
 
 ```
 PCI ID → парсим VEN/DEV/SUBSYS/REV
-  1. вендор/субвендор/device — как сейчас (БД → device-miss → ScrapeAsync → upsert)
-  2. спеки: LookupSpec(ven,dev)
+  1. вендор/субвендор/device — как сейчас (БД → device-miss → ScrapeAsync(stub) → Unresolved)
+  2. карта: если есть SubDeviceId → LookupCard(subven, subdev)
        hit  → отдаём
-       miss → ScrapeSpecsAsync → UpsertSpec → отдаём   (best-effort)
-  3. плата: если есть SubDeviceId → LookupBoard(subven,subdev)
-       hit  → отдаём
-       miss → ScrapeBoardAsync → UpsertBoard → отдаём   (best-effort)
+       miss → ScrapeCardAsync(id, model) → UpsertCard → отдаём   (best-effort)
 ```
 
-Шаги 2–3 обёрнуты так, что `NotSupportedException` (заглушка) и `ScrapeBlockedException`
-(Cloudflare)/сетевые ошибки ловятся → соответствующее поле остаётся null, резолв
-продолжается. Скрапим только на miss — повторный резолв берёт из БД, по TPU не ходит.
+`ScrapeCardAsync` внутри: search vgabios по `manufacturer`(из субвендора)+`model`(из
+pci.ids) → перебор detail-кандидатов → матч Subsystem Id == наш `subven subdev` → сбор
+`ScrapedCard`. Нет матча → возвращает null (плату не определили честно). Шаг 2 обёрнут:
+`NotSupportedException` (заглушка) и `ScrapeBlockedException`/сетевые ошибки ловятся →
+`Card` = null, резолв продолжается. Скрапим только на miss.
+
+Чтобы перебор кандидатов не разросся: сначала фильтруем search по производителю (субвендор
+`1462 → MSI`) и модели — обычно единицы строк; фетчим их detail и сверяем subsystem.
 
 ## CLI
 
-`hw resolve "<PCI ID>"` — вывод расширяется секциями спеков и платы (печатаются, если
-дорезолвлено). Пример:
+`hw resolve "<PCI ID>"` — вывод расширяется секцией платы (печатается, если дорезолвлено).
+Пример:
 
 ```
 PCI\VEN_10DE&DEV_2D04&SUBSYS_53621462&REV_A1
@@ -174,64 +193,66 @@ PCI\VEN_10DE&DEV_2D04&SUBSYS_53621462&REV_A1
   Модель:   GeForce RTX 5060 Ti
   Чип:      GB206
   Партнёр:  Micro-Star International (MSI) (1462)
-  Плата:    MSI RTX 5060 Ti Ventus            (best-effort, TPU VGA BIOS)
   Ревизия:  a1
   Источник: локальная база (pci.ids)
-  Спеки (TPU):
-    Память:   16 GB GDDR7, 128-bit
-    Техпроц.: 5 nm
-    TBP:      180 W, 1x 8-pin
-    Выходы:   3x DP 2.1, 1x HDMI 2.1
-    Выход:    2025-04
+  Плата (TPU VGA BIOS):
+    Карта:    MSI RTX 5060 Ti Ventus 2x OC Plus
+    Память:   16384 MB GDDR7
+    Частоты:  2407 / 2602 / 1750 MHz (core/boost/mem)
+    Питание:  target 180.0 W, limit 180.0 W
+    Выходы:   1x HDMI, 3x DisplayPort
+    VBIOS:    98.06.1F.00.CD (2025-03-15)
 ```
 
-Если TPU недоступен (Cloudflare/сеть) или заглушка — печатаем строку-подсказку, что
-спеки/плата не дорезолвлены (`hw update` / позже), но вендор-модель-партнёр отдаём.
+Если плата не дорезолвлена (нет subsystem-матча / TPU недоступен / заглушка) — печатаем
+строку-подсказку, но вендор-модель-партнёр отдаём.
 
-Путь к БД — существующий `CliOptions.GpuDbPath`. Флаг живого скрапера: в CLI
-инстанцируем `TechPowerUpScraper` вместо `NotImplementedGpuScraper` (единственная точка
-подмены в `Program.cs`).
+Путь к БД — существующий `CliOptions.GpuDbPath`. Живой скрапер: в `Program.cs`
+инстанцируем `VgaBiosScraper` вместо `NotImplementedGpuScraper` (единственная точка
+подмены).
 
 ## Обработка ошибок
 
-- **Cloudflare-challenge**: `TechPowerUpClient` проверяет HTML на маркеры (`just a
-  moment`, `challenge-platform`, `cf-mitigated`) → `ScrapeBlockedException`. Резолвер
-  ловит → best-effort поле null, команда не падает.
+- **bot-challenge**: `TechPowerUpClient` проверяет HTML на маркеры (`Automated bot check`,
+  `Drag the handle`, `challenge-platform`) → `ScrapeBlockedException`. Резолвер ловит →
+  `Card` null, команда не падает.
 - **Сеть/таймаут/404**: скрапер-метод возвращает null (или кидает, резолвер ловит) —
   graceful degradation, вендор-модель остаются.
-- **Парс-miss** (поле не нашлось на странице): соответствующее поле `GpuSpecs`/`GpuBoard`
-  = null, остальное сохраняем. Ни одно поле не обязательно, кроме `SourceUrl`.
-- **Вежливость**: кэш-first (скрап только на genuine miss), одиночные запросы, браузерный
-  UA, короткий таймаут. Массового обхода нет.
+- **Нет subsystem-матча**: `ScrapeCardAsync` → null (плату честно не определили). Не
+  выдумываем: лучше «плата не определена», чем чужая SKU.
+- **Парс-miss** (поле не нашлось): соответствующее поле `ScrapedCard` = null, остальное
+  сохраняем. Обязательны только subsystem-id и `SourceUrl`.
+- **Вежливость**: кэш-first (скрап только на genuine miss), фильтр по производителю режет
+  число фетчей до единиц, браузерный UA, короткий таймаут. Массового обхода нет.
 
 ## Тестирование
 
-Парсинг тестируем на **сохранённых HTML-фикстурах** из спайка (кладём в тест-проект) —
-без живой сети в CI.
+Парсинг тестируем на **сохранённых HTML-фикстурах** vgabios (search-список + detail),
+захваченных курлом в Task 1 и закоммиченных в тест-проект — без живой сети в CI.
 
-- **`TechPowerUpScraperTests`**: фикстура gpu-specs → корректно выцепляет память/техпроц/
-  TBP/разъёмы/выходы/дату; фикстура vgabios-detail → `Subsystem Id`/`Manufacturer`/
-  board-name; фикстура challenge-страницы → `ScrapeBlockedException`; отсутствующее поле
-  → null (не падаем).
-- **`GpuRepositoryTests`** (дополняем): Initialize создаёт `device_spec`/`board`;
-  UpsertSpec + LookupSpec (insert→update по конфликту); UpsertBoard + LookupBoard.
+- **`TechPowerUpClientTests`**: фикстура challenge-страницы → `ScrapeBlockedException`;
+  нормальная страница → документ распарсен.
+- **`VgaBiosParseTests`** (парсинг из фикстур, без сети — методы парсинга статические/
+  internal, принимают HTML-строку): search-список → строки с mfgr/cardname/clocks/date/
+  version/detail-url; detail-страница → subsystem/device/memory/clocks/power/outputs/vbios;
+  отсутствующее поле → null (не падаем).
+- **`GpuRepositoryTests`** (дополняем): Initialize создаёт `card`; UpsertCard + LookupCard
+  (insert→update по конфликту subsystem).
 - **`GpuResolverTests`** (дополняем, фейк-скрапером):
-  - spec-miss → фейк отдаёт `GpuSpecs` → upsert → в резолве `Specs` заполнены; повторный
-    резолв берёт спеки из БД (фейк не зван для спеков).
-  - board-miss при наличии SubDeviceId → фейк отдаёт `GpuBoard` → upsert → `Board`
-    заполнен.
-  - скрапер кидает `ScrapeBlockedException`/`NotSupportedException` → `Specs`/`Board`
-    null, device-часть цела, без исключения наружу.
-- **Живой integration-тест** (реально дёргает TPU) — отдельным трейтом `[Trait("live",
-  "true")]`, из CI исключён, гоняется руками для проверки, что селекторы не протухли.
+  - card-miss при наличии SubDeviceId → фейк отдаёт `ScrapedCard` → upsert → в резолве
+    `Card` заполнен; повторный резолв берёт из БД (фейк не зван).
+  - фейк кидает `ScrapeBlockedException`/`NotSupportedException` → `Card` null, device-часть
+    цела, без исключения наружу.
+  - нет SubDeviceId → скрапер не зван, `Card` null.
+- **Живой integration-тест** (реально дёргает vgabios) — трейтом `[Trait("live","true")]`,
+  из CI исключён, руками проверять, что селекторы не протухли.
 
 ## Вне scope (YAGNI)
 
-- Точный разбор торгового имени сверх best-effort (полноценный «Ventus 2X OC 16G»).
-- Headless-браузер/FlareSolverr как фоллбэк — только если Cloudflare реально закрутит
-  гайки (пока не нужно, curl проходит).
-- Пер-платные спеки (реальный TBP конкретной Ventus vs Gaming) — храним референсные.
-- Полный дамп спеков (частоты, CUDA-ядра, ROP/TMU, FLOPS, длина платы) — берём
-  диагностический минимум.
+- **`gpu-specs`** и его каталожные поля (шина в битах, техпроцесс, физразъёмы питания 8-pin,
+  дата релиза модели) — за интерактивной CAPTCHA, не берём.
+- Headless-браузер/FlareSolverr — не нужны (vgabios открыт); вернёмся, только если vgabios
+  тоже закроют.
+- Живой device-фоллбэк (`ScrapeAsync`) — pci.ids покрывает, остаётся заглушкой.
 - Автовстраивание расшифровки в `report.md` и автозапись в KB `Компоненты/` — возможный
   следующий шаг, не сейчас.
