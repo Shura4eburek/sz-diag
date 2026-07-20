@@ -9,4 +9,6 @@ public interface IGpuRepository
     Task<string?> LookupVendorAsync(string vendorId, CancellationToken ct = default);
     Task<PciDevice?> LookupDeviceAsync(string vendorId, string deviceId, CancellationToken ct = default);
     Task UpsertDeviceAsync(PciDevice device, CancellationToken ct = default);
+    Task<ScrapedCard?> LookupCardAsync(string subVendorId, string subDeviceId, CancellationToken ct = default);
+    Task UpsertCardAsync(ScrapedCard card, CancellationToken ct = default);
 }

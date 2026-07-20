@@ -27,6 +27,24 @@ public sealed class GpuRepository : IGpuRepository
                 source    TEXT NOT NULL DEFAULT 'pci.ids',
                 PRIMARY KEY (vendor_id, device_id)
             );
+            CREATE TABLE IF NOT EXISTS card (
+                sub_vendor_id TEXT NOT NULL,
+                sub_device_id TEXT NOT NULL,
+                manufacturer  TEXT NULL,
+                card_name     TEXT NULL,
+                memory_size   TEXT NULL,
+                memory_type   TEXT NULL,
+                core_clock    TEXT NULL,
+                boost_clock   TEXT NULL,
+                memory_clock  TEXT NULL,
+                power_target  TEXT NULL,
+                power_limit   TEXT NULL,
+                outputs       TEXT NULL,
+                date_compiled TEXT NULL,
+                vbios_version TEXT NULL,
+                source_url    TEXT NOT NULL,
+                PRIMARY KEY (sub_vendor_id, sub_device_id)
+            );
             """;
         await cmd.ExecuteNonQueryAsync(ct);
     }
@@ -121,5 +139,51 @@ public sealed class GpuRepository : IGpuRepository
         cmd.Parameters.AddWithValue("$chip", (object?)device.Chip ?? DBNull.Value);
         cmd.Parameters.AddWithValue("$model", (object?)device.Model ?? DBNull.Value);
         await cmd.ExecuteNonQueryAsync(ct);
+    }
+
+    public async Task UpsertCardAsync(ScrapedCard c, CancellationToken ct = default)
+    {
+        await using var conn = new SqliteConnection(_connectionString);
+        await conn.OpenAsync(ct);
+        await using var cmd = conn.CreateCommand();
+        cmd.CommandText = """
+            INSERT INTO card (sub_vendor_id, sub_device_id, manufacturer, card_name,
+                memory_size, memory_type, core_clock, boost_clock, memory_clock,
+                power_target, power_limit, outputs, date_compiled, vbios_version, source_url)
+            VALUES ($sv,$sd,$mf,$cn,$ms,$mt,$cc,$bc,$mc,$pt,$pl,$out,$dc,$vb,$url)
+            ON CONFLICT(sub_vendor_id, sub_device_id) DO UPDATE SET
+                manufacturer=excluded.manufacturer, card_name=excluded.card_name,
+                memory_size=excluded.memory_size, memory_type=excluded.memory_type,
+                core_clock=excluded.core_clock, boost_clock=excluded.boost_clock,
+                memory_clock=excluded.memory_clock, power_target=excluded.power_target,
+                power_limit=excluded.power_limit, outputs=excluded.outputs,
+                date_compiled=excluded.date_compiled, vbios_version=excluded.vbios_version,
+                source_url=excluded.source_url;
+            """;
+        void P(string n, string? v) => cmd.Parameters.AddWithValue(n, (object?)v ?? DBNull.Value);
+        P("$sv", c.SubVendorId); P("$sd", c.SubDeviceId); P("$mf", c.Manufacturer); P("$cn", c.CardName);
+        P("$ms", c.MemorySize); P("$mt", c.MemoryType); P("$cc", c.CoreClock); P("$bc", c.BoostClock);
+        P("$mc", c.MemoryClock); P("$pt", c.PowerTarget); P("$pl", c.PowerLimit); P("$out", c.Outputs);
+        P("$dc", c.DateCompiled); P("$vb", c.VbiosVersion); P("$url", c.SourceUrl);
+        await cmd.ExecuteNonQueryAsync(ct);
+    }
+
+    public async Task<ScrapedCard?> LookupCardAsync(string subVendorId, string subDeviceId, CancellationToken ct = default)
+    {
+        await using var conn = new SqliteConnection(_connectionString);
+        await conn.OpenAsync(ct);
+        await using var cmd = conn.CreateCommand();
+        cmd.CommandText = """
+            SELECT manufacturer, card_name, memory_size, memory_type, core_clock, boost_clock,
+                   memory_clock, power_target, power_limit, outputs, date_compiled, vbios_version, source_url
+            FROM card WHERE sub_vendor_id = $sv AND sub_device_id = $sd;
+            """;
+        cmd.Parameters.AddWithValue("$sv", subVendorId);
+        cmd.Parameters.AddWithValue("$sd", subDeviceId);
+        await using var r = await cmd.ExecuteReaderAsync(ct);
+        if (!await r.ReadAsync(ct)) return null;
+        string? S(int i) => r.IsDBNull(i) ? null : r.GetString(i);
+        return new ScrapedCard(subVendorId, subDeviceId,
+            S(0), S(1), S(2), S(3), S(4), S(5), S(6), S(7), S(8), S(9), S(10), S(11), S(12)!);
     }
 }
