@@ -45,6 +45,13 @@ public sealed class KbRecorder
             fm.AddToList("заменено", Quoted(c));
             _entities.EnsureComponent(c);
         }
+        foreach (var spt in req.Symptoms)
+        {
+            fm.AddToList("симптом", Quoted(spt));
+            _entities.EnsureSymptom(spt);
+        }
+        if (req.Status is not null) fm.SetScalar("статус", req.Status);
+        if (req.Verdict is not null) fm.SetScalar("вердикт", req.Verdict);
         File.WriteAllText(homePath, fm.Serialize());
 
         var date = _now().ToString("yyyy-MM-dd");
