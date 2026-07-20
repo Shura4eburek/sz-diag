@@ -15,6 +15,10 @@ public sealed class KbPaths
     public string LogsDir(string sz) => Path.Combine(SzDir(sz), "logs");
     public string ReportsDir(string sz) => Path.Combine(SzDir(sz), "reports");
     public string ReportDir(string sz, string timestamp) => Path.Combine(ReportsDir(sz), timestamp);
+    public string Summary(string sz) => Path.Combine(SzDir(sz), "вывод.md");
+
+    public string SymptomsRoot => Path.Combine(Root, "Симптомы");
+    public string SymptomNote(string symptom) => Path.Combine(SymptomsRoot, $"{symptom}.md");
 
     public string OrderNote(string order) => Path.Combine(Root, "Заказы", $"{order}.md");
     public string DefectNote(string defect) => Path.Combine(Root, "Дефекты", $"{defect}.md");
