@@ -13,7 +13,8 @@ Claude работает на чистом сервисном боксе и до�
 
 ## Что уже работает
 
-- **Агент** на клиенте открывает SSH через портативный sshd (свои host-ключи каждую сессию,
+- **Агент** на клиенте открывает SSH через портативный sshd **под SYSTEM** (транзиентная
+  scheduled task — нужен `SeTcbPrivilege` для logon-token; свои host-ключи каждую сессию,
   без системной службы OpenSSH и Windows Update), шлёт heartbeat, по команде гоняет
   тест-раннер и заливает отчёт. Доступ откатывается по флагам (клавиша `C` / команда `close`
   с хоста / watchdog по таймауту).
@@ -26,15 +27,14 @@ Claude работает на чистом сервисном боксе и до�
   дорезолв точной партнёрской платы (SKU) и спеков прошивки из TechPowerUp VGA BIOS
   collection, кэш в SQLite. CLI: `szcli hw import/update/resolve`.
 
-**Известное ограничение:** SSH-доступ упирается в token-privilege портативного sshd
-(дочерний процесс админ-агента не создаёт logon-token → `Connection reset` на userauth).
-Фикс — поднимать sshd под SYSTEM (план Б, `docs/TESTING.md`).
+**Статус:** sshd под SYSTEM (план Б) реализован (2026-07-20), ждёт e2e-проверки на реальной
+онлайн-СЗ — чеклист в [docs/TESTING.md](docs/TESTING.md) («Проверка token-privilege»).
 
 ## Быстрый старт
 
 ```powershell
 dotnet build          # сборка
-dotnet test           # автотесты (~147, без хоста/клиента)
+dotnet test           # автотесты (~151, без хоста/клиента)
 .\tools\build-dist.ps1 # готовый dist: dist\host\ (hub+cli) и dist\client\ (agent)
 ```
 

@@ -10,6 +10,10 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 временно открывает SSH-доступ и регистрируется под номером СЗ; центральный hub держит
 маппинг `СЗ → IP`, а CLI показывает, какие СЗ онлайн. См. [docs/vision.md](docs/vision.md).
 
+**Плотная карта всего функционала** (протокол SignalR/`/api`, точки расширения, таблицы
+параметров, рецепты) — [docs/dev-knowledge-base.md](docs/dev-knowledge-base.md). Держи её в
+актуальном состоянии при правках протокола/жизненного цикла.
+
 Модель угроз (важно): клиентская машина — наименее доверенное устройство, часто заражена.
 Рабочий токен на неё **не заезжает**; диагностика идёт по сети (SSH). Весь доступ на
 клиенте временный и **откатывается без следов** при закрытии СЗ.
@@ -23,11 +27,15 @@ SeTcbPrivilege для logon-token; раньше дочерний процесс 
 [docs/plan-b-quickstart.md](docs/plan-b-quickstart.md). Дальше — runbook «дал СЗ →
 сразу коннект и диагностика».
 
+Смежное предложение (экономия токенов Claude): команда `RunDiag` — один структурированный
+снапшот железа/дисков/SMART/событий вместо россыпи ad-hoc ssh-команд. Дизайн и каталог секций —
+[docs/superpowers/specs/2026-07-20-agent-diag-commands-design.md](docs/superpowers/specs/2026-07-20-agent-diag-commands-design.md).
+
 ## Команды
 
 ```powershell
 dotnet build                       # сборка солюшена
-dotnet test                        # все автотесты (~147), без хоста/клиента
+dotnet test                        # все автотесты (~151), без хоста/клиента
 dotnet test tests/SzDiag.Agent.Tests            # тесты одного проекта
 dotnet test --filter FullyQualifiedName~RevertCoordinator   # один класс/тест
 $env:SZDIAG_LIVE=1; dotnet test    # + live-тест vgabios (реально ходит на TPU; по умолчанию skip)
@@ -83,17 +91,23 @@ $env:SZDIAG_LIVE=1; dotnet test    # + live-тест vgabios (реально х�
 задаются в конфиге hub (`Hub.AgentToken` / `Hub.ManagementToken`).
 
 **Жизненный цикл доступа (ключевой инвариант).** `WindowsSystemAccessManager.Open`
-применяет шаги по порядку (OpenSSH Server → служба → firewall →
-`LocalAccountTokenFilterPolicy` → учётка `svc-diag` → `administrators_authorized_keys` →
-watchdog scheduled task) и **прогрессивно** пишет `RevertState` в файл после каждого шага
+применяет шаги по порядку (остановка системного sshd, если занял порт → firewall →
+`LocalAccountTokenFilterPolicy` → учётка `svc-diag` → портативный sshd **под SYSTEM**
+(транзиентная scheduled task, свои host-ключи + свой `authorized_keys`) → watchdog
+scheduled task) и **прогрессивно** пишет `RevertState` в файл после каждого шага
 (переживает краш). `Revert` откатывает в обратном порядке **по флагам** — каждый шаг
 идемпотентен, повторный вызов безопасен. Откат срабатывает тремя путями: клавиша `C` /
 крестик окна (`ConsoleCloseGuard` ловит `CTRL_CLOSE_EVENT`), команда `close` с хоста
 (hub → SignalR `Revert`), или watchdog scheduled task по таймауту (`WatchdogHours`).
 
+sshd поднимается транзиентной задачей под SYSTEM (`szdiag-sshd-<СЗ>`, `PortableSshServer`):
+у LocalSystem есть `SeTcbPrivilege` для logon-token при publickey-логине — у админ-агента
+дочерним процессом его нет (`Connection reset` на userauth). Свой sshd владеет собственным
+`AuthorizedKeysFile` в рабочей папке (`Match Group administrators` в конфиге), системный
+`administrators_authorized_keys` не трогаем.
+
 При правке `Open` **всегда** добавляй парную ветку в `Revert` под своим флагом в
-`RevertState`, иначе на клиентской машине останутся следы. На Windows ключ админа идёт в
-`administrators_authorized_keys` (per-user `authorized_keys` OpenSSH для админов игнорирует).
+`RevertState`, иначе на клиентской машине останутся следы (задача, живой sshd, ключи).
 
 ## Конвенции
 
