@@ -22,10 +22,20 @@ public static class KbCommand
                 Replaced = Many(flags, "replaced"),
                 Findings = Many(flags, "finding"),
                 Actions = Many(flags, "action"),
+                Symptoms = Many(flags, "symptom"),
+                Status = Single(flags, "status"),
+                Verdict = Single(flags, "verdict"),
             };
             var scaffolder = new KnowledgeBaseScaffolder(kbRoot);
             new KbRecorder(paths, scaffolder, new EntityNoteWriter(paths)).Record(req);
             Console.WriteLine($"СЗ {req.Sz}: записано в базу знаний.");
+            return Task.CompletedTask;
+        }
+
+        if (sub == "summary" && args.Length >= 2)
+        {
+            var path = new KnowledgeBaseScaffolder(kbRoot).EnsureSummarySkeleton(args[1]);
+            Console.WriteLine($"СЗ {args[1]}: скелет вывода — {path}");
             return Task.CompletedTask;
         }
 
@@ -41,7 +51,8 @@ public static class KbCommand
 
         Console.WriteLine("""
             Использование:
-              szcli kb record <СЗ> [--order X] [--device X] [--defect X]... [--replaced X]... [--finding "..."]... [--action "..."]...
+              szcli kb record <СЗ> [--order X] [--device X] [--defect X]... [--replaced X]... [--symptom "..."]... [--finding "..."]... [--action "..."]... [--status X] [--verdict X]
+              szcli kb summary <СЗ>
               szcli kb search [--order X] [--text "..."]
             """);
         return Task.CompletedTask;
