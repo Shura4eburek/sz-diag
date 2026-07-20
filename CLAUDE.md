@@ -37,7 +37,7 @@ dotnet test --filter FullyQualifiedName~RevertCoordinator   # один клас�
 
 ## Архитектура
 
-Пять проектов в `src/` + зеркальные тесты в `tests/`:
+Шесть проектов в `src/` + зеркальные тесты в `tests/`:
 
 - **SzDiag.Contracts** — DTO и константы, общие для агента и hub (`HubRoutes` — единый
   источник имён SignalR-методов и заголовков, чтобы строки не расходились). Меняешь протокол
@@ -52,6 +52,11 @@ dotnet test --filter FullyQualifiedName~RevertCoordinator   # один клас�
 - **SzDiag.Agent** — консоль на клиенте (`net8.0`, требует прав админа, `app.manifest`).
   Открывает доступ, коннектится к hub по SignalR, шлёт heartbeat, по команде hub гоняет
   тест-раннер и заливает отчёт. `--revert <statePath>` — режим watchdog/автозакрытия.
+- **SzDiag.Hardware** — определение видеокарты по Windows PCI hardware ID
+  (`PCI\VEN_..&DEV_..&SUBSYS_..`). `PciId.Parse` разбирает id, `PciIdsParser` парсит базу
+  pci.ids, `GpuRepository` (SQLite `gpu.db`) хранит вендоров/устройства, `GpuResolver`
+  резолвит по кэш-паттерну БД→miss→`IGpuScraper`→запись. TPU-скрапер отложен (Cloudflare)
+  за заглушкой `NotImplementedGpuScraper`. CLI: `szcli hw import/update/resolve`.
 - **SzDiag.Kb** — работа с базой знаний в формате Obsidian-vault (`KbPaths` — единственное
   место с именами папок: `СЗ/`, `Заказы/`, `Дефекты/`, `Компоненты/`, `Устройства/`,
   `Симптомы/`). Hub пишет сюда скелет по каждой СЗ и отчёты. По СЗ, помимо каркаса,
