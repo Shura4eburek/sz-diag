@@ -18,6 +18,9 @@ public static class HubRoutes
     // Hub -> агент: запустить прогон тестов.
     public const string RunTests = nameof(RunTests);
 
+    // Hub -> агент: собрать диагностический снапшот (read-only, по секциям).
+    public const string RunDiag = nameof(RunDiag);
+
     // Агент -> hub: загрузить файл отчёта.
     public const string UploadReportFile = nameof(UploadReportFile);
 

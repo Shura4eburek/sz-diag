@@ -38,7 +38,8 @@
 | Метод (`HubRoutes`) | Параметры | Обработчик на агенте |
 |---|---|---|
 | `Revert` | `sz` | `AgentSession` → `RevertCoordinator.TriggerAsync` (откат) |
-| `RunTests` | `sz, filter?` | `Program.cs` `OnRunTests` → `TestReportRunner.RunAndUploadAsync` |
+| `RunTests` | `sz, filter?` | `Program.cs` `OnRunTests` → `TestReportRunner.RunAndUploadAsync` (стресс) |
+| `RunDiag` | `sz, sections?` | `Program.cs` `OnRunDiag` → `DiagReportRunner.RunAndUploadAsync` (read-only снапшот → `diag.md`) |
 
 Прямого RPC-возврата нет: hub **push-ит** команду, агент отвечает **отдельными** server-инвокациями
 (`UploadReportFile`/`ReportActivity`). Новый вид результата = новый агент→hub метод по образцу.
@@ -54,6 +55,7 @@ CLI-токен — заголовок `X-SzDiag-Mgmt-Token` (`ManagementApi.Toke
 | `GET /api/sessions` | `Registry.GetActive()` | `SessionInfo[]` |
 | `POST /api/sessions/{sz}/close` | `SessionCloser.CloseAsync` | `Ok`/`NotFound` |
 | `POST /api/sessions/{sz}/test?filter=` | `TestRunTrigger.TriggerAsync` | `Ok`/`NotFound` |
+| `POST /api/sessions/{sz}/diag?sections=` | `DiagRunTrigger.TriggerAsync` | `Ok`/`NotFound` |
 | `GET /api/sessions/{sz}/target` | реестр + `ServiceAccount` | `TargetInfo{Sz,Ip,User,Ssh}`/`NotFound` |
 
 ### Автообнаружение hub (`DiscoveryProtocol`, UDP `5098`)
@@ -125,8 +127,19 @@ discovery не запускается.
 `RunAndUploadAsync`: фильтр шагов → прогон в `Task.Run` с колбэком `OnStep`→`ReportActivity` →
 `ReportMarkdownBuilder.Build`→`report.md` через `UploadReportFile` → скриншоты/артефакты отдельными
 `UploadReportPart`. `allClean` = нет ошибок и нет `⚠`. Скриншот — `GdiScreenCapturer`
-(`Graphics.CopyFromScreen`, только интерактивная сессия). Диагностического API помимо тест-раннера
-сейчас нет (см. спеку agent-diag-commands).
+(`Graphics.CopyFromScreen`, только интерактивная сессия).
+
+### Диагностика RunDiag (read-only снапшот)
+
+`DiagnosticProbes` — встроенный каталог секций (`command`-пробы, Id=секция), не требует
+`testsuite.json`, канал всегда доступен. Секции: `system cpu memory gpu storage temps drivers
+events reliability battery` (без `network`/`security`). `DiagReportRunner.RunAndUploadAsync(sz,
+sections?)` фильтрует секции (`TestReportRunner.FilterSteps`), гоняет через тот же `TestRunner`,
+строит `diag.md` (`DiagReportBuilder`, Kb), заливает одним `UploadReportPart`. Секции запускаются
+**точечно** (`szcli diag run <СЗ> storage,events`), не всё пачкой — снапшот вместо россыпи ssh.
+gpu-проба даёт `PCI\VEN_..&DEV_..&SUBSYS_..` прямо на вход hardware-резолверу. **Тело проб —
+строго ASCII** (уходит в `powershell.exe` 5.1 через stdin в кодовой странице консоли; кириллица
+в идентификаторах ломает парсер — русские заголовки живут в C# `Name` → `diag.md`).
 
 ## Хост (`SzDiag.Hub`)
 
@@ -152,7 +165,7 @@ discovery не запускается.
 (`HubBaseUrl=http://localhost:5000`, `ManagementToken`, `KbRoot=kb`, `GpuDbPath`, `PciIdsPath`).
 
 - `watch` (дефолт) — Spectre `Live`, каждые 1000 мс `GET /api/sessions`, таблица СЗ/Статус/IP/Хост/Активность.
-- `list` · `close <СЗ>` · `target <СЗ>` · `test run <СЗ> [фильтр]` — к соответствующим `/api`.
+- `list` · `close <СЗ>` · `target <СЗ>` · `test run <СЗ> [фильтр]` · `diag run <СЗ> [секции]` — к соответствующим `/api`.
 - `kb record/summary/search …` — локальная ФС через `SzDiag.Kb` (без HTTP).
 - `hw import [path] / update / resolve "<PCI ID>"` — локальная БД + `VgaBiosScraper`.
 
@@ -201,7 +214,7 @@ discovery не запускается.
 ## Быстрые команды
 
 ```powershell
-dotnet build; dotnet test                 # ~151 тест, без хоста/клиента
+dotnet build; dotnet test                 # ~161 тест, без хоста/клиента
 dotnet test --filter FullyQualifiedName~RevertCoordinator
 $env:SZDIAG_LIVE=1; dotnet test           # + live vgabios (ходит на TPU)
 .\tools\build-dist.ps1 [-HubIp <LAN-IP>]  # публикация dist\host\ + dist\client\

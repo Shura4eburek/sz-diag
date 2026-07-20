@@ -154,6 +154,39 @@ if (File.Exists(suitePath))
     });
 }
 
+// Диагностика: по команде hub RunDiag собрать read-only снапшот и залить diag.md.
+// Каталог проб встроен (DiagnosticProbes) — работает всегда, не требует testsuite.json.
+// Секции гоняются точечно по фильтру (`szcli diag run <СЗ> storage,events`), не всё пачкой.
+var diagRunner = new DiagReportRunner(
+    new TestRunner(new PowerShellCommandExecutor(ps), new GdiScreenCapturer()),
+    DiagnosticProbes.Suite, link, Environment.MachineName);
+link.OnRunDiag(async (runSz, sections) =>
+{
+    var scope = string.IsNullOrWhiteSpace(sections) ? "все секции" : $"секции {sections}";
+    Announce($"Диагностика СЗ {runSz} ({scope})…", $"[grey]Диагностика СЗ {runSz} ({scope})…[/]");
+    try
+    {
+        var outcome = await diagRunner.RunAndUploadAsync(runSz, sections);
+        if (!outcome.Ran)
+        {
+            var s = string.Join(", ", outcome.AvailableSections);
+            Announce($"Не найдено секций по фильтру '{sections}'. Доступные: {s}",
+                $"[yellow]Не найдено секций по фильтру '{Markup.Escape(sections ?? "")}'.[/] Доступные: {Markup.Escape(s)}");
+            await link.ReportActivityAsync(runSz, "— готов", null);
+        }
+        else
+        {
+            Announce("Диаг-отчёт залит на hub.", "[green]Диаг-отчёт залит на hub.[/]");
+            await link.ReportActivityAsync(runSz, $"готов · диагностика: {outcome.RanLabel}", null);
+        }
+    }
+    catch (Exception ex)
+    {
+        Announce($"Ошибка диагностики: {ex.Message}", $"[red]Ошибка диагностики:[/] {Markup.Escape(ex.Message)}");
+        try { await link.ReportActivityAsync(runSz, "готов · диагностика: ошибка ⚠", null); } catch { }
+    }
+});
+
 // Перехват закрытия окна консоли (крестик) → откат.
 using var closeGuard = new ConsoleCloseGuard(() => session.RevertAsync().GetAwaiter().GetResult());
 

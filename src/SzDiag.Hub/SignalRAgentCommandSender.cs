@@ -14,4 +14,7 @@ public sealed class SignalRAgentCommandSender : IAgentCommandSender
 
     public Task SendRunTestsAsync(string connectionId, string sz, string? filter, CancellationToken ct = default)
         => _hub.Clients.Client(connectionId).SendAsync(HubRoutes.RunTests, sz, filter, ct);
+
+    public Task SendRunDiagAsync(string connectionId, string sz, string? sections, CancellationToken ct = default)
+        => _hub.Clients.Client(connectionId).SendAsync(HubRoutes.RunDiag, sz, sections, ct);
 }

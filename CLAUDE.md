@@ -27,15 +27,16 @@ SeTcbPrivilege для logon-token; раньше дочерний процесс 
 [docs/plan-b-quickstart.md](docs/plan-b-quickstart.md). Дальше — runbook «дал СЗ →
 сразу коннект и диагностика».
 
-Смежное предложение (экономия токенов Claude): команда `RunDiag` — один структурированный
-снапшот железа/дисков/SMART/событий вместо россыпи ad-hoc ssh-команд. Дизайн и каталог секций —
+Экономия токенов Claude: команда `RunDiag` (✅ реализована) — один структурированный снапшот
+железа/дисков/SMART/событий (`szcli diag run <СЗ> [секции]` → `diag.md` в kb) вместо россыпи
+ad-hoc ssh. Секции гоняются точечно. Дизайн/каталог —
 [docs/superpowers/specs/2026-07-20-agent-diag-commands-design.md](docs/superpowers/specs/2026-07-20-agent-diag-commands-design.md).
 
 ## Команды
 
 ```powershell
 dotnet build                       # сборка солюшена
-dotnet test                        # все автотесты (~151), без хоста/клиента
+dotnet test                        # все автотесты (~161), без хоста/клиента
 dotnet test tests/SzDiag.Agent.Tests            # тесты одного проекта
 dotnet test --filter FullyQualifiedName~RevertCoordinator   # один класс/тест
 $env:SZDIAG_LIVE=1; dotnet test    # + live-тест vgabios (реально ходит на TPU; по умолчанию skip)

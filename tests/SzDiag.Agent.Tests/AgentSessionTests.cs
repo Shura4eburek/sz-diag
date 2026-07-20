@@ -32,6 +32,7 @@ public class AgentSessionTests
         public List<SzDiag.Contracts.UploadReportPart> Uploaded { get; } = new();
         private Func<string, string?, Task>? _onRunTests;
         public void OnRunTests(Func<string, string?, Task> handler) => _onRunTests = handler;
+        public void OnRunDiag(Func<string, string?, Task> handler) { }
         public Task UploadReportFileAsync(SzDiag.Contracts.UploadReportPart part, CancellationToken ct = default)
         {
             Uploaded.Add(part);

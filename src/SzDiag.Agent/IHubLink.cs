@@ -13,6 +13,9 @@ public interface IHubLink
     /// <summary>Подписка на команду прогона тестов от hub (sz, filter → callback).</summary>
     void OnRunTests(Func<string, string?, Task> handler);
 
+    /// <summary>Подписка на команду диагностики от hub (sz, sections → callback).</summary>
+    void OnRunDiag(Func<string, string?, Task> handler);
+
     Task UploadReportFileAsync(SzDiag.Contracts.UploadReportPart part, CancellationToken ct = default);
 
     /// <summary>Агент -> hub: текущая активность (метка + время старта; since=null — простой).</summary>

@@ -30,6 +30,9 @@ public sealed class SignalRHubLink : IHubLink
     public void OnRunTests(Func<string, string?, Task> handler)
         => _conn.On<string, string?>(HubRoutes.RunTests, (sz, filter) => handler(sz, filter));
 
+    public void OnRunDiag(Func<string, string?, Task> handler)
+        => _conn.On<string, string?>(HubRoutes.RunDiag, (sz, sections) => handler(sz, sections));
+
     public Task UploadReportFileAsync(UploadReportPart part, CancellationToken ct = default)
         => _conn.InvokeAsync(HubRoutes.UploadReportFile, part, ct);
 

@@ -38,6 +38,7 @@ builder.Services.AddHostedService(sp =>
 builder.Services.AddSingleton<IAgentCommandSender, SignalRAgentCommandSender>();
 builder.Services.AddSingleton<SessionCloser>();
 builder.Services.AddSingleton<TestRunTrigger>();
+builder.Services.AddSingleton<DiagRunTrigger>();
 builder.Services.AddSignalR(o =>
 {
     o.MaximumReceiveMessageSize = 10 * 1024 * 1024;

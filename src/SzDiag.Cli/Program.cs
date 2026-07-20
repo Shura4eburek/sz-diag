@@ -63,6 +63,17 @@ switch (command)
             AnsiConsole.MarkupLineInterpolated($"[red]СЗ {args[2]} не найдена[/] среди активных.");
         break;
 
+    case "diag" when args.Length >= 3 && args[1].Equals("run", StringComparison.OrdinalIgnoreCase):
+        var diagSections = args.Length >= 4 ? args[3] : null;
+        if (await client.TriggerDiagAsync(args[2], diagSections))
+        {
+            var scope = diagSections is null ? "все секции" : $"секции: {diagSections}";
+            AnsiConsole.MarkupLineInterpolated($"[green]СЗ {args[2]}: диагностика запущена[/] ({scope}) на агенте (diag.md появится в kb).");
+        }
+        else
+            AnsiConsole.MarkupLineInterpolated($"[red]СЗ {args[2]} не найдена[/] среди активных.");
+        break;
+
     default:
         AnsiConsole.Write(new Rule("[bold]sz-diag[/]").LeftJustified());
         AnsiConsole.MarkupLine("""
@@ -72,6 +83,8 @@ switch (command)
               [yellow]szcli close[/] [blue]<СЗ>[/]         закрыть СЗ (revert на агенте)
               [yellow]szcli target[/] [blue]<СЗ>[/]        SSH-адрес по номеру СЗ
               [yellow]szcli test run[/] [blue]<СЗ>[/] [grey][[occt|tm5,furmark|…]][/]  прогон тестов (все или по id)
+              [yellow]szcli diag run[/] [blue]<СЗ>[/] [grey][[storage,events|…]][/]  диагностика (снапшот; секции точечно)
+                [grey]секции: system cpu memory gpu storage temps drivers events reliability battery[/]
               [yellow]szcli kb[/] …               работа с базой знаний
               [yellow]szcli hw[/] …               видяха по PCI hardware id
             """);

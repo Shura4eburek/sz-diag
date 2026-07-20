@@ -11,6 +11,8 @@ public class TestRunTriggerTests
         public List<(string conn, string sz, string? filter)> Tests { get; } = new();
         public Task SendRevertAsync(string c, string sz, CancellationToken ct = default) { Reverts.Add((c, sz)); return Task.CompletedTask; }
         public Task SendRunTestsAsync(string c, string sz, string? filter, CancellationToken ct = default) { Tests.Add((c, sz, filter)); return Task.CompletedTask; }
+        public List<(string conn, string sz, string? sections)> Diags { get; } = new();
+        public Task SendRunDiagAsync(string c, string sz, string? sections, CancellationToken ct = default) { Diags.Add((c, sz, sections)); return Task.CompletedTask; }
     }
 
     [Fact]

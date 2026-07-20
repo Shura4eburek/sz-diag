@@ -30,6 +30,9 @@ public static class ManagementApi
         group.MapPost("/sessions/{sz}/test", async (string sz, string? filter, TestRunTrigger trigger) =>
             await trigger.TriggerAsync(sz, filter) ? Results.Ok() : Results.NotFound());
 
+        group.MapPost("/sessions/{sz}/diag", async (string sz, string? sections, DiagRunTrigger trigger) =>
+            await trigger.TriggerAsync(sz, sections) ? Results.Ok() : Results.NotFound());
+
         group.MapGet("/sessions/{sz}/target", (string sz, SessionRegistry reg, IOptions<HubOptions> opts) =>
         {
             var s = reg.GetActive().FirstOrDefault(x => x.Sz == sz);

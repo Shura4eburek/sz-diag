@@ -96,4 +96,23 @@ public class HubApiClientTests
 
         Assert.Contains("filter=occt", handler.LastRequest!.RequestUri!.Query);
     }
+
+    [Fact]
+    public async Task TriggerDiag_Ok_ReturnsTrue()
+    {
+        var client = NewClient(new StubHandler(HttpStatusCode.OK));
+        Assert.True(await client.TriggerDiagAsync("156864"));
+    }
+
+    [Fact]
+    public async Task TriggerDiag_WithSections_AppendsQuery()
+    {
+        var handler = new StubHandler(HttpStatusCode.OK);
+        var client = NewClient(handler);
+
+        await client.TriggerDiagAsync("156864", "storage,events");
+
+        Assert.Contains("/api/sessions/156864/diag", handler.LastRequest!.RequestUri!.AbsolutePath);
+        Assert.Contains("sections=storage", handler.LastRequest!.RequestUri!.Query);
+    }
 }

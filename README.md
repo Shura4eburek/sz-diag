@@ -34,7 +34,7 @@ Claude работает на чистом сервисном боксе и до�
 
 ```powershell
 dotnet build          # сборка
-dotnet test           # автотесты (~151, без хоста/клиента)
+dotnet test           # автотесты (~161, без хоста/клиента)
 .\tools\build-dist.ps1 # готовый dist: dist\host\ (hub+cli) и dist\client\ (agent)
 ```
 

@@ -40,4 +40,13 @@ public sealed class HubApiClient : IHubApiClient
         var resp = await _http.PostAsync(url, null, ct);
         return resp.StatusCode == HttpStatusCode.OK;
     }
+
+    public async Task<bool> TriggerDiagAsync(string sz, string? sections = null, CancellationToken ct = default)
+    {
+        var url = string.IsNullOrWhiteSpace(sections)
+            ? $"/api/sessions/{sz}/diag"
+            : $"/api/sessions/{sz}/diag?sections={Uri.EscapeDataString(sections)}";
+        var resp = await _http.PostAsync(url, null, ct);
+        return resp.StatusCode == HttpStatusCode.OK;
+    }
 }
