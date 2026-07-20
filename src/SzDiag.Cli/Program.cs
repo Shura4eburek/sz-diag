@@ -48,6 +48,10 @@ switch (command)
         await KbCommand.RunAsync(args[1..], options.KbRoot);
         break;
 
+    case "hw" when args.Length >= 2:
+        await HwCommand.RunAsync(args[1..], ResolveLocal(options.GpuDbPath), ResolveLocal(options.PciIdsPath));
+        break;
+
     case "test" when args.Length >= 3 && args[1].Equals("run", StringComparison.OrdinalIgnoreCase):
         var testFilter = args.Length >= 4 ? args[3] : null;
         if (await client.TriggerTestAsync(args[2], testFilter))
@@ -69,9 +73,13 @@ switch (command)
               [yellow]szcli target[/] [blue]<СЗ>[/]        SSH-адрес по номеру СЗ
               [yellow]szcli test run[/] [blue]<СЗ>[/] [grey][[occt|tm5,furmark|…]][/]  прогон тестов (все или по id)
               [yellow]szcli kb[/] …               работа с базой знаний
+              [yellow]szcli hw[/] …               видяха по PCI hardware id
             """);
         break;
 }
+
+static string ResolveLocal(string path)
+    => Path.IsPathRooted(path) ? path : Path.Combine(AppContext.BaseDirectory, path);
 
 static async Task WatchAsync(IHubApiClient client)
 {

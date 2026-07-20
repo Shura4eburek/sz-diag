@@ -3,6 +3,7 @@
   <ItemGroup>
     <ProjectReference Include="..\SzDiag.Contracts\SzDiag.Contracts.csproj" />
     <ProjectReference Include="..\SzDiag.Kb\SzDiag.Kb.csproj" />
+    <ProjectReference Include="..\SzDiag.Hardware\SzDiag.Hardware.csproj" />
   </ItemGroup>
 
   <ItemGroup>
