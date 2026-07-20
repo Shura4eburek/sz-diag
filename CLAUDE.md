@@ -18,9 +18,10 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ```powershell
 dotnet build                       # сборка солюшена
-dotnet test                        # все автотесты (~76), без хоста/клиента
+dotnet test                        # все автотесты (~147), без хоста/клиента
 dotnet test tests/SzDiag.Agent.Tests            # тесты одного проекта
 dotnet test --filter FullyQualifiedName~RevertCoordinator   # один класс/тест
+$env:SZDIAG_LIVE=1; dotnet test    # + live-тест vgabios (реально ходит на TPU; по умолчанию skip)
 .\tools\build-dist.ps1             # публикация готового dist (host + client), см. ниже
 .\tools\build-dist.ps1 -HubIp 192.168.1.50      # клиент — отдельная ВМ: LAN-IP хоста
 ```
