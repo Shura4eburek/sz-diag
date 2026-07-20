@@ -14,6 +14,13 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 Рабочий токен на неё **не заезжает**; диагностика идёт по сети (SSH). Весь доступ на
 клиенте временный и **откатывается без следов** при закрытии СЗ.
 
+## Следующая задача (незакончена)
+
+**План Б — портативный sshd под SYSTEM.** SSH-доступ на клиента сейчас не работает
+(token-privilege: sshd дочерним процессом админ-агента не создаёт logon-token → `Connection
+reset` на userauth). Быстрый старт с полным контекстом, диагнозом и файлами для правки —
+[docs/plan-b-quickstart.md](docs/plan-b-quickstart.md). Начинать с brainstorming.
+
 ## Команды
 
 ```powershell
