@@ -18,7 +18,9 @@ public class RevertStateStoreTests : IDisposable
             TokenPolicyPreviousValue = null,
             FirewallRuleName = "szdiag-ssh",
             StoppedSystemSshd = true,
-            GeneratedHostKeys = true
+            GeneratedHostKeys = true,
+            SshdTaskName = "szdiag-sshd-156864",
+            CreatedSshdTask = true
         };
 
         RevertStateStore.Save(_path, state);
@@ -32,6 +34,8 @@ public class RevertStateStoreTests : IDisposable
         Assert.Equal("szdiag-ssh", loaded.FirewallRuleName);
         Assert.True(loaded.StoppedSystemSshd);
         Assert.True(loaded.GeneratedHostKeys);
+        Assert.Equal("szdiag-sshd-156864", loaded.SshdTaskName);
+        Assert.True(loaded.CreatedSshdTask);
     }
 
     [Fact]

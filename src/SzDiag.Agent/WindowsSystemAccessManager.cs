@@ -13,11 +13,11 @@ public sealed class WindowsSystemAccessManager : ISystemAccessManager
     private const string AdminsSid = "S-1-5-32-544";
     private const string TokenPolicyPath = @"HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System";
 
-    private readonly PowerShellRunner _ps;
+    private readonly IPowerShellRunner _ps;
     private readonly PortableSshServer _sshd;
     private readonly string _statePath;
 
-    public WindowsSystemAccessManager(PowerShellRunner ps, PortableSshServer sshd, string statePath)
+    public WindowsSystemAccessManager(IPowerShellRunner ps, PortableSshServer sshd, string statePath)
     {
         _ps = ps;
         _sshd = sshd;
@@ -32,6 +32,7 @@ public sealed class WindowsSystemAccessManager : ISystemAccessManager
             ServiceAccount = spec.ServiceAccount,
             FirewallRuleName = $"szdiag-ssh-{spec.Sz}",
             WatchdogTaskName = $"szdiag-watchdog-{spec.Sz}",
+            SshdTaskName = $"szdiag-sshd-{spec.Sz}",
             AuthorizedKeyComment = $"szdiag-{spec.Sz}"
         };
         void Persist() => RevertStateStore.Save(_statePath, state);
@@ -82,13 +83,15 @@ public sealed class WindowsSystemAccessManager : ISystemAccessManager
         state.CreatedUser = true;
         Persist();
 
-        // 6. Поднять портативный sshd со свежими ключами и нашим authorized_keys.
+        // 6. Поднять портативный sshd под SYSTEM (scheduled task) со свежими ключами и
+        // нашим authorized_keys. Под SYSTEM у sshd есть SeTcbPrivilege для logon-токена.
         // Ключ пишется в рабочую папку sshd (PortableSshServer), не в системный
         // administrators_authorized_keys — мы полностью владеем своим sshd.
         var keyLine = $"{spec.ServicePublicKey.Trim()} {state.AuthorizedKeyComment}";
-        _sshd.Start(spec.SshPort, keyLine);
+        _sshd.Start(spec.SshPort, keyLine, state.SshdTaskName);
         state.GeneratedHostKeys = true;
         state.WroteAuthorizedKey = true;
+        state.CreatedSshdTask = true;
         Persist();
 
         // 7. Watchdog scheduled task (запускает этот exe с --revert по таймауту)
@@ -112,9 +115,10 @@ public sealed class WindowsSystemAccessManager : ISystemAccessManager
             _ps.Run($"Unregister-ScheduledTask -TaskName '{state.WatchdogTaskName}' -Confirm:$false " +
                     "-ErrorAction SilentlyContinue", throwOnError: false);
 
-        // Наш sshd — дочерний, при живом агенте убьётся тут; при watchdog-ревёрте
-        // (агент уже мёртв) процесса нет, но ключи/конфиг на диске надо снять.
-        _sshd.Stop();
+        // Наш sshd живёт под SYSTEM-задачей: снять задачу и добить процессы (идемпотентно,
+        // работает и при watchdog-ревёрте, когда агента уже нет). Затем снять ключи/конфиг.
+        if (state.CreatedSshdTask)
+            _sshd.Stop(state.SshdTaskName);
         if (state.GeneratedHostKeys && Directory.Exists(_sshd.WorkDir))
         {
             try { Directory.Delete(_sshd.WorkDir, recursive: true); } catch { /* залочен — не критично */ }

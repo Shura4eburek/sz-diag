@@ -10,8 +10,14 @@ public sealed class PowerShellTimeoutException : Exception
     public PowerShellTimeoutException(string message) : base(message) { }
 }
 
+/// <summary>Абстракция запуска PowerShell — тест-шов для оркестрации системных вызовов.</summary>
+public interface IPowerShellRunner
+{
+    PsResult Run(string script, bool throwOnError = true, TimeSpan? timeout = null);
+}
+
 /// <summary>Запуск PowerShell-команд. Кидает при ненулевом коде, если throwOnError.</summary>
-public sealed class PowerShellRunner
+public sealed class PowerShellRunner : IPowerShellRunner
 {
     public PsResult Run(string script, bool throwOnError = true, TimeSpan? timeout = null)
     {

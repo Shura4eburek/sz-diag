@@ -50,4 +50,37 @@ public class PortableSshServerTests
     {
         Assert.Contains("без вывода", PortableSshServer.DescribeFailure(""));
     }
+
+    [Fact]
+    public void BuildRegisterTaskCommand_RunsSshdUnderSystem()
+    {
+        var cmd = PortableSshServer.BuildRegisterTaskCommand(
+            taskName: "szdiag-sshd-156864",
+            sshdExePath: @"C:\dist\client\ssh\sshd.exe",
+            configPath: @"C:\ProgramData\szdiag\ssh\sshd_config",
+            logPath: @"C:\ProgramData\szdiag\ssh\sshd.log");
+
+        // Ключевое отличие плана Б: SYSTEM (SeTcbPrivilege для logon-токена), а не дочерний процесс.
+        Assert.Contains("-User 'SYSTEM'", cmd);
+        Assert.Contains("-RunLevel Highest", cmd);
+        Assert.Contains("szdiag-sshd-156864", cmd);
+        Assert.Contains(@"C:\dist\client\ssh\sshd.exe", cmd);
+        Assert.Contains(@"-f ""C:\ProgramData\szdiag\ssh\sshd_config"" -D -E", cmd);
+        Assert.Contains("Start-ScheduledTask", cmd);
+    }
+
+    [Fact]
+    public void BuildStopCommand_UnregistersTaskAndTargetsOwnSshdOnly()
+    {
+        var cmd = PortableSshServer.BuildStopCommand(
+            taskName: "szdiag-sshd-156864",
+            configPath: @"C:\ProgramData\szdiag\ssh\sshd_config");
+
+        Assert.Contains("Unregister-ScheduledTask", cmd);
+        Assert.Contains("szdiag-sshd-156864", cmd);
+        // Добиваем только НАШ sshd — по нашему ConfigPath в командной строке (системный не трогаем).
+        Assert.Contains("sshd.exe", cmd);
+        Assert.Contains(@"sshd_config", cmd);
+        Assert.Contains("Stop-Process", cmd);
+    }
 }

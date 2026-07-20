@@ -16,10 +16,12 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Следующая задача (незакончена)
 
-**План Б — портативный sshd под SYSTEM.** SSH-доступ на клиента сейчас не работает
-(token-privilege: sshd дочерним процессом админ-агента не создаёт logon-token → `Connection
-reset` на userauth). Быстрый старт с полным контекстом, диагнозом и файлами для правки —
-[docs/plan-b-quickstart.md](docs/plan-b-quickstart.md). Начинать с brainstorming.
+**План Б — портативный sshd под SYSTEM.** ✅ реализовано (2026-07-20), ждёт e2e на
+реальной онлайн-СЗ. sshd поднимается транзиентной scheduled task под SYSTEM (даёт
+SeTcbPrivilege для logon-token; раньше дочерний процесс админ-агента его не создавал →
+`Connection reset`). Контекст, спека и чеклист e2e —
+[docs/plan-b-quickstart.md](docs/plan-b-quickstart.md). Дальше — runbook «дал СЗ →
+сразу коннект и диагностика».
 
 ## Команды
 

@@ -3,8 +3,8 @@ namespace SzDiag.Agent;
 /// <summary>Выполняет команды теста через PowerShell (обёртка PowerShellRunner).</summary>
 public sealed class PowerShellCommandExecutor : ICommandExecutor
 {
-    private readonly PowerShellRunner _ps;
-    public PowerShellCommandExecutor(PowerShellRunner ps) => _ps = ps;
+    private readonly IPowerShellRunner _ps;
+    public PowerShellCommandExecutor(IPowerShellRunner ps) => _ps = ps;
 
     public CommandResult Run(string command)
     {

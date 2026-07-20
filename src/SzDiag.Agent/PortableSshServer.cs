@@ -1,4 +1,4 @@
-using System.Diagnostics;
+using System.Net.Sockets;
 
 namespace SzDiag.Agent;
 
@@ -9,24 +9,27 @@ public sealed class SshdStartException : Exception
 }
 
 /// <summary>
-/// Жизненный цикл портативного sshd.exe как дочернего процесса агента: свой конфиг,
-/// свои host-ключи (свежие каждую сессию), свой AuthorizedKeysFile. Не зависит от
-/// системной службы OpenSSH и Windows Update. Умирает вместе с агентом (fail-closed).
+/// Жизненный цикл портативного sshd.exe под LocalSystem: свой конфиг, свои host-ключи
+/// (свежие каждую сессию), свой AuthorizedKeysFile. Не зависит от системной службы
+/// OpenSSH и Windows Update. sshd запускается транзиентной scheduled task под SYSTEM
+/// (а не дочерним процессом агента) — иначе нет SeTcbPrivilege и sshd не может создать
+/// logon-токен при publickey-логине («unable to create logon token» → Connection reset).
+/// Задача снимается на откате (fail-closed через watchdog/close/клавишу C).
 /// </summary>
 public sealed class PortableSshServer
 {
     private readonly string _sshDir;
     private readonly string _workDir;
-    private readonly PowerShellRunner _ps;
-    private Process? _proc;
+    private readonly IPowerShellRunner _ps;
 
     public string HostKeyPath => Path.Combine(_workDir, "ssh_host_ed25519_key");
     public string ConfigPath => Path.Combine(_workDir, "sshd_config");
     public string LogPath => Path.Combine(_workDir, "sshd.log");
     public string AuthorizedKeysPath => Path.Combine(_workDir, "authorized_keys");
+    public string SshdExePath => Path.Combine(_sshDir, "sshd.exe");
     public string WorkDir => _workDir;
 
-    public PortableSshServer(string sshDir, string workDir, PowerShellRunner ps)
+    public PortableSshServer(string sshDir, string workDir, IPowerShellRunner ps)
     {
         _sshDir = sshDir;
         _workDir = workDir;
@@ -64,9 +67,36 @@ public sealed class PortableSshServer
         return string.Join("; ", tail.TakeLast(3));
     }
 
-    /// <summary>Свежие host-ключи + конфиг + запуск sshd.exe дочерним процессом.
-    /// Кидает SshdStartException, если sshd умер в первые ~1.5с (с причиной из лога).</summary>
-    public void Start(int port, string authorizedKeyLine)
+    /// <summary>PowerShell для регистрации+запуска sshd транзиентной scheduled task под
+    /// SYSTEM. Даёт sshd SeTcbPrivilege (нужен для logon-токена при publickey-логине),
+    /// которого нет у админ-агента. Тот же паттерн, что у watchdog-задачи.</summary>
+    public static string BuildRegisterTaskCommand(
+        string taskName, string sshdExePath, string configPath, string logPath) =>
+        $"$a = New-ScheduledTaskAction -Execute '{sshdExePath}' " +
+        $"-Argument '-f \"{configPath}\" -D -E \"{logPath}\"'; " +
+        "$s = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries " +
+        "-ExecutionTimeLimit ([TimeSpan]::Zero) -MultipleInstances IgnoreNew; " +
+        $"Register-ScheduledTask -TaskName '{taskName}' -Action $a -Settings $s " +
+        "-RunLevel Highest -User 'SYSTEM' -Force | Out-Null; " +
+        $"Start-ScheduledTask -TaskName '{taskName}'";
+
+    /// <summary>PowerShell снятия sshd-задачи + добивания процессов НАШЕГО sshd
+    /// (по ConfigPath в командной строке — системный sshd ссылается на чужой конфиг,
+    /// его не трогаем). Идемпотентно, работает и когда агент уже мёртв.</summary>
+    public static string BuildStopCommand(string taskName, string configPath)
+    {
+        var cfg = configPath.Replace("'", "''").Replace("\\", "\\\\");
+        return $"Stop-ScheduledTask -TaskName '{taskName}' -ErrorAction SilentlyContinue; " +
+               $"Unregister-ScheduledTask -TaskName '{taskName}' -Confirm:$false -ErrorAction SilentlyContinue; " +
+               "Get-CimInstance Win32_Process -Filter \"Name='sshd.exe'\" -ErrorAction SilentlyContinue | " +
+               $"Where-Object {{ $_.CommandLine -match '{cfg}' }} | " +
+               "ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }";
+    }
+
+    /// <summary>Свежие host-ключи + конфиг + запуск sshd под SYSTEM (scheduled task).
+    /// Ждёт, пока порт начнёт слушаться; если sshd не поднялся — кидает
+    /// SshdStartException с причиной из лога.</summary>
+    public void Start(int port, string authorizedKeyLine, string taskName)
     {
         Directory.CreateDirectory(_workDir);
 
@@ -84,29 +114,42 @@ public sealed class PortableSshServer
             _ps.Run($"icacls '{f}' /inheritance:r /grant 'SYSTEM:F' /grant 'BUILTIN\\Administrators:F'",
                 throwOnError: false);
 
-        var psi = new ProcessStartInfo
-        {
-            FileName = Path.Combine(_sshDir, "sshd.exe"),
-            Arguments = $"-f \"{ConfigPath}\" -D -E \"{LogPath}\"",
-            UseShellExecute = false,
-            CreateNoWindow = true
-        };
         if (File.Exists(LogPath)) File.Delete(LogPath);
-        _proc = Process.Start(psi) ?? throw new SshdStartException("не удалось запустить sshd.exe");
+        _ps.Run(BuildRegisterTaskCommand(taskName, SshdExePath, ConfigPath, LogPath));
 
-        // Дать sshd мгновение подняться; если он сразу умер — вытащить причину из лога.
-        if (_proc.WaitForExit(1500))
+        // Процесс не дочерний (под задачей SYSTEM) — ждём готовности по порту, а не по
+        // хендлу. Успешный connect на 127.0.0.1:port = sshd слушает. Не поднялся за
+        // тайм-аут → причина из лога.
+        if (!WaitForPort(port, TimeSpan.FromSeconds(5)))
         {
             var log = File.Exists(LogPath) ? File.ReadAllText(LogPath) : "";
             throw new SshdStartException($"sshd не стартовал: {DescribeFailure(log)}");
         }
     }
 
-    /// <summary>Убить sshd (идемпотентно). Fail-closed при откате/краше агента.</summary>
-    public void Stop()
+    /// <summary>Снять sshd-задачу и добить наш sshd (идемпотентно). Fail-closed при
+    /// откате/краше агента; работает и когда агента уже нет (watchdog-ревёрт).</summary>
+    public void Stop(string taskName)
     {
-        try { if (_proc is { HasExited: false }) _proc.Kill(entireProcessTree: true); }
-        catch { /* уже мог сам завершиться — гонка, не критично */ }
-        _proc = null;
+        _ps.Run(BuildStopCommand(taskName, ConfigPath), throwOnError: false);
+    }
+
+    /// <summary>Поллинг TCP-порта до готовности sshd (по умолчанию каждые 200 мс).</summary>
+    private static bool WaitForPort(int port, TimeSpan timeout, int stepMs = 200)
+    {
+        var deadline = DateTime.UtcNow + timeout;
+        do
+        {
+            try
+            {
+                using var c = new TcpClient();
+                var connect = c.BeginConnect("127.0.0.1", port, null, null);
+                if (connect.AsyncWaitHandle.WaitOne(stepMs) && c.Connected)
+                    return true;
+            }
+            catch { /* порт ещё не слушается — повторим */ }
+            Thread.Sleep(stepMs);
+        } while (DateTime.UtcNow < deadline);
+        return false;
     }
 }

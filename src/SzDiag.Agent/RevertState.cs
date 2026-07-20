@@ -7,10 +7,12 @@ public sealed class RevertState
     public string ServiceAccount { get; set; } = "svc-diag";
     public string FirewallRuleName { get; set; } = "";
     public string WatchdogTaskName { get; set; } = "";
+    public string SshdTaskName { get; set; } = "";
     public string AuthorizedKeyComment { get; set; } = "";
 
     public bool CreatedUser { get; set; }
     public bool StoppedSystemSshd { get; set; }
+    public bool CreatedSshdTask { get; set; }
     public bool GeneratedHostKeys { get; set; }
     public bool AddedFirewallRule { get; set; }
     public bool WroteAuthorizedKey { get; set; }

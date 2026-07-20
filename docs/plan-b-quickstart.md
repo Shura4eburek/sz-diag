@@ -60,6 +60,14 @@ sshd.
 subagent-driven execution**. Детали риска и фолбэка уже записаны в
 [TESTING.md](TESTING.md) (раздел «Проверка token-privilege», строки ~205-213).
 
-**Статус на 2026-07-20:** брейншторм начат, но не доведён до спеки. Спеки/плана ещё нет.
-Начинать с brainstorming. Зависимая хотелка юзера — после рабочего SSH сделать короткий
+**Статус на 2026-07-20:** ✅ реализовано, ждёт e2e на реальной онлайн-СЗ. Спека —
+[superpowers/specs/2026-07-20-plan-b-sshd-system-design.md](superpowers/specs/2026-07-20-plan-b-sshd-system-design.md).
+Сделано: `IPowerShellRunner` (тест-шов), `PortableSshServer.Start/Stop` через
+scheduled task под SYSTEM (билдеры `BuildRegisterTaskCommand`/`BuildStopCommand`,
+готовность по поллингу порта), флаг `RevertState.CreatedSshdTask` + `SshdTaskName`,
+парная ветка в `WindowsSystemAccessManager.Revert`. Автотесты зелёные (151).
+
+**Осталось:** прогнать e2e (`ssh svc-diag@<IP> whoami` → `<машина>\svc-diag`,
+чистота после закрытия СЗ) — чеклист в [TESTING.md](TESTING.md), раздел
+«Проверка token-privilege (план Б)». Затем — зависимая хотелка юзера: короткий
 runbook «дал СЗ → сразу коннект и диагностика, без ковыряния связи».

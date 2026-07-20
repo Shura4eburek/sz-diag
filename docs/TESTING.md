@@ -202,20 +202,25 @@ Station/Desktop**. Любой GUI-процесс, запущенный напр�
 3. **Битый системный sshd** — наличие битых системных host-ключей больше не влияет:
    агент их не трогает, использует свои.
 
-**Проверка token-privilege (ключевой риск).** sshd обычно работает под LocalSystem
-(нужен SeTcbPrivilege для создания logon-token). Наш sshd — дочерний процесс
-админ-агента. Проверь: после «Открываю доступ» подключись с хоста
+**Проверка token-privilege (план Б, реализован 2026-07-20).** sshd требует
+SeTcbPrivilege для создания logon-token при publickey-логине — он есть только у
+LocalSystem. Поэтому наш sshd поднимается **транзиентной scheduled task под SYSTEM**
+(`szdiag-sshd-<СЗ>`), а не дочерним процессом админ-агента. Проверь: после «Открываю
+доступ» подключись с хоста
 `ssh -i secrets\svc_diag_key -o StrictHostKeyChecking=no svc-diag@<IP> "whoami"`.
-- Если `whoami` вернул `<машина>\svc-diag` — token-privilege ОК, план А работает.
-- Если в `sshd.log` (`C:\ProgramData\szdiag\ssh\sshd.log`) видно `unable to create
-  logon token` / вход отваливается — сработал риск из спеки. Фолбэк (план Б):
-  запускать sshd не напрямую, а транзиентной scheduled task под SYSTEM (привязать к
-  сессии, чистить тем же watchdog). Это отдельная доработка `PortableSshServer.Start`.
+- Ожидается `<машина>\svc-diag` — token-privilege ОК, план Б работает.
+- `Connection reset` + в `sshd.log` (`C:\ProgramData\szdiag\ssh\sshd.log`) `unable to
+  create logon token` — задача не под SYSTEM (проверь `Get-ScheduledTask
+  szdiag-sshd-*` → Principal RunAs = SYSTEM) или sshd не поднялся (см. хвост лога).
+- sshd не стартовал вообще → агент бросит `SshdStartException` с причиной из лога
+  (поллинг порта не дождался за 5 c).
 
 Проверка чистоты после закрытия СЗ (на клиенте, админ):
 ```powershell
 net user svc-diag                                  # «пользователь не найден»
 Get-NetFirewallRule -DisplayName "szdiag-ssh-*"    # пусто
+Get-ScheduledTask szdiag-sshd-* -ErrorAction SilentlyContinue   # пусто (задача снята)
+Get-CimInstance Win32_Process -Filter "Name='sshd.exe'"          # нет нашего sshd
 Test-Path C:\ProgramData\szdiag\ssh                # False (host-ключи снесены)
 ```
 
