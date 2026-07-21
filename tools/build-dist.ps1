@@ -142,6 +142,53 @@ if (Test-Path dist\client\SzDiag.Agent.exe) {
     Copy-Item "$sshCache\*.dll" dist\client\ssh\ -Force -ErrorAction SilentlyContinue
 }
 
+# Апдейтер кладём рядом с агентом в dist\client (та же папка, БЕЗ сноса — агент уже там,
+# а функция Publish меняет папку целиком через staging и снесла бы его). Прямой publish -o.
+if (Test-Path dist\client\SzDiag.Agent.exe) {
+    Write-Host "-- публикую SzDiag.Updater -> dist\client"
+    dotnet publish src/SzDiag.Updater @common -o dist\client | Out-Null
+    if ($LASTEXITCODE -ne 0) { throw "dotnet publish SzDiag.Updater упал (код $LASTEXITCODE)." }
+}
+
+# --- Версия и пакет для апдейтера ---
+# Версия = git short sha (+ -dirty, если есть незакоммиченные правки); вне git — timestamp.
+if (Test-Path dist\client\SzDiag.Agent.exe) {
+    $version = ""
+    try {
+        $sha = (git -C $root rev-parse --short HEAD 2>$null)
+        if ($LASTEXITCODE -eq 0 -and $sha) {
+            $dirty = (git -C $root status --porcelain 2>$null)
+            $version = if ($dirty) { "$sha-dirty" } else { "$sha" }
+        }
+    } catch { }
+    if ([string]::IsNullOrWhiteSpace($version)) { $version = Get-Date -Format "yyyyMMdd-HHmmss" }
+
+    Set-Content -Path dist\client\version.txt -Value $version -Encoding ascii -NoNewline
+
+    # Пакет: agent.exe + ssh + service_key.pub + testsuite.json + version.txt.
+    # БЕЗ appsettings.json (локальный конфиг клиента), tools\ (тяжёлые тулы) и Updater.exe.
+    $pkgStage = Join-Path $env:TEMP "szdiag-pkg"
+    Remove-Item $pkgStage -Recurse -Force -ErrorAction SilentlyContinue
+    New-Item -ItemType Directory $pkgStage -Force | Out-Null
+    Copy-Item dist\client\SzDiag.Agent.exe    $pkgStage\ -Force
+    Copy-Item dist\client\service_key.pub     $pkgStage\ -Force -ErrorAction SilentlyContinue
+    Copy-Item dist\client\testsuite.json      $pkgStage\ -Force -ErrorAction SilentlyContinue
+    Copy-Item dist\client\version.txt         $pkgStage\ -Force
+    if (Test-Path dist\client\ssh) { Copy-Item dist\client\ssh $pkgStage\ssh -Recurse -Force }
+
+    $distRoot = "dist\host\hub\agent-dist"
+    New-Item -ItemType Directory $distRoot -Force | Out-Null
+    $zipPath = Join-Path $distRoot "package.zip"
+    Remove-Item $zipPath -Force -ErrorAction SilentlyContinue
+    Compress-Archive -Path "$pkgStage\*" -DestinationPath $zipPath -Force
+
+    $sha256 = (Get-FileHash $zipPath -Algorithm SHA256).Hash.ToLower()
+    Set-Content -Path (Join-Path $distRoot "package.sha256") -Value $sha256 -Encoding ascii -NoNewline
+    Set-Content -Path (Join-Path $distRoot "version.txt")    -Value $version -Encoding ascii -NoNewline
+    Remove-Item $pkgStage -Recurse -Force -ErrorAction SilentlyContinue
+    Write-Host "-- пакет апдейтера: $zipPath (version=$version)"
+}
+
 # 3. Конфиги (абсолютные пути хоста — под ЭТУ машину; относительные — агенту)
 $kb = ("$root\dist\host\kb").Replace('\', '\\')
 $db = ("$root\dist\host\szdiag.db").Replace('\', '\\')
@@ -155,6 +202,7 @@ $hubCfg = @"
     "Port": $Port,
     "SqliteConnectionString": "Data Source=$db",
     "KnowledgeBaseRoot": "$kb",
+    "AgentDistRoot": "$(("$root\dist\host\hub\agent-dist").Replace('\','\\'))",
     "HeartbeatTimeout": "00:01:00",
     "SweepInterval": "00:00:15"
   }
