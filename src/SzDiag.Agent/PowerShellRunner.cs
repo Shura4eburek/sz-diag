@@ -21,10 +21,18 @@ public sealed class PowerShellRunner : IPowerShellRunner
 {
     public PsResult Run(string script, bool throwOnError = true, TimeSpan? timeout = null)
     {
+        // Скрипт передаём через -EncodedCommand (base64 UTF-16LE), а НЕ через stdin
+        // `-Command -`: последний в PowerShell 5.1 обрывает многострочные конвейеры
+        // (строка с хвостовым | или , рвётся) — до вывода доходит лишь первая строка,
+        // из-за чего все секции RunDiag на живой машине выходили пустыми. EncodedCommand
+        // исполняет скрипт как единое целое. $ProgressPreference убирает CLIXML-шум
+        // прогресса из stderr.
+        var encoded = Convert.ToBase64String(
+            System.Text.Encoding.Unicode.GetBytes("$ProgressPreference='SilentlyContinue';\n" + script));
         var psi = new ProcessStartInfo
         {
             FileName = "powershell.exe",
-            Arguments = "-NoProfile -NonInteractive -ExecutionPolicy Bypass -Command -",
+            Arguments = $"-NoProfile -NonInteractive -ExecutionPolicy Bypass -EncodedCommand {encoded}",
             RedirectStandardInput = true,
             RedirectStandardOutput = true,
             RedirectStandardError = true,
@@ -32,8 +40,7 @@ public sealed class PowerShellRunner : IPowerShellRunner
             CreateNoWindow = true
         };
         using var p = Process.Start(psi)!;
-        p.StandardInput.WriteLine(script);
-        p.StandardInput.Close();
+        p.StandardInput.Close();   // дочерним процессам — сразу EOF на stdin, чтобы не висли
 
         // Асинхронное чтение запущено ДО WaitForExit: синхронный ReadToEnd() блокируется
         // до EOF, которое наступает только при завершении процесса — с ним таймаут

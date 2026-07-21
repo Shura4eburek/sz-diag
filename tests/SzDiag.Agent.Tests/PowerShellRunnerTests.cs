@@ -30,4 +30,27 @@ public class PowerShellRunnerTests
         Assert.Equal(0, result.ExitCode);
         Assert.Contains("ok", result.StdOut);
     }
+
+    [Fact]
+    public void Run_MultilinePipeline_ReturnsAllLines()
+    {
+        // Регрессия: скрипт раньше шёл через stdin `-Command -`, который в PowerShell 5.1
+        // обрывает многострочные конвейеры (строка с хвостовым | или , рвётся) — до вывода
+        // доходила лишь первая строка. Все секции RunDiag на живой машине выходили пустыми.
+        var runner = new PowerShellRunner();
+        var script = string.Join("\n", new[]
+        {
+            "'FIRST'",
+            "1..3 |",
+            "  ForEach-Object { \"LINE$_\" } |",
+            "  Out-String",
+        });
+
+        var r = runner.Run(script, timeout: TimeSpan.FromSeconds(15));
+
+        Assert.Contains("FIRST", r.StdOut);
+        Assert.Contains("LINE1", r.StdOut);
+        Assert.Contains("LINE2", r.StdOut);
+        Assert.Contains("LINE3", r.StdOut);
+    }
 }
