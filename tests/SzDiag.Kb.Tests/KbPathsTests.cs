@@ -42,4 +42,21 @@ public class KbPathsTests
         Assert.Equal(Path.Combine("/vault", "Симптомы", "Фризы под нагрузкой.md"),
             p.SymptomNote("Фризы под нагрузкой"));
     }
+
+    [Fact]
+    public void SafeEntityName_ReplacesPathSeparatorsAndInvalidChars()
+    {
+        // Свободный текст сущности не должен уносить имя файла в подпапки или ломать путь.
+        Assert.Equal("ПК ASUS - Ryzen 5", KbPaths.SafeEntityName("ПК ASUS / Ryzen 5"));
+        Assert.Equal("a-b-c", KbPaths.SafeEntityName("a/b\\c"));
+        Assert.DoesNotContain(":", KbPaths.SafeEntityName("model: x"));
+    }
+
+    [Fact]
+    public void DeviceNote_SanitizesSlashesInFileName()
+    {
+        var p = new KbPaths("/vault");
+        Assert.Equal(Path.Combine("/vault", "Устройства", "ПК ASUS - Ryzen.md"),
+            p.DeviceNote("ПК ASUS / Ryzen"));
+    }
 }

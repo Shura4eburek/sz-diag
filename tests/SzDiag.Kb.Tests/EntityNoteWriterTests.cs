@@ -58,6 +58,15 @@ public class EntityNoteWriterTests : IDisposable
     }
 
     [Fact]
+    public void EnsureDevice_WithSlashes_CreatesFileWithoutThrowing()
+    {
+        var w = NewWriter();
+        w.EnsureDevice("ПК ASUS / Ryzen 5 / RTX 5060");
+
+        Assert.True(File.Exists(new KbPaths(_root).DeviceNote("ПК ASUS / Ryzen 5 / RTX 5060")));
+    }
+
+    [Fact]
     public void EnsureMoc_CreatesMoc()
     {
         var w = NewWriter();

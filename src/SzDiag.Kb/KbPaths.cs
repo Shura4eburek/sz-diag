@@ -18,11 +18,24 @@ public sealed class KbPaths
     public string Summary(string sz) => Path.Combine(SzDir(sz), "вывод.md");
 
     public string SymptomsRoot => Path.Combine(Root, "Симптомы");
-    public string SymptomNote(string symptom) => Path.Combine(SymptomsRoot, $"{symptom}.md");
+    public string SymptomNote(string symptom) => Path.Combine(SymptomsRoot, $"{SafeEntityName(symptom)}.md");
 
-    public string OrderNote(string order) => Path.Combine(Root, "Заказы", $"{order}.md");
-    public string DefectNote(string defect) => Path.Combine(Root, "Дефекты", $"{defect}.md");
-    public string ComponentNote(string comp) => Path.Combine(Root, "Компоненты", $"{comp}.md");
-    public string DeviceNote(string device) => Path.Combine(Root, "Устройства", $"{device}.md");
+    public string OrderNote(string order) => Path.Combine(Root, "Заказы", $"{SafeEntityName(order)}.md");
+    public string DefectNote(string defect) => Path.Combine(Root, "Дефекты", $"{SafeEntityName(defect)}.md");
+    public string ComponentNote(string comp) => Path.Combine(Root, "Компоненты", $"{SafeEntityName(comp)}.md");
+    public string DeviceNote(string device) => Path.Combine(Root, "Устройства", $"{SafeEntityName(device)}.md");
     public string Moc => Path.Combine(Root, "MOC.md");
+
+    /// <summary>Безопасное имя файла заметки из свободного текста сущности (устройство,
+    /// дефект и т.п.). Символы, недопустимые в имени файла Windows (в т.ч. <c>/ \ : * ? " &lt; &gt; |</c>),
+    /// заменяются на «-», иначе слэш увёл бы файл в подпапку и уронил запись. То же значение
+    /// используется в тексте Obsidian-линка (<c>KbRecorder</c>), чтобы <c>[[link]]</c> совпадал с
+    /// именем файла. Пустой результат → «unnamed».</summary>
+    public static string SafeEntityName(string raw)
+    {
+        var invalid = Path.GetInvalidFileNameChars();
+        var chars = raw.Select(c => Array.IndexOf(invalid, c) >= 0 ? '-' : c).ToArray();
+        var name = new string(chars).Trim().TrimEnd('.').Trim();
+        return name.Length == 0 ? "unnamed" : name;
+    }
 }

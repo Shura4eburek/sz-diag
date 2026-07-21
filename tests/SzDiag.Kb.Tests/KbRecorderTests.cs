@@ -86,6 +86,21 @@ public class KbRecorderTests : IDisposable
     }
 
     [Fact]
+    public void Record_DeviceWithSlashes_LinkMatchesFileName()
+    {
+        NewRecorder().Record(new RecordRequest
+        {
+            Sz = "156864",
+            Device = "ПК ASUS / Ryzen 5 / RTX 5060"
+        });
+
+        // Линк во frontmatter должен совпасть с именем созданного файла (иначе битый [[link]]).
+        var home = File.ReadAllText(_paths.HomeNote("156864"));
+        Assert.Contains("устройство: \"[[ПК ASUS - Ryzen 5 - RTX 5060]]\"", home);
+        Assert.True(File.Exists(_paths.DeviceNote("ПК ASUS / Ryzen 5 / RTX 5060")));
+    }
+
+    [Fact]
     public void Record_Twice_IsIdempotent()
     {
         var rec = NewRecorder();

@@ -59,7 +59,9 @@ public sealed class KbRecorder
         foreach (var a in req.Actions) AppendLineIfMissing(_paths.Actions(req.Sz), $"- {date}: {a}");
     }
 
-    private static string Quoted(string name) => $"\"[[{name}]]\"";
+    // Линк ссылается на ИМЯ ФАЙЛА заметки (санитизированное) — иначе слэш/двоеточие в
+    // сыром тексте дали бы битый [[link]], не совпадающий с реальным файлом сущности.
+    private static string Quoted(string name) => $"\"[[{KbPaths.SafeEntityName(name)}]]\"";
 
     private static void AppendLineIfMissing(string path, string line)
     {
