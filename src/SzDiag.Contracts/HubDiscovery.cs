@@ -2,9 +2,8 @@ using System.Net;
 using System.Net.NetworkInformation;
 using System.Net.Sockets;
 using System.Text;
-using SzDiag.Contracts;
 
-namespace SzDiag.Agent;
+namespace SzDiag.Contracts;
 
 /// <summary>hub не откликнулся на автообнаружение за отведённое время.</summary>
 public sealed class HubNotFoundException : Exception

@@ -3,6 +3,7 @@ using System.Text;
 using Microsoft.Extensions.Configuration;
 using Spectre.Console;
 using SzDiag.Agent;
+using SzDiag.Contracts;
 
 // UTF-8 в консоли — иначе кириллица превращается в «?» на Windows.
 try
