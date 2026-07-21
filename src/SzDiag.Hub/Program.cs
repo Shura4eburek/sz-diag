@@ -83,6 +83,7 @@ app.Use(async (ctx, next) =>
 
 app.MapHub<AgentHub>(HubRoutes.Path);
 app.MapManagementApi();
+app.MapAgentPackageApi();
 
 app.Run();
 
