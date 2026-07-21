@@ -189,9 +189,9 @@ staging) → `AgentLauncher.LaunchAndWait` (запуск `agent.exe` в насл
   открытие = строка. `RecordOpenAsync`/`RecordCloseAsync` (UPDATE последней незакрытой)/`GetHistoryAsync`.
 - **`OfflineSweeper`** (`BackgroundService`): каждые `SweepInterval`(15c) → `MarkStaleOffline(HeartbeatTimeout=60c)`.
   Только метит Online→Offline, не удаляет.
-- **KB-запись**: `Register`→`EnsureSkeleton(sz)` (идемпотентно, YAML-frontmatter + `request/findings/actions.md`
+- **KB-запись**: `Register`→`EnsureSkeleton(sz)` (идемпотентно, YAML-frontmatter + `запит/діагностика/дії.md`
   + `logs/`); `UploadReportFile`→`KbReportStore.Save` (санитайз `Path.GetFileName`). `EnsureSummarySkeleton`
-  (`вывод.md`) hub'ом НЕ вызывается — точка для агента/CLI.
+  (`висновок.md`) hub'ом НЕ вызывается — точка для агента/CLI.
 - **Оркестраторы** hub→агент: `SessionCloser`, `TestRunTrigger` — резолвят `connId` через
   `Registry.TryGetConnectionId(sz)`, зовут `IAgentCommandSender`; `false` при неизвестном connId.
 - **Аутентификация**: `AgentToken` (`X-SzDiag-Token`, middleware на `/agents` + discovery),
@@ -209,9 +209,12 @@ staging) → `AgentLauncher.LaunchAndWait` (запуск `agent.exe` в насл
 
 ## KB (`SzDiag.Kb`, Obsidian-vault, корень `kb/` — в .gitignore)
 
-Пути — только `KbPaths`. Структура `kb/СЗ/<sz>/`: `<sz>.md` (единый frontmatter), `request.md`,
-`findings.md`, `actions.md`, `вывод.md` (встраивается `![[вывод]]` без своего YAML), `logs/`,
-`reports/<timestamp>/<file>`. Папки-разделы: `СЗ/ Заказы/ Дефекты/ Компоненты/ Устройства/ Симптомы/`.
+Пути — только `KbPaths`. **Контент базы знаний — на украинском** (папки, ключи, скелеты, проза).
+Структура `kb/СЗ/<sz>/`: `<sz>.md` (единый frontmatter, ключи `сз/замовлення/дефект/замінено/
+пристрій/симптом/статус/вердикт/дата`), `запит.md`, `діагностика.md`, `дії.md`, `висновок.md`
+(встраивается `![[висновок]]` без своего YAML), `logs/`, `reports/<timestamp>/<file>`. Папки-разделы:
+`СЗ/ Замовлення/ Дефекти/ Компоненти/ Пристрої/ Симптоми/`. Технические отчёты прогонов
+(`report.md`/`diag.md`) — не kb-заметки, заголовки секций там из C# `Name` (пока русские).
 
 ## Hardware-резолвер (`SzDiag.Hardware`)
 
