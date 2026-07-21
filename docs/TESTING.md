@@ -55,11 +55,17 @@ Hub — двойной клик по `dist\host\start-hub.cmd`. Ждём `Now li
 Test-NetConnection <IP-хоста> -Port 5099   # нужно TcpTestSucceeded : True
 ```
 
-Запусти агента (**от админа** — он меняет систему):
+Запусти **апдейтер** (**от админа** — агент меняет систему):
 ```powershell
 cd <путь>\dist\client
-.\SzDiag.Agent.exe
+.\SzDiag.Updater.exe
 ```
+`SzDiag.Updater.exe` — точка входа: находит hub, сверяет `version.txt`, при
+расхождении качает свежий пакет агента (`agent.exe` + ssh + ключ + testsuite, без
+`appsettings.json`/`tools`) и запускает `SzDiag.Agent.exe`. Первый заезд: на клиент
+достаточно закинуть `SzDiag.Updater.exe` + `appsettings.json` (с токеном) — остальное
+подтянется само. Прямой запуск `SzDiag.Agent.exe` тоже работает (без самообновления).
+
 Введи номер СЗ, напр. `156864`. Ждём `доступ открыт ● online`.
 
 Если `HubUrl` в `dist\client\appsettings.json` пуст (значение по умолчанию) — агент сам

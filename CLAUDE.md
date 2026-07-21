@@ -46,7 +46,13 @@ $env:SZDIAG_LIVE=1; dotnet test    # + live-тест vgabios (реально х�
 
 `build-dist.ps1` публикует self-contained single-file exe (win-x64), генерит SSH-ключ
 `secrets\svc_diag_key`, пишет конфиги/лаунчеры. Результат: `dist\host\` (hub + cli,
-`start-hub.cmd`, `szcli.cmd`) и `dist\client\` (agent + `service_key.pub` + `testsuite.json`).
+`start-hub.cmd`, `szcli.cmd`) и `dist\client\` (agent + `updater` + `service_key.pub` +
+`testsuite.json`). Точка входа на клиенте — **`SzDiag.Updater.exe`** (`SzDiag.Updater`):
+находит hub, сверяет `version.txt`, при расхождении качает свежий пакет агента с hub
+(`/agent/version|package|package.sha256`, из `dist\host\hub\agent-dist\`, кладёт build-dist)
+и запускает `agent.exe`. Убирает ручной цикл раздачи через share — на клиент достаточно
+один раз положить `SzDiag.Updater.exe` + `appsettings.json`. Спека/план —
+[docs/superpowers/specs/2026-07-21-agent-updater-design.md](docs/superpowers/specs/2026-07-21-agent-updater-design.md).
 Ручной e2e-прогон и траблшутинг — в [docs/TESTING.md](docs/TESTING.md), включая раздел
 про headless-управление по SSH (GUI-тулзы без десктопа падают/висят — обход через
 `schtasks /it /rl highest`, но UAC/Secure Desktop так не обойти).
