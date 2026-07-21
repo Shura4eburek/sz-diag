@@ -93,6 +93,21 @@ public sealed class PortableSshServer
                "ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }";
     }
 
+    /// <summary>PowerShell для жёсткого ACL под требования sshd. ssh-keygen ставит явную
+    /// ACE на юзера-создателя и делает его владельцем файла; sshd под SYSTEM такой
+    /// ключ/authorized_keys отвергает ("bad permissions"). Снимаем наследование, убираем
+    /// ACE создателя, оставляем только SYSTEM+Administrators (Full), владелец —
+    /// Administrators. Well-known SID (S-1-5-18 / S-1-5-32-544) — локале-независимо (клиент
+    /// может быть с любой локалью Windows). /inheritance:r чистит лишь унаследованные ACE,
+    /// поэтому явную ACE создателя убираем отдельным /remove:g.</summary>
+    public static string BuildHardenAclCommand(string path, string ownerAccount)
+    {
+        var p = path.Replace("'", "''");
+        var o = ownerAccount.Replace("'", "''");
+        return $"icacls '{p}' /setowner '*S-1-5-32-544'; " +
+               $"icacls '{p}' /inheritance:r /remove:g '{o}' /grant:r '*S-1-5-18:F' '*S-1-5-32-544:F'";
+    }
+
     /// <summary>Свежие host-ключи + конфиг + запуск sshd под SYSTEM (scheduled task).
     /// Ждёт, пока порт начнёт слушаться; если sshd не поднялся — кидает
     /// SshdStartException с причиной из лога.</summary>
@@ -108,11 +123,14 @@ public sealed class PortableSshServer
         File.WriteAllText(AuthorizedKeysPath, authorizedKeyLine.Trim() + Environment.NewLine);
         File.WriteAllText(ConfigPath, BuildConfig(port, HostKeyPath, AuthorizedKeysPath));
 
-        // ACL на ключ и authorized_keys: только SYSTEM+Administrators, иначе sshd
-        // отказывается их использовать ("bad permissions").
+        // ACL на ключ и authorized_keys: только SYSTEM+Administrators, владелец —
+        // Administrators, иначе sshd под SYSTEM их отвергает ("bad permissions").
+        // ssh-keygen ставит явную ACE на юзера-создателя (агента) и делает его владельцем
+        // файла — оба факта sshd не принимает, поэтому убираем и то, и другое.
+        var owner = _ps.Run("[System.Security.Principal.WindowsIdentity]::GetCurrent().Name")
+            .StdOut.Trim();
         foreach (var f in new[] { HostKeyPath, AuthorizedKeysPath })
-            _ps.Run($"icacls '{f}' /inheritance:r /grant 'SYSTEM:F' /grant 'BUILTIN\\Administrators:F'",
-                throwOnError: false);
+            _ps.Run(BuildHardenAclCommand(f, owner), throwOnError: false);
 
         if (File.Exists(LogPath)) File.Delete(LogPath);
         _ps.Run(BuildRegisterTaskCommand(taskName, SshdExePath, ConfigPath, LogPath));

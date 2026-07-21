@@ -70,6 +70,22 @@ public class PortableSshServerTests
     }
 
     [Fact]
+    public void BuildHardenAclCommand_LocksToSystemAndAdminsAndSetsOwner()
+    {
+        var cmd = PortableSshServer.BuildHardenAclCommand(
+            @"C:\ProgramData\szdiag\ssh\ssh_host_ed25519_key", @"MAMORU\ENDI");
+
+        // Владелец → Administrators (sshd под SYSTEM не принимает файл, чьим владельцем
+        // остаётся обычный юзер-создатель).
+        Assert.Contains(@"/setowner '*S-1-5-32-544'", cmd);
+        // Снять наследование и убрать явную ACE создателя (её /inheritance:r не трогает).
+        Assert.Contains("/inheritance:r", cmd);
+        Assert.Contains(@"/remove:g 'MAMORU\ENDI'", cmd);
+        // Оставить только SYSTEM (S-1-5-18) и Administrators (S-1-5-32-544), Full.
+        Assert.Contains(@"/grant:r '*S-1-5-18:F' '*S-1-5-32-544:F'", cmd);
+    }
+
+    [Fact]
     public void BuildStopCommand_UnregistersTaskAndTargetsOwnSshdOnly()
     {
         var cmd = PortableSshServer.BuildStopCommand(
