@@ -21,6 +21,12 @@ public static class HubRoutes
     // Hub -> агент: собрать диагностический снапшот (read-only, по секциям).
     public const string RunDiag = nameof(RunDiag);
 
+    // Апдейтер клиента: раздача пакета агента (HTTP, под TokenHeader).
+    public const string AgentApiPrefix = "/agent";
+    public const string AgentVersionRoute = "/agent/version";
+    public const string AgentPackageRoute = "/agent/package";
+    public const string AgentPackageSha256Route = "/agent/package.sha256";
+
     // Агент -> hub: загрузить файл отчёта.
     public const string UploadReportFile = nameof(UploadReportFile);
 

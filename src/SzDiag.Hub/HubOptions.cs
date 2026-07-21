@@ -25,4 +25,8 @@ public sealed class HubOptions
 
     /// <summary>TCP-порт, на котором слушает hub (для UDP-автообнаружения — что отдавать агенту).</summary>
     public int Port { get; set; } = 5099;
+
+    /// <summary>Папка, из которой hub раздаёт пакет агента апдейтеру
+    /// (version.txt, package.zip, package.sha256). Кладётся build-dist.</summary>
+    public string AgentDistRoot { get; set; } = "agent-dist";
 }
