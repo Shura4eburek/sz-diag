@@ -2,17 +2,6 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-<!-- TODO (временное) — занести в gpu.db (card-таблица) на рабочей машине, где лежит
-     боевая база; здесь БД быть не должно. После внесения на работе — удалить этот блок.
-     Плата определена вручную (в TPU vgabios нет BIOS под этот subsystem):
-       PCI\VEN_10DE&DEV_2782&SUBSYS_88DD1043&REV_A1
-       vendor=10DE (NVIDIA)  device=2782 (AD104, GeForce RTX 4070 Ti)
-       sub-vendor=1043 (ASUS)  sub-device=88DD
-       → ASUS TUF Gaming GeForce RTX 4070 Ti (12GB, non-OC),
-         TPU board: https://www.techpowerup.com/gpu-specs/asus-tuf-rtx-4070-ti-gaming.b10329
--->
-
-
 ## Что это
 
 Система удалённой диагностики клиентских машин в сервисном центре по номеру **СЗ**
