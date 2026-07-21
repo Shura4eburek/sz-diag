@@ -17,8 +17,10 @@ cd sz-diag
 ```
 Скрипт публикует exe, генерит SSH-ключ (`secrets\svc_diag_key`), пишет конфиги и
 лаунчеры. Результат:
-- `dist\host\`  — `start-hub.cmd`, `szcli.cmd`, `hub\`, `cli\`
-- `dist\client\` — `SzDiag.Agent.exe` + `service_key.pub` + `testsuite.json`
+- `dist\host\`  — `start-hub.cmd`, `szcli.cmd`, `hub\` (+ `hub\agent-dist\` — пакет для
+  апдейтера), `cli\`
+- `dist\client\` — `SzDiag.Updater.exe` (точка входа) + `SzDiag.Agent.exe` +
+  `service_key.pub` + `testsuite.json` + `version.txt`
 
 Нужен установленный **.NET 8 SDK** и OpenSSH client (`ssh-keygen`).
 
@@ -85,7 +87,12 @@ cd dist\host
 .\szcli test run 156864     # весь набор: «Прогон тестов…» → «Отчёт залит на hub»
 .\szcli test run 156864 occt        # только OCCT
 .\szcli test run 156864 tm5,furmark # подмножество шагов (id через запятую)
+.\szcli diag run 156864             # read-only снапшот → diag.md (все секции)
+.\szcli diag run 156864 reboots,whea,memory  # точечно (спонтанные ребуты)
 ```
+
+`diag run` (read-only, без стресса) кладёт `reports\<ts>\diag.md` — структурированный
+снапшот железа/дисков/SMART/событий/ребутов/WHEA. Один файл вместо россыпи ad-hoc ssh.
 
 SSH-вход по ключу:
 ```powershell
@@ -208,7 +215,7 @@ Station/Desktop**. Любой GUI-процесс, запущенный напр�
 3. **Битый системный sshd** — наличие битых системных host-ключей больше не влияет:
    агент их не трогает, использует свои.
 
-**Проверка token-privilege (план Б, реализован 2026-07-20).** sshd требует
+**Проверка token-privilege (план Б, e2e пройден 2026-07-21).** sshd требует
 SeTcbPrivilege для создания logon-token при publickey-логине — он есть только у
 LocalSystem. Поэтому наш sshd поднимается **транзиентной scheduled task под SYSTEM**
 (`szdiag-sshd-<СЗ>`), а не дочерним процессом админ-агента. Проверь: после «Открываю
@@ -218,6 +225,11 @@ LocalSystem. Поэтому наш sshd поднимается **транзие�
 - `Connection reset` + в `sshd.log` (`C:\ProgramData\szdiag\ssh\sshd.log`) `unable to
   create logon token` — задача не под SYSTEM (проверь `Get-ScheduledTask
   szdiag-sshd-*` → Principal RunAs = SYSTEM) или sshd не поднялся (см. хвост лога).
+- `sshd не стартовал: ... bad permissions ... no hostkeys available` — sshd под SYSTEM
+  отвергает host-ключ: ssh-keygen оставляет явную ACE юзера-создателя (её `/inheritance:r`
+  не чистит) и делает его владельцем файла. Пофикшено в `PortableSshServer`
+  (`BuildHardenAclCommand`: `/setowner` Administrators + `/remove:g` создателя + гранты
+  SYSTEM/Administrators). Если снова видишь — билд агента старый, пересобери.
 - sshd не стартовал вообще → агент бросит `SshdStartException` с причиной из лога
   (поллинг порта не дождался за 5 c).
 
@@ -230,7 +242,24 @@ Get-CimInstance Win32_Process -Filter "Name='sshd.exe'"          # нет наш
 Test-Path C:\ProgramData\szdiag\ssh                # False (host-ключи снесены)
 ```
 
+## E2e апдейтера (самообновление клиента)
+
+Точка входа на клиенте — `SzDiag.Updater.exe` (не агент напрямую). Проверять после
+`build-dist.ps1` (он кладёт пакет в `dist\host\hub\agent-dist\`) при живом hub:
+
+1. **Первый заезд**: в чистую папку — только `SzDiag.Updater.exe` + `appsettings.json`
+   (с `AgentToken`, опц. `HubUrl`). Запуск от админа → `Hub: … → Обновление: (нет) ->
+   <version> → Пакет применён` → появляются `SzDiag.Agent.exe`, `ssh\`, `service_key.pub`,
+   `testsuite.json`, `version.txt` → запускается агент (спрашивает СЗ).
+2. **Повторный запуск** без правок → `Версия актуальна.` → сразу агент, без скачивания.
+3. **После правки агента** + `build-dist.ps1` → версии разошлись → скачивание → агент с
+   правкой. Локальный `appsettings.json` **не** перезаписан.
+
+Грабли: запуск НЕ от админа → `Агенту нужны права администратора…` (agent помечен
+requireAdministrator). Старый hub без `/agent/*` (404) / битый sha256 → апдейтер запустит
+локального агента, если он есть.
+
 ## Автотесты (без хоста/клиента)
 ```powershell
-dotnet test    # вся логика, ~117 тестов
+dotnet test    # вся логика, ~174 теста
 ```

@@ -3,16 +3,17 @@
 > Плотный справочник по всему функционалу для быстрой навигации и правок без повторного
 > обхода кодовой базы. Общий замысел — [vision.md](vision.md); архитектура/инварианты для
 > ежедневной работы — [../CLAUDE.md](../CLAUDE.md). Здесь — протокол, точки расширения,
-> таблицы параметров и рецепты. Обновлено 2026-07-20.
+> таблицы параметров и рецепты. Обновлено 2026-07-21.
 
-## Проекты (6 в `src/` + зеркальные тесты в `tests/`)
+## Проекты (7 в `src/` + зеркальные тесты в `tests/`)
 
 | Проект | Роль | Ключевые типы |
 |---|---|---|
-| `SzDiag.Contracts` | DTO + имена протокола (единый источник) | `HubRoutes`, `DiscoveryProtocol`, DTO-записи |
-| `SzDiag.Hub` | ASP.NET Core на хосте: SignalR `/agents` + `/api/*` | `AgentHub`, `ManagementApi`, `SessionRegistry` |
+| `SzDiag.Contracts` | DTO + имена протокола (единый источник) + автообнаружение | `HubRoutes`, `DiscoveryProtocol`, `HubDiscovery`, DTO-записи |
+| `SzDiag.Hub` | ASP.NET Core на хосте: SignalR `/agents` + `/api/*` + `/agent/*` | `AgentHub`, `ManagementApi`, `AgentPackageApi`, `SessionRegistry` |
 | `SzDiag.Cli` (`szcli`) | тонкий клиент к `/api` | `HubApiClient`, команды в `Program.cs` |
 | `SzDiag.Agent` | консоль на клиенте (админ, `app.manifest`) | `AgentSession`, `WindowsSystemAccessManager`, `PortableSshServer` |
+| `SzDiag.Updater` | точка входа на клиенте: самообновление агента с hub | `HttpUpdateClient`, `PackageApplier`, `AgentLauncher` |
 | `SzDiag.Hardware` | резолвер видях по PCI ID | `GpuResolver`, `VgaBiosScraper`, `GpuRepository` |
 | `SzDiag.Kb` | Obsidian-vault базы знаний | `KbPaths`, `KnowledgeBaseScaffolder`, `ReportMarkdownBuilder` |
 
@@ -57,6 +58,18 @@ CLI-токен — заголовок `X-SzDiag-Mgmt-Token` (`ManagementApi.Toke
 | `POST /api/sessions/{sz}/test?filter=` | `TestRunTrigger.TriggerAsync` | `Ok`/`NotFound` |
 | `POST /api/sessions/{sz}/diag?sections=` | `DiagRunTrigger.TriggerAsync` | `Ok`/`NotFound` |
 | `GET /api/sessions/{sz}/target` | реестр + `ServiceAccount` | `TargetInfo{Sz,Ip,User,Ssh}`/`NotFound` |
+
+### Раздача пакета агента `/agent/*` (`Hub/AgentPackageApi.cs`, для апдейтера)
+
+Токен — тот же **агентский** `X-SzDiag-Token` (endpoint-фильтр на группе `/agent`). Файлы
+берутся из `HubOptions.AgentDistRoot` (кладёт `build-dist` в `dist\host\hub\agent-dist\`).
+Имена путей — в `HubRoutes` (`AgentVersionRoute`/`AgentPackageRoute`/`AgentPackageSha256Route`).
+
+| Метод + путь | Отдаёт |
+|---|---|
+| `GET /agent/version` | версия пакета (plain text из `version.txt`) |
+| `GET /agent/package` | `package.zip` (agent+ssh+ключ+testsuite, без appsettings/tools) |
+| `GET /agent/package.sha256` | sha256 пакета (plain text) |
 
 ### Автообнаружение hub (`DiscoveryProtocol`, UDP `5098`)
 
@@ -133,13 +146,38 @@ discovery не запускается.
 
 `DiagnosticProbes` — встроенный каталог секций (`command`-пробы, Id=секция), не требует
 `testsuite.json`, канал всегда доступен. Секции: `system cpu memory gpu storage temps drivers
-events reliability battery` (без `network`/`security`). `DiagReportRunner.RunAndUploadAsync(sz,
-sections?)` фильтрует секции (`TestReportRunner.FilterSteps`), гоняет через тот же `TestRunner`,
-строит `diag.md` (`DiagReportBuilder`, Kb), заливает одним `UploadReportPart`. Секции запускаются
-**точечно** (`szcli diag run <СЗ> storage,events`), не всё пачкой — снапшот вместо россыпи ssh.
-gpu-проба даёт `PCI\VEN_..&DEV_..&SUBSYS_..` прямо на вход hardware-резолверу. **Тело проб —
-строго ASCII** (уходит в `powershell.exe` 5.1 через stdin в кодовой странице консоли; кириллица
-в идентификаторах ломает парсер — русские заголовки живут в C# `Name` → `diag.md`).
+events reboots whea reliability battery` (без `network`/`security`). Заточены под спонтанные
+ребуты: `reboots` (Kernel-Power 41 со свойствами `BugcheckCode`/`PowerButtonTs`/`SleepInProgress`
++ dirty shutdown 6008 + BugCheck 1001), `whea` (WHEA-Logger **все уровни** — corrected идут
+Warning и теряются в `events` Level=1,2), `memory` показывает `ConfiguredClockSpeed` vs паспортный
+`Speed` (детект XMP/EXPO). `DiagReportRunner.RunAndUploadAsync(sz, sections?)` фильтрует секции
+(`TestReportRunner.FilterSteps`), гоняет через тот же `TestRunner`, строит `diag.md`
+(`DiagReportBuilder`, Kb), заливает одним `UploadReportPart`. Секции запускаются **точечно**
+(`szcli diag run <СЗ> reboots,whea`), не всё пачкой — снапшот вместо россыпи ssh. gpu-проба даёт
+`PCI\VEN_..&DEV_..&SUBSYS_..` прямо на вход hardware-резолверу.
+
+**Передача проб в PowerShell** (`PowerShellRunner`): скрипт уходит через `-EncodedCommand`
+(base64 UTF-16LE), **не** через stdin `-Command -` — последний в PS 5.1 обрывает многострочные
+конвейеры (строка с хвостовым `|`/`,`), из-за чего снимался лишь первый ряд каждой секции. Тело
+проб исторически держат **ASCII** (наследие stdin-режима; при EncodedCommand кириллица уже не
+ломает парсер, но существующие пробы не переписывали — русские заголовки живут в C# `Name` →
+`diag.md`).
+
+## Апдейтер (`SzDiag.Updater`)
+
+Точка входа на клиенте **вместо** прямого запуска агента — `SzDiag.Updater.exe`. Убирает ручной
+цикл раздачи через share: на клиента кладётся один раз `Updater.exe` + `appsettings.json`, всё
+остальное тянется само. `Program.cs` (оркестрация): найти hub (`HubUrl` или `HubDiscovery`,
+**требуем hub**) → `HttpUpdateClient.GetVersionAsync` → сравнить с локальным `version.txt` → при
+расхождении `DownloadPackageAsync` + сверка `GetPackageSha256Async` (`Hashing.Sha256File`) →
+`PackageApplier.Apply` (распаковка поверх, **кроме** `appsettings.json`/`tools/`, атомарно через
+staging) → `AgentLauncher.LaunchAndWait` (запуск `agent.exe` в наследованной консоли).
+
+Деградация: старый hub без `/agent/*` (404) / битый sha256 / залоченный `agent.exe` → запустить
+локального агента, если он есть, иначе внятный фейл. Читает те же `HubUrl`/`AgentToken` из общего
+с агентом `appsettings.json` (`UpdaterOptions`, env-префикс `SZUPDATER_`). Пакет собирает
+`build-dist` (`version.txt` = git short sha; zip без `appsettings`/`tools`/`Updater.exe`) в
+`dist\host\hub\agent-dist\`. Сам Updater в пакет не входит — самообновление вне MVP.
 
 ## Хост (`SzDiag.Hub`)
 
@@ -214,7 +252,7 @@ gpu-проба даёт `PCI\VEN_..&DEV_..&SUBSYS_..` прямо на вход h
 ## Быстрые команды
 
 ```powershell
-dotnet build; dotnet test                 # ~161 тест, без хоста/клиента
+dotnet build; dotnet test                 # ~174 теста, без хоста/клиента
 dotnet test --filter FullyQualifiedName~RevertCoordinator
 $env:SZDIAG_LIVE=1; dotnet test           # + live vgabios (ходит на TPU)
 .\tools\build-dist.ps1 [-HubIp <LAN-IP>]  # публикация dist\host\ + dist\client\

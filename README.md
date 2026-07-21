@@ -58,7 +58,10 @@ dotnet test           # автотесты (~174, без хоста/клиент
 
 ## Документация
 
-- [docs/vision.md](docs/vision.md) — замысел и модель угроз
-- [docs/TESTING.md](docs/TESTING.md) — ручной e2e-прогон, траблшутинг
+- [docs/dev-knowledge-base.md](docs/dev-knowledge-base.md) — плотная карта функционала
+  (протокол SignalR/`/api`, точки расширения, таблицы параметров, рецепты)
 - [CLAUDE.md](CLAUDE.md) — архитектура, конвенции, инварианты (для разработки)
+- [docs/TESTING.md](docs/TESTING.md) — ручной e2e-прогон, траблшутинг
+- [docs/vision.md](docs/vision.md) — исходный замысел и модель угроз (черновик от 2026-07-01;
+  актуальное состояние — в CLAUDE.md / dev-knowledge-base)
 - `docs/superpowers/{specs,plans}/` — спеки и планы по фичам
