@@ -31,10 +31,10 @@ public class KbRecorderTests : IDisposable
         });
 
         var home = File.ReadAllText(_paths.HomeNote("156864"));
-        Assert.Contains("заказ: \"[[A-2025-0098]]\"", home);
-        Assert.Contains("устройство: \"[[Lenovo IdeaPad 3]]\"", home);
+        Assert.Contains("замовлення: \"[[A-2025-0098]]\"", home);
+        Assert.Contains("пристрій: \"[[Lenovo IdeaPad 3]]\"", home);
         Assert.Contains("дефект: [\"[[Не стартует POST]]\"]", home);
-        Assert.Contains("заменено: [\"[[Kingston A400 240GB]]\"]", home);
+        Assert.Contains("замінено: [\"[[Kingston A400 240GB]]\"]", home);
     }
 
     [Fact]
@@ -73,16 +73,16 @@ public class KbRecorderTests : IDisposable
         NewRecorder().Record(new RecordRequest
         {
             Sz = "156864",
-            Symptoms = new[] { "Фризы под нагрузкой" },
+            Symptoms = new[] { "Фризи під навантаженням" },
             Status = "готово",
-            Verdict = "подтверждён"
+            Verdict = "підтверджено"
         });
 
         var home = File.ReadAllText(_paths.HomeNote("156864"));
-        Assert.Contains("симптом: [\"[[Фризы под нагрузкой]]\"]", home);
+        Assert.Contains("симптом: [\"[[Фризи під навантаженням]]\"]", home);
         Assert.Contains("статус: готово", home);
-        Assert.Contains("вердикт: подтверждён", home);
-        Assert.True(File.Exists(_paths.SymptomNote("Фризы под нагрузкой")));
+        Assert.Contains("вердикт: підтверджено", home);
+        Assert.True(File.Exists(_paths.SymptomNote("Фризи під навантаженням")));
     }
 
     [Fact]
@@ -96,7 +96,7 @@ public class KbRecorderTests : IDisposable
 
         // Линк во frontmatter должен совпасть с именем созданного файла (иначе битый [[link]]).
         var home = File.ReadAllText(_paths.HomeNote("156864"));
-        Assert.Contains("устройство: \"[[ПК ASUS - Ryzen 5 - RTX 5060]]\"", home);
+        Assert.Contains("пристрій: \"[[ПК ASUS - Ryzen 5 - RTX 5060]]\"", home);
         Assert.True(File.Exists(_paths.DeviceNote("ПК ASUS / Ryzen 5 / RTX 5060")));
     }
 

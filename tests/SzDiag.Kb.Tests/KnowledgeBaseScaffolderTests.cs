@@ -17,9 +17,9 @@ public class KnowledgeBaseScaffolderTests : IDisposable
         var dir = s.EnsureSkeleton("156864");
 
         Assert.True(File.Exists(Path.Combine(dir, "156864.md")));
-        Assert.True(File.Exists(Path.Combine(dir, "request.md")));
-        Assert.True(File.Exists(Path.Combine(dir, "findings.md")));
-        Assert.True(File.Exists(Path.Combine(dir, "actions.md")));
+        Assert.True(File.Exists(Path.Combine(dir, "запит.md")));
+        Assert.True(File.Exists(Path.Combine(dir, "діагностика.md")));
+        Assert.True(File.Exists(Path.Combine(dir, "дії.md")));
         Assert.True(Directory.Exists(Path.Combine(dir, "logs")));
     }
 
@@ -32,7 +32,7 @@ public class KnowledgeBaseScaffolderTests : IDisposable
         var home = File.ReadAllText(Path.Combine(dir, "156864.md"));
         Assert.Contains("сз: 156864", home);
         Assert.Contains("дата: 2026-07-01", home);
-        Assert.Contains("![[request]]", home);
+        Assert.Contains("![[запит]]", home);
     }
 
     [Fact]
@@ -45,7 +45,7 @@ public class KnowledgeBaseScaffolderTests : IDisposable
         Assert.Contains("симптом: []", home);
         Assert.Contains("статус: \"\"", home);
         Assert.Contains("вердикт: \"\"", home);
-        Assert.Contains("![[вывод]]", home);
+        Assert.Contains("![[висновок]]", home);
     }
 
     [Fact]
@@ -56,8 +56,8 @@ public class KnowledgeBaseScaffolderTests : IDisposable
 
         Assert.True(File.Exists(path));
         var text = File.ReadAllText(path);
-        Assert.Contains("## 📞 Для клиента", text);
-        Assert.Contains("## 🔧 Технический разбор", text);
+        Assert.Contains("## 📞 Для клієнта", text);
+        Assert.Contains("## 🔧 Технічний розбір", text);
     }
 
     [Fact]
@@ -77,7 +77,7 @@ public class KnowledgeBaseScaffolderTests : IDisposable
     {
         var s = NewScaffolder();
         var dir = s.EnsureSkeleton("156864");
-        var reqPath = Path.Combine(dir, "request.md");
+        var reqPath = Path.Combine(dir, "запит.md");
         File.WriteAllText(reqPath, "РУЧНОЙ ТЕКСТ");
 
         s.EnsureSkeleton("156864");

@@ -3,6 +3,7 @@ namespace SzDiag.Kb;
 /// <summary>
 /// Создаёт каркас kb/СЗ/&lt;sz&gt;/ в Obsidian-форме. Идемпотентно: если папка СЗ
 /// уже есть — ничего не трогает (данные диагностики не перетираются).
+/// Контент базы знаний — на украинском (сервис/колл-центр украиноязычные).
 /// </summary>
 public sealed class KnowledgeBaseScaffolder : IKnowledgeBaseScaffolder
 {
@@ -24,9 +25,9 @@ public sealed class KnowledgeBaseScaffolder : IKnowledgeBaseScaffolder
 
         var date = _now().ToString("yyyy-MM-dd");
         WriteIfMissing(_paths.HomeNote(sz), HomeNote(sz, date));
-        WriteIfMissing(_paths.Request(sz), $"# Дефект (со слов клиента) — СЗ {sz}\n\n");
-        WriteIfMissing(_paths.Findings(sz), $"# Диагностика — СЗ {sz}\n\n");
-        WriteIfMissing(_paths.Actions(sz), $"# Что заменили / сделали — СЗ {sz}\n\n");
+        WriteIfMissing(_paths.Request(sz), $"# Дефект (зі слів клієнта) — СЗ {sz}\n\n");
+        WriteIfMissing(_paths.Findings(sz), $"# Діагностика — СЗ {sz}\n\n");
+        WriteIfMissing(_paths.Actions(sz), $"# Що замінили / зробили — СЗ {sz}\n\n");
         return dir;
     }
 
@@ -45,33 +46,33 @@ public sealed class KnowledgeBaseScaffolder : IKnowledgeBaseScaffolder
 
     private static string SummaryNote(string sz) =>
         $"""
-        # Вывод по СЗ {sz}
+        # Висновок по СЗ {sz}
 
-        ## 📞 Для клиента
-        > Простым языком, без терминов. Копируется в колл-центр как есть.
+        ## 📞 Для клієнта
+        > Простою мовою, без термінів. Копіюється в колл-центр як є.
 
-        **Что с устройством:** …
-        **Что сделали:** …
-        **Итог / рекомендации:** …
+        **Що з пристроєм:** …
+        **Що зробили:** …
+        **Підсумок / рекомендації:** …
 
         ---
 
-        ## 🔧 Технический разбор
-        *для сервиса и обучения — клиенту не отдаётся*
+        ## 🔧 Технічний розбір
+        *для сервісу та навчання — клієнту не віддається*
 
-        **Симптом (со слов клиента):** …
+        **Симптом (зі слів клієнта):** …
 
-        **Показания диагностики:**
+        **Показники діагностики:**
         - …
-        - 🔗 сырой прогон: [[report]]
+        - 🔗 сирий прогін: [[report]]
 
-        **Рассуждение:** …
+        **Міркування:** …
 
-        **Диагноз:** …
+        **Діагноз:** …
 
-        **Что помогло:** …
+        **Що допомогло:** …
 
-        **Паттерн:** [[симптом]]
+        **Патерн:** [[симптом]]
 
         """;
 
@@ -79,10 +80,10 @@ public sealed class KnowledgeBaseScaffolder : IKnowledgeBaseScaffolder
         $"""
         ---
         сз: {sz}
-        заказ: ""
+        замовлення: ""
         дефект: []
-        заменено: []
-        устройство: ""
+        замінено: []
+        пристрій: ""
         симптом: []
         статус: ""
         вердикт: ""
@@ -91,17 +92,17 @@ public sealed class KnowledgeBaseScaffolder : IKnowledgeBaseScaffolder
 
         # СЗ {sz}
 
-        ## Вывод
-        ![[вывод]]
+        ## Висновок
+        ![[висновок]]
 
         ## Дефект
-        ![[request]]
+        ![[запит]]
 
-        ## Диагностика
-        ![[findings]]
+        ## Діагностика
+        ![[діагностика]]
 
-        ## Замены
-        ![[actions]]
+        ## Заміни
+        ![[дії]]
 
         """;
 }

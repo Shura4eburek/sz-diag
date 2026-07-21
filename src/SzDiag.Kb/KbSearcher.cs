@@ -21,7 +21,7 @@ public sealed class KbSearcher
 
             if (order is not null)
             {
-                var orderRaw = fm.GetScalar("заказ") ?? "";
+                var orderRaw = fm.GetScalar("замовлення") ?? "";
                 if (!orderRaw.Contains($"[[{order}]]")) continue;
             }
 
@@ -33,8 +33,8 @@ public sealed class KbSearcher
                 if (haystack.IndexOf(text, StringComparison.OrdinalIgnoreCase) < 0) continue;
             }
 
-            results.Add(new KbSearchResult(sz, fm.GetScalar("заказ") ?? "",
-                fm.GetList("дефект"), fm.GetList("заменено")));
+            results.Add(new KbSearchResult(sz, fm.GetScalar("замовлення") ?? "",
+                fm.GetList("дефект"), fm.GetList("замінено")));
         }
 
         return results.OrderBy(r => r.Sz, StringComparer.Ordinal).ToList();

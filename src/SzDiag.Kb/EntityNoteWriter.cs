@@ -1,7 +1,8 @@
 namespace SzDiag.Kb;
 
-/// <summary>Автосоздание связуемых заметок (Заказ/Дефект/Компонент/Устройство) и MOC.
-/// Идемпотентно: существующие заметки не перетираются. В шаблоны встроены Dataview-блоки.</summary>
+/// <summary>Автосоздание связуемых заметок (Замовлення/Дефект/Компонент/Пристрій) и MOC.
+/// Идемпотентно: существующие заметки не перетираются. В шаблоны встроены Dataview-блоки.
+/// Контент — на украинском (сервис/колл-центр украиноязычные).</summary>
 public sealed class EntityNoteWriter
 {
     private readonly KbPaths _paths;
@@ -9,14 +10,14 @@ public sealed class EntityNoteWriter
 
     public void EnsureOrder(string order) => Ensure(_paths.OrderNote(order),
         $"""
-        # Заказ {order}
+        # Замовлення {order}
 
-        Все СЗ по этому заказу:
+        Всі СЗ по цьому замовленню:
 
         ```dataview
-        table устройство as "Устройство", дефект as "Дефект", заменено as "Заменено"
+        table пристрій as "Пристрій", дефект as "Дефект", замінено as "Замінено"
         from "СЗ"
-        where заказ = this.file.link
+        where замовлення = this.file.link
         sort дата desc
         ```
         """);
@@ -25,10 +26,10 @@ public sealed class EntityNoteWriter
         $"""
         # Дефект: {defect}
 
-        Похожие случаи и что помогло:
+        Схожі випадки і що допомогло:
 
         ```dataview
-        table заказ as "Заказ", заменено as "Заменено"
+        table замовлення as "Замовлення", замінено as "Замінено"
         from "СЗ"
         where contains(дефект, this.file.link)
         sort дата desc
@@ -39,26 +40,26 @@ public sealed class EntityNoteWriter
         $"""
         # Компонент: {comp}
 
-        По каким СЗ менялся:
+        По яких СЗ мінявся:
 
         ```dataview
-        table заказ as "Заказ", дефект as "Дефект"
+        table замовлення as "Замовлення", дефект as "Дефект"
         from "СЗ"
-        where contains(заменено, this.file.link)
+        where contains(замінено, this.file.link)
         sort дата desc
         ```
         """);
 
     public void EnsureDevice(string device) => Ensure(_paths.DeviceNote(device),
         $"""
-        # Устройство: {device}
+        # Пристрій: {device}
 
-        СЗ по этой модели:
+        СЗ по цій моделі:
 
         ```dataview
-        table заказ as "Заказ", дефект as "Дефект", заменено as "Заменено"
+        table замовлення as "Замовлення", дефект as "Дефект", замінено as "Замінено"
         from "СЗ"
-        where устройство = this.file.link
+        where пристрій = this.file.link
         sort дата desc
         ```
         """);
@@ -68,21 +69,21 @@ public sealed class EntityNoteWriter
         ---
         тип: симптом
         симптом: {symptom}
-        дата_обновления: ""
+        дата_оновлення: ""
         ---
 
         # Симптом: {symptom}
 
-        ## Как распознать
+        ## Як розпізнати
         …
 
-        ## Что проверять (по порядку)
+        ## Що перевіряти (по черзі)
         1. …
 
-        ## Наблюдавшиеся причины
+        ## Причини, що спостерігались
         - …
 
-        ## Связанные СЗ (авто)
+        ## Пов'язані СЗ (авто)
         ```dataview
         list from "СЗ" where contains(симптом, this.file.link) sort дата desc
         ```
@@ -90,28 +91,28 @@ public sealed class EntityNoteWriter
 
     public void EnsureMoc() => Ensure(_paths.Moc,
         """
-        # База знаний — карта
+        # База знань — карта
 
-        ## Последние СЗ
+        ## Останні СЗ
         ```dataview
-        table заказ, дефект, заменено
+        table замовлення, дефект, замінено
         from "СЗ"
         sort дата desc
         limit 20
         ```
 
-        ## Топ дефектов
+        ## Топ дефектів
         ```dataview
-        table length(rows) as "Кол-во СЗ"
+        table length(rows) as "Кількість СЗ"
         from "СЗ"
         flatten дефект as d
         group by d
         sort length(rows) desc
         ```
 
-        ## Симптомы
+        ## Симптоми
         ```dataview
-        list from "Симптомы" where тип = "симптом" sort file.name asc
+        list from "Симптоми" where тип = "симптом" sort file.name asc
         ```
         """);
 

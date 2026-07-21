@@ -16,8 +16,8 @@ public class KbPathsTests
     public void EntityNotes_UnderNamedFolders()
     {
         var p = new KbPaths("/vault");
-        Assert.Equal(Path.Combine("/vault", "Заказы", "A-1.md"), p.OrderNote("A-1"));
-        Assert.Equal(Path.Combine("/vault", "Компоненты", "SSD.md"), p.ComponentNote("SSD"));
+        Assert.Equal(Path.Combine("/vault", "Замовлення", "A-1.md"), p.OrderNote("A-1"));
+        Assert.Equal(Path.Combine("/vault", "Компоненти", "SSD.md"), p.ComponentNote("SSD"));
     }
 
     [Fact]
@@ -32,15 +32,15 @@ public class KbPathsTests
     public void Summary_IsSzFolderPlusVyvodMd()
     {
         var p = new KbPaths("/vault");
-        Assert.Equal(Path.Combine("/vault", "СЗ", "156864", "вывод.md"), p.Summary("156864"));
+        Assert.Equal(Path.Combine("/vault", "СЗ", "156864", "висновок.md"), p.Summary("156864"));
     }
 
     [Fact]
     public void SymptomNote_UnderSymptomsFolder()
     {
         var p = new KbPaths("/vault");
-        Assert.Equal(Path.Combine("/vault", "Симптомы", "Фризы под нагрузкой.md"),
-            p.SymptomNote("Фризы под нагрузкой"));
+        Assert.Equal(Path.Combine("/vault", "Симптоми", "Фризи під навантаженням.md"),
+            p.SymptomNote("Фризи під навантаженням"));
     }
 
     [Fact]
@@ -56,7 +56,7 @@ public class KbPathsTests
     public void DeviceNote_SanitizesSlashesInFileName()
     {
         var p = new KbPaths("/vault");
-        Assert.Equal(Path.Combine("/vault", "Устройства", "ПК ASUS - Ryzen.md"),
+        Assert.Equal(Path.Combine("/vault", "Пристрої", "ПК ASUS - Ryzen.md"),
             p.DeviceNote("ПК ASUS / Ryzen"));
     }
 }

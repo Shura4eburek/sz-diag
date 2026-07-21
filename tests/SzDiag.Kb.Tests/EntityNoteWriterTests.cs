@@ -15,7 +15,7 @@ public class EntityNoteWriterTests : IDisposable
         w.EnsureOrder("A-2025-0098");
 
         var text = File.ReadAllText(new KbPaths(_root).OrderNote("A-2025-0098"));
-        Assert.Contains("# Заказ A-2025-0098", text);
+        Assert.Contains("# Замовлення A-2025-0098", text);
         Assert.Contains("```dataview", text);
     }
 
@@ -36,11 +36,11 @@ public class EntityNoteWriterTests : IDisposable
     public void EnsureSymptom_CreatesNoteWithTypeAndDataview()
     {
         var w = NewWriter();
-        w.EnsureSymptom("Фризы под нагрузкой");
+        w.EnsureSymptom("Фризи під навантаженням");
 
-        var text = File.ReadAllText(new KbPaths(_root).SymptomNote("Фризы под нагрузкой"));
+        var text = File.ReadAllText(new KbPaths(_root).SymptomNote("Фризи під навантаженням"));
         Assert.Contains("тип: симптом", text);
-        Assert.Contains("# Симптом: Фризы под нагрузкой", text);
+        Assert.Contains("# Симптом: Фризи під навантаженням", text);
         Assert.Contains("```dataview", text);
     }
 

@@ -27,12 +27,12 @@ public sealed class KbRecorder
 
         if (req.Order is not null)
         {
-            fm.SetScalar("заказ", Quoted(req.Order));
+            fm.SetScalar("замовлення", Quoted(req.Order));
             _entities.EnsureOrder(req.Order);
         }
         if (req.Device is not null)
         {
-            fm.SetScalar("устройство", Quoted(req.Device));
+            fm.SetScalar("пристрій", Quoted(req.Device));
             _entities.EnsureDevice(req.Device);
         }
         foreach (var d in req.Defects)
@@ -42,7 +42,7 @@ public sealed class KbRecorder
         }
         foreach (var c in req.Replaced)
         {
-            fm.AddToList("заменено", Quoted(c));
+            fm.AddToList("замінено", Quoted(c));
             _entities.EnsureComponent(c);
         }
         foreach (var spt in req.Symptoms)
