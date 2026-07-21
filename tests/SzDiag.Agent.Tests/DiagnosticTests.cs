@@ -12,7 +12,7 @@ public class DiagnosticProbesTests
         var expected = new[]
         {
             "system", "cpu", "memory", "gpu", "storage",
-            "temps", "drivers", "events", "reliability", "battery"
+            "temps", "drivers", "events", "reboots", "whea", "reliability", "battery"
         };
         Assert.Equal(expected, DiagnosticProbes.Sections);
         Assert.DoesNotContain("network", DiagnosticProbes.Sections);

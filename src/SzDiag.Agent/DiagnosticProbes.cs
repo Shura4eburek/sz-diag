@@ -58,8 +58,9 @@ public static class DiagnosticProbes
             "Total: {0:N1} GB, Free: {1:N1} GB" -f ($os.TotalVisibleMemorySize/1MB), ($os.FreePhysicalMemory/1MB)
             Get-CimInstance Win32_PhysicalMemory -ErrorAction SilentlyContinue |
                 Select-Object DeviceLocator, @{n='GB';e={[math]::Round($_.Capacity/1GB,1)}},
-                    Speed, Manufacturer, PartNumber |
+                    Speed, ConfiguredClockSpeed, Manufacturer, PartNumber |
                 Format-Table -Auto | Out-String
+            "Speed = pasportnaya (JEDEC), ConfiguredClockSpeed = fakticheskaya; ConfiguredClockSpeed > Speed => vklyuchen XMP/EXPO (razgon pamyati)."
             """),
 
         Probe("gpu", "Видеокарта (PCI ID для резолвера + драйвер)", """
@@ -122,6 +123,35 @@ public static class DiagnosticProbes
             Get-WinEvent -FilterHashtable @{ LogName='Application'; Level=1,2; StartTime=(Get-Date).AddDays(-3) } -MaxEvents 25 -ErrorAction SilentlyContinue |
                 Select-Object TimeCreated, Id, ProviderName, @{n='Message';e={($_.Message -split "`r?`n")[0]}} |
                 Format-Table -Auto | Out-String
+            """),
+
+        Probe("reboots", "Перезагрузки: Kernel-Power 41 + dirty shutdown + BSOD-коды", """
+            "=== Kernel-Power 41 (unexpected reboot, last 20) ==="
+            $kp = Get-WinEvent -FilterHashtable @{ LogName='System'; ProviderName='Microsoft-Windows-Kernel-Power'; Id=41 } -MaxEvents 20 -ErrorAction SilentlyContinue
+            if ($kp) {
+                foreach ($e in $kp) {
+                    $x = [xml]$e.ToXml(); $d = @{}; foreach ($p in $x.Event.EventData.Data) { $d[$p.Name] = $p.'#text' }
+                    "[{0}] BugcheckCode={1} Param1={2} PowerButtonTs={3} SleepInProgress={4}" -f `
+                        $e.TimeCreated, $d['BugcheckCode'], $d['BugcheckParameter1'], $d['PowerButtonTimestamp'], $d['SleepInProgress']
+                }
+                "Podskazka: BugcheckCode=0 i net BSOD/WHEA => zhestkiy obryv (pitanie/peregrev), a ne soft."
+            } else { "none" }
+            "=== Dirty shutdown / EventLog 6008/6005/6006 (last 20) ==="
+            Get-WinEvent -FilterHashtable @{ LogName='System'; ProviderName='EventLog'; Id=6008,6005,6006 } -MaxEvents 20 -ErrorAction SilentlyContinue |
+                Select-Object TimeCreated, Id, @{n='Msg';e={($_.Message -split "`r?`n")[0]}} | Format-Table -Auto | Out-String
+            "=== BugCheck 1001 (BSOD stop codes, last 10) ==="
+            $bc = Get-WinEvent -FilterHashtable @{ LogName='System'; Id=1001; ProviderName='Microsoft-Windows-WER-SystemErrorReporting' } -MaxEvents 10 -ErrorAction SilentlyContinue
+            if ($bc) { $bc | ForEach-Object { "[{0}] {1}" -f $_.TimeCreated, (($_.Message -split "`r?`n")[0]) } } else { "none (no BSOD)" }
+            """),
+
+        Probe("whea", "Аппаратные ошибки железа (WHEA-Logger, все уровни)", """
+            $whea = Get-WinEvent -FilterHashtable @{ LogName='System'; ProviderName='Microsoft-Windows-WHEA-Logger' } -MaxEvents 40 -ErrorAction SilentlyContinue
+            if ($whea) {
+                $whea | Select-Object TimeCreated, Id, LevelDisplayName, @{n='Msg';e={($_.Message -split "`r?`n")[0]}} |
+                    Format-Table -Auto | Out-String
+                "--- full text of last 3 WHEA (component: CPU/PCIe/memory) ---"
+                $whea | Select-Object -First 3 | ForEach-Object { ("[{0}] Id={1}" -f $_.TimeCreated, $_.Id); $_.Message }
+            } else { "none (apparatnyh oshibok ne logirovalos - vazhno: proverili VSE urovni, ne tolko Error)" }
             """),
 
         Probe("reliability", "История сбоев / BSOD / minidump'ы", """
