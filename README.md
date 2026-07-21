@@ -19,7 +19,13 @@ Claude работает на чистом сервисном боксе и до�
   тест-раннер и заливает отчёт. Доступ откатывается по флагам (клавиша `C` / команда `close`
   с хоста / watchdog по таймауту).
 - **Hub + CLI** на хосте: реестр онлайн-СЗ, история в SQLite, `szcli` — `watch`/`list`/
-  `close`/`target`/`test run`.
+  `close`/`target`/`test run`/`diag run`.
+- **RunDiag** — `szcli diag run <СЗ> [секции]` гоняет на агенте курируемый набор read-only
+  проб (железо/диски/SMART/события/`reboots`/`whea`/…) и заливает один структурированный
+  `diag.md` в базу знаний. Один снапшот вместо россыпи ad-hoc ssh — экономия токенов.
+- **Апдейтер клиента** — `SzDiag.Updater.exe` на клиенте находит hub, сверяет версию и сам
+  тянет свежий пакет агента с хоста. Убирает ручной цикл раздачи через share: на клиента
+  кладётся один раз `Updater.exe` + `appsettings.json`.
 - **База знаний** (Obsidian-vault): по каждой СЗ пишется скелет, отчёты и итоговый
   `вывод.md` (блок «Для клиента» для колл-центра + техразбор); паттерны «симптом → причина»
   копятся отдельно.
@@ -27,26 +33,28 @@ Claude работает на чистом сервисном боксе и до�
   дорезолв точной партнёрской платы (SKU) и спеков прошивки из TechPowerUp VGA BIOS
   collection, кэш в SQLite. CLI: `szcli hw import/update/resolve`.
 
-**Статус:** sshd под SYSTEM (план Б) реализован (2026-07-20), ждёт e2e-проверки на реальной
-онлайн-СЗ — чеклист в [docs/TESTING.md](docs/TESTING.md) («Проверка token-privilege»).
+**Статус:** sshd под SYSTEM (план Б), RunDiag и апдейтер клиента — реализованы и
+e2e-проверены на реальной онлайн-СЗ (2026-07-21): живой SSH-коннект, `diag run` даёт
+полный `diag.md`, клиент самообновляется через `Updater.exe`.
 
 ## Быстрый старт
 
 ```powershell
 dotnet build          # сборка
-dotnet test           # автотесты (~161, без хоста/клиента)
-.\tools\build-dist.ps1 # готовый dist: dist\host\ (hub+cli) и dist\client\ (agent)
+dotnet test           # автотесты (~174, без хоста/клиента)
+.\tools\build-dist.ps1 # готовый dist: dist\host\ (hub+cli) и dist\client\ (updater+agent)
 ```
 
-Запуск: `dist\host\start-hub.cmd` (hub), `dist\host\szcli.cmd` (CLI), `SzDiag.Agent.exe`
-на клиенте. Подробный e2e-прогон и траблшутинг — в [docs/TESTING.md](docs/TESTING.md).
+Запуск: `dist\host\start-hub.cmd` (hub), `dist\host\szcli.cmd` (CLI), `SzDiag.Updater.exe`
+на клиенте (сам подтянет агента). Подробный e2e-прогон и траблшутинг — в
+[docs/TESTING.md](docs/TESTING.md).
 
 ## Структура
 
-Шесть проектов в `src/` (+ зеркальные тесты в `tests/`): `SzDiag.Contracts` (DTO/протокол),
+Семь проектов в `src/` (+ зеркальные тесты в `tests/`): `SzDiag.Contracts` (DTO/протокол),
 `SzDiag.Hub` (ASP.NET Core: SignalR для агентов + management API для CLI), `SzDiag.Cli`
-(`szcli`), `SzDiag.Agent` (консоль на клиенте), `SzDiag.Hardware` (резолвер видях),
-`SzDiag.Kb` (база знаний).
+(`szcli`), `SzDiag.Agent` (консоль на клиенте), `SzDiag.Updater` (самообновление клиента),
+`SzDiag.Hardware` (резолвер видях), `SzDiag.Kb` (база знаний).
 
 ## Документация
 

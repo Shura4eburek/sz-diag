@@ -18,25 +18,30 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 Рабочий токен на неё **не заезжает**; диагностика идёт по сети (SSH). Весь доступ на
 клиенте временный и **откатывается без следов** при закрытии СЗ.
 
-## Следующая задача (незакончена)
+## Статус / следующее
 
-**План Б — портативный sshd под SYSTEM.** ✅ реализовано (2026-07-20), ждёт e2e на
-реальной онлайн-СЗ. sshd поднимается транзиентной scheduled task под SYSTEM (даёт
-SeTcbPrivilege для logon-token; раньше дочерний процесс админ-агента его не создавал →
-`Connection reset`). Контекст, спека и чеклист e2e —
-[docs/plan-b-quickstart.md](docs/plan-b-quickstart.md). Дальше — runbook «дал СЗ →
-сразу коннект и диагностика».
-
-Экономия токенов Claude: команда `RunDiag` (✅ реализована) — один структурированный снапшот
-железа/дисков/SMART/событий (`szcli diag run <СЗ> [секции]` → `diag.md` в kb) вместо россыпи
-ad-hoc ssh. Секции гоняются точечно. Дизайн/каталог —
+**План Б (sshd под SYSTEM), RunDiag и апдейтер клиента — реализованы и e2e-проверены на
+онлайн-СЗ (2026-07-21).** Живой SSH-коннект работает (план Б + ACL-фикс host-ключа);
+`szcli diag run <СЗ> [секции]` даёт полный структурированный `diag.md` (железо/диски/SMART/
+события/`reboots`/`whea`) вместо россыпи ad-hoc ssh — секции гоняются точечно; клиент
+самообновляется через `SzDiag.Updater.exe` (находит hub, тянет свежий пакет агента —
+конец ручному циклу раздачи через share). Апдейтер:
+[docs/superpowers/specs/2026-07-21-agent-updater-design.md](docs/superpowers/specs/2026-07-21-agent-updater-design.md).
+RunDiag:
 [docs/superpowers/specs/2026-07-20-agent-diag-commands-design.md](docs/superpowers/specs/2026-07-20-agent-diag-commands-design.md).
+
+Открытые направления:
+- **Наполнение базы знаний** паттернами «симптом → причина» по мере заявок. Первый живой
+  кейс — СЗ 159873 (спонтанные ребуты; вердикт питание/контакт, на стенде не воспроизводится),
+  паттерн в `Симптомы/случайные перезагрузки.md` с матрицей дискриминаторов.
+- **Упаковка стресс-тулов** (TM5/OCCT/FurMark) в образ/архив вместо гигов при раздаче —
+  идея зафиксирована, спеки пока нет.
 
 ## Команды
 
 ```powershell
 dotnet build                       # сборка солюшена
-dotnet test                        # все автотесты (~161), без хоста/клиента
+dotnet test                        # все автотесты (~174), без хоста/клиента
 dotnet test tests/SzDiag.Agent.Tests            # тесты одного проекта
 dotnet test --filter FullyQualifiedName~RevertCoordinator   # один класс/тест
 $env:SZDIAG_LIVE=1; dotnet test    # + live-тест vgabios (реально ходит на TPU; по умолчанию skip)
@@ -62,7 +67,7 @@ $env:SZDIAG_LIVE=1; dotnet test    # + live-тест vgabios (реально х�
 
 ## Архитектура
 
-Шесть проектов в `src/` + зеркальные тесты в `tests/`:
+Семь проектов в `src/` + зеркальные тесты в `tests/`:
 
 - **SzDiag.Contracts** — DTO и константы, общие для агента и hub (`HubRoutes` — единый
   источник имён SignalR-методов и заголовков, чтобы строки не расходились). Меняешь протокол
@@ -77,6 +82,11 @@ $env:SZDIAG_LIVE=1; dotnet test    # + live-тест vgabios (реально х�
 - **SzDiag.Agent** — консоль на клиенте (`net8.0`, требует прав админа, `app.manifest`).
   Открывает доступ, коннектится к hub по SignalR, шлёт heartbeat, по команде hub гоняет
   тест-раннер и заливает отчёт. `--revert <statePath>` — режим watchdog/автозакрытия.
+- **SzDiag.Updater** — тонкий `SzDiag.Updater.exe`, точка входа на клиенте вместо агента.
+  Находит hub (`HubDiscovery`, вынесен в Contracts), сверяет `version.txt`, при расхождении
+  качает пакет агента с hub (`/agent/version|package|package.sha256`, sha256-проверка),
+  распаковывает поверх (`PackageApplier` — кроме `appsettings.json`/`tools/`) и запускает
+  `agent.exe`. Пакет собирает `build-dist` в `dist\host\hub\agent-dist\`.
 - **SzDiag.Hardware** — определение видеокарты по Windows PCI hardware ID
   (`PCI\VEN_..&DEV_..&SUBSYS_..`). `PciId.Parse` разбирает id, `PciIdsParser` парсит базу
   pci.ids, `GpuRepository` (SQLite `gpu.db`) хранит вендоров/устройства/платы, `GpuResolver`
