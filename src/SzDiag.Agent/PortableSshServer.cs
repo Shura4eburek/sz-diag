@@ -115,9 +115,16 @@ public sealed class PortableSshServer
     {
         Directory.CreateDirectory(_workDir);
 
-        // Свежий host-ключ каждую сессию — битый ключ невозможен.
-        if (File.Exists(HostKeyPath)) File.Delete(HostKeyPath);
-        if (File.Exists(HostKeyPath + ".pub")) File.Delete(HostKeyPath + ".pub");
+        // Старый экземпляр НАШЕГО sshd мог пережить ребут/краш агента (задача осталась,
+        // процесс висит) и держать host-ключ открытым — тогда File.Delete ниже упадёт
+        // "файл занят". Превентивно снимаем задачу и добиваем наш sshd (идемпотентно,
+        // по ConfigPath — системный sshd не трогаем), затем ждём освобождения файла.
+        _ps.Run(BuildStopCommand(taskName, ConfigPath), throwOnError: false);
+
+        // Свежий host-ключ каждую сессию — битый ключ невозможен. Удаляем с ретраем:
+        // после kill старый sshd отпускает файл не мгновенно.
+        DeleteWithRetry(HostKeyPath);
+        DeleteWithRetry(HostKeyPath + ".pub");
         _ps.Run($"& '{Path.Combine(_sshDir, "ssh-keygen.exe")}' -t ed25519 -f '{HostKeyPath}' -N '\"\"' -q");
 
         File.WriteAllText(AuthorizedKeysPath, authorizedKeyLine.Trim() + Environment.NewLine);
@@ -132,7 +139,9 @@ public sealed class PortableSshServer
         foreach (var f in new[] { HostKeyPath, AuthorizedKeysPath })
             _ps.Run(BuildHardenAclCommand(f, owner), throwOnError: false);
 
-        if (File.Exists(LogPath)) File.Delete(LogPath);
+        // sshd.log старый экземпляр держит открытым (-E logPath) — тоже с ретраем, т.к.
+        // после preemptive-kill дескриптор закрывается не мгновенно.
+        DeleteWithRetry(LogPath);
         _ps.Run(BuildRegisterTaskCommand(taskName, SshdExePath, ConfigPath, LogPath));
 
         // Процесс не дочерний (под задачей SYSTEM) — ждём готовности по порту, а не по
@@ -150,6 +159,25 @@ public sealed class PortableSshServer
     public void Stop(string taskName)
     {
         _ps.Run(BuildStopCommand(taskName, ConfigPath), throwOnError: false);
+    }
+
+    /// <summary>Удаление файла с ретраем: после снятия старого sshd host-ключ
+    /// освобождается не мгновенно (kill асинхронный, дескриптор закрывается с задержкой).
+    /// Ловим IOException/Access и повторяем; исчерпав попытки — пробрасываем реальную ошибку.</summary>
+    private static void DeleteWithRetry(string path, int attempts = 15, int stepMs = 200)
+    {
+        for (var i = 0; ; i++)
+        {
+            try
+            {
+                if (File.Exists(path)) File.Delete(path);
+                return;
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException && i < attempts - 1)
+            {
+                Thread.Sleep(stepMs);
+            }
+        }
     }
 
     /// <summary>Поллинг TCP-порта до готовности sshd (по умолчанию каждые 200 мс).</summary>
