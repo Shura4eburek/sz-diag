@@ -9,12 +9,14 @@ public class AgentSessionTests
     {
         public int OpenCalls { get; private set; }
         public int RevertCalls { get; private set; }
+        public int ResumeCalls { get; private set; }
         public RevertState Open(AccessSpec spec)
         {
             OpenCalls++;
             return new RevertState { Sz = spec.Sz };
         }
         public void Revert(RevertState state) => RevertCalls++;
+        public void Resume(RevertState state, AccessSpec spec) => ResumeCalls++;
     }
 
     private sealed class FakeHubLink : IHubLink

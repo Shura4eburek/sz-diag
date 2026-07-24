@@ -160,6 +160,19 @@ public sealed class WindowsSystemAccessManager : ISystemAccessManager
         RevertStateStore.Delete(_statePath);
     }
 
+    public void Resume(RevertState state, AccessSpec spec)
+    {
+        // Переподнять только sshd — единственное, что умирает от ребута (транзиентная
+        // задача). User/firewall/token policy/watchdog переживают ребут.
+        var keyLine = $"{spec.ServicePublicKey.Trim()} {state.AuthorizedKeyComment}";
+        _sshd.Start(spec.SshPort, keyLine, state.SshdTaskName);
+
+        // Пересоздать watchdog с новым дедлайном (-Force): серия ребутов под стрессом
+        // продлевает сессию, а не грохает её протухшим -Once из прошлой загрузки.
+        _ps.Run(BuildWatchdogTaskCommand(state.WatchdogTaskName, Environment.ProcessPath!,
+            _statePath, DateTime.Now.Add(spec.WatchdogTimeout)));
+    }
+
     /// <summary>Если на диске остался state.json от ДРУГОЙ (незакрытой) СЗ — откатить её,
     /// прежде чем открывать новую. Иначе задачи/автостарт прошлой СЗ повиснут = след.</summary>
     public void RevertStaleState(string currentSz)

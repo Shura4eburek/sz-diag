@@ -63,6 +63,43 @@ public class WindowsSystemAccessManagerTests : IDisposable
         Assert.Null(ex);
     }
 
+    private sealed class FakeSshd : ISshServer
+    {
+        public int StartCalls { get; private set; }
+        public string? StartedTask { get; private set; }
+        public void Start(int port, string authorizedKeyLine, string taskName)
+        {
+            StartCalls++;
+            StartedTask = taskName;
+        }
+        public void Stop(string taskName) { }
+        public string WorkDir => @"C:\nonexistent\work";
+    }
+
+    [Fact]
+    public void Resume_RestartsSshdAndReschedulesWatchdog_NotUserOrFirewall()
+    {
+        var ps = new FakePs();
+        var sshd = new FakeSshd();
+        var mgr = new WindowsSystemAccessManager(ps, sshd, _statePath);
+        var state = new RevertState
+        {
+            Sz = "156864",
+            SshdTaskName = "szdiag-sshd-156864",
+            WatchdogTaskName = "szdiag-watchdog-156864",
+            AuthorizedKeyComment = "szdiag-156864"
+        };
+        var spec = new AccessSpec("156864", "svc-diag", "ssh-ed25519 AAAA", 22, TimeSpan.FromHours(6));
+
+        mgr.Resume(state, spec);
+
+        Assert.Equal(1, sshd.StartCalls);
+        Assert.Equal("szdiag-sshd-156864", sshd.StartedTask);
+        Assert.Contains(ps.Scripts, s => s.Contains("Register-ScheduledTask") && s.Contains("szdiag-watchdog-156864"));
+        Assert.DoesNotContain(ps.Scripts, s => s.Contains("New-LocalUser"));
+        Assert.DoesNotContain(ps.Scripts, s => s.Contains("New-NetFirewallRule"));
+    }
+
     [Fact]
     public void Revert_WithAutostartTask_UnregistersItBeforeWatchdog()
     {
