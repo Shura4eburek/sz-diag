@@ -66,6 +66,34 @@ public class AgentSessionTests
     }
 
     [Fact]
+    public async Task ResumeAsync_ResumesAccessConnectsAndRegisters()
+    {
+        var mgr = new FakeManager();
+        var link = new FakeHubLink();
+        var session = new AgentSession(mgr, link, Spec(), "PC-1");
+
+        await session.ResumeAsync(new RevertState { Sz = "156864" });
+
+        Assert.Equal(1, mgr.ResumeCalls);
+        Assert.Equal(0, mgr.OpenCalls);
+        Assert.True(link.Connected);
+        Assert.Equal("156864", link.RegisteredSz);
+    }
+
+    [Fact]
+    public async Task Completion_CompletesAfterRevert()
+    {
+        var link = new FakeHubLink();
+        var session = new AgentSession(new FakeManager(), link, Spec(), "PC-1");
+        await session.ResumeAsync(new RevertState { Sz = "156864" });
+        Assert.False(session.Completion.IsCompleted);
+
+        await link.FireRevert("156864");
+
+        Assert.True(session.Completion.IsCompleted);
+    }
+
+    [Fact]
     public async Task HeartbeatOnceAsync_SendsHeartbeat()
     {
         var link = new FakeHubLink();
