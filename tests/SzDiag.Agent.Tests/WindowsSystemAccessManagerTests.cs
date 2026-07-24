@@ -63,6 +63,32 @@ public class WindowsSystemAccessManagerTests : IDisposable
         Assert.Null(ex);
     }
 
+    [Fact]
+    public void BuildWatchdogTaskCommand_UsesRevertAndOnceTrigger()
+    {
+        var cmd = WindowsSystemAccessManager.BuildWatchdogTaskCommand(
+            "szdiag-watchdog-156864", @"C:\a\agent.exe", @"C:\s\state.json",
+            new DateTime(2026, 7, 24, 15, 0, 0));
+
+        Assert.Contains("--revert", cmd);
+        Assert.Contains("-Once", cmd);
+        Assert.Contains("2026-07-24T15:00:00", cmd);
+        Assert.Contains("szdiag-watchdog-156864", cmd);
+        Assert.Contains("SYSTEM", cmd);
+    }
+
+    [Fact]
+    public void BuildAutostartTaskCommand_UsesAtStartupAndResume()
+    {
+        var cmd = WindowsSystemAccessManager.BuildAutostartTaskCommand(
+            "szdiag-autostart-156864", @"C:\a\agent.exe", @"C:\s\state.json");
+
+        Assert.Contains("-AtStartup", cmd);
+        Assert.Contains("--resume", cmd);
+        Assert.Contains("szdiag-autostart-156864", cmd);
+        Assert.Contains("SYSTEM", cmd);
+    }
+
     public void Dispose()
     {
         var dir = Path.GetDirectoryName(_statePath)!;

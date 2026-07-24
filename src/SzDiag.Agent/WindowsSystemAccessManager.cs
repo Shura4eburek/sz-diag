@@ -96,12 +96,8 @@ public sealed class WindowsSystemAccessManager : ISystemAccessManager
 
         // 7. Watchdog scheduled task (запускает этот exe с --revert по таймауту)
         var exe = Environment.ProcessPath!;
-        var runAt = DateTime.Now.Add(spec.WatchdogTimeout).ToString("yyyy-MM-ddTHH:mm:ss");
-        _ps.Run(
-            $"$a = New-ScheduledTaskAction -Execute '{exe}' -Argument '--revert \"{_statePath}\"'; " +
-            $"$t = New-ScheduledTaskTrigger -Once -At '{runAt}'; " +
-            $"Register-ScheduledTask -TaskName '{state.WatchdogTaskName}' -Action $a -Trigger $t " +
-            "-RunLevel Highest -User 'SYSTEM' -Force");
+        _ps.Run(BuildWatchdogTaskCommand(state.WatchdogTaskName, exe, _statePath,
+            DateTime.Now.Add(spec.WatchdogTimeout)));
         state.CreatedWatchdogTask = true;
         Persist();
 
@@ -147,6 +143,22 @@ public sealed class WindowsSystemAccessManager : ISystemAccessManager
 
         RevertStateStore.Delete(_statePath);
     }
+
+    /// <summary>PowerShell регистрации watchdog-задачи (-Once на runAt): по таймауту
+    /// запускает этот exe с --revert. -Force перезаписывает существующую (для resume-сдвига).</summary>
+    public static string BuildWatchdogTaskCommand(string taskName, string exePath, string statePath, DateTime runAt) =>
+        $"$a = New-ScheduledTaskAction -Execute '{exePath}' -Argument '--revert \"{statePath}\"'; " +
+        $"$t = New-ScheduledTaskTrigger -Once -At '{runAt:yyyy-MM-ddTHH:mm:ss}'; " +
+        $"Register-ScheduledTask -TaskName '{taskName}' -Action $a -Trigger $t " +
+        "-RunLevel Highest -User 'SYSTEM' -Force";
+
+    /// <summary>PowerShell регистрации автостарт-задачи (-AtStartup): после ребута
+    /// поднимает этот exe с --resume под SYSTEM (до логина, headless).</summary>
+    public static string BuildAutostartTaskCommand(string taskName, string exePath, string statePath) =>
+        $"$a = New-ScheduledTaskAction -Execute '{exePath}' -Argument '--resume \"{statePath}\"'; " +
+        "$t = New-ScheduledTaskTrigger -AtStartup; " +
+        $"Register-ScheduledTask -TaskName '{taskName}' -Action $a -Trigger $t " +
+        "-RunLevel Highest -User 'SYSTEM' -Force";
 
     private static string GeneratePassword()
     {
