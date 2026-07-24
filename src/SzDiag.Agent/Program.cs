@@ -58,6 +58,80 @@ if (args.Length >= 2 && args[0] == "--revert")
     return 0;
 }
 
+// Режим возобновления после ребута: agent.exe --resume <statePath>. Поднимается
+// автостарт-задачей под SYSTEM (headless, без консоли). Переподнимает sshd и
+// реконнектится под тем же СЗ из persisted state; живёт до отката от hub/watchdog.
+if (args.Length >= 2 && args[0] == "--resume")
+{
+    var state = RevertStateStore.Load(args[1]);
+    if (state is null)
+    {
+        logFile.WriteLine("[resume] state.json отсутствует — возобновлять нечего.");
+        logFile.Flush();
+        return 0;
+    }
+
+    var rOpts = new AgentOptions();
+    config.Bind(rOpts);
+    string R(string p) => Path.IsPathRooted(p) ? p : Path.Combine(AppContext.BaseDirectory, p);
+
+    var rPubKey = File.ReadAllText(R(rOpts.ServicePublicKeyPath));
+    var rSpec = new AccessSpec(state.Sz, rOpts.ServiceAccount, rPubKey, rOpts.SshPort,
+        TimeSpan.FromHours(rOpts.WatchdogHours));
+    var rSshd = new PortableSshServer(R(rOpts.SshBinDir), rOpts.SshWorkDir, ps);
+    var rManager = new WindowsSystemAccessManager(ps, rSshd, args[1]);
+
+    var rHubUrl = rOpts.HubUrl;
+    if (string.IsNullOrWhiteSpace(rHubUrl))
+    {
+        try { rHubUrl = await HubDiscovery.FindHubAsync(rOpts.AgentToken); }
+        catch (HubNotFoundException ex)
+        {
+            logFile.WriteLine($"[resume] hub не найден: {ex.Message}");
+            logFile.Flush();
+            return 1; // автостарт повторит при следующем ребуте
+        }
+    }
+
+    var rLink = new SignalRHubLink(rHubUrl, rOpts.AgentToken);
+    var rSession = new AgentSession(rManager, rLink, rSpec, Environment.MachineName);
+
+    // Ребут мог случиться быстрее, чем поднялась сеть — bounded-ретрай подъёма.
+    const int maxAttempts = 10;
+    for (var attempt = 1; ; attempt++)
+    {
+        try
+        {
+            logFile.WriteLine($"[resume] СЗ {state.Sz}: переподнимаю доступ (попытка {attempt})…");
+            await rSession.ResumeAsync(state);
+            break;
+        }
+        catch (Exception ex) when (attempt < maxAttempts)
+        {
+            logFile.WriteLine($"[resume] попытка {attempt} не удалась: {ex.Message}; retry через 30с");
+            logFile.Flush();
+            await Task.Delay(TimeSpan.FromSeconds(30));
+        }
+    }
+
+    logFile.WriteLine($"[resume] СЗ {state.Sz}: online (после ребута).");
+    logFile.Flush();
+    try { await rLink.ReportActivityAsync(state.Sz, "— готов (после ребута)", null); } catch { }
+
+    AgentCommandWiring.RegisterHandlers(rLink, Environment.MachineName, ps,
+        R(rOpts.TestSuitePath), (plain, _) => { logFile.WriteLine(plain); logFile.Flush(); });
+
+    using var rCts = new CancellationTokenSource();
+    var rHeartbeat = AgentCommandWiring.StartHeartbeatLoop(rSession, (int)rOpts.HeartbeatSeconds, rCts.Token);
+
+    await rSession.Completion; // ждём отката от hub (close) или watchdog
+    rCts.Cancel();
+    try { await rHeartbeat; } catch { }
+    logFile.WriteLine($"[resume] СЗ {state.Sz}: сессия закрыта, откат выполнен.");
+    logFile.Flush();
+    return 0;
+}
+
 try
 {
 
