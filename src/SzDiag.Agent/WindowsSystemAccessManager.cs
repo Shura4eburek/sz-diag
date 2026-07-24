@@ -14,10 +14,10 @@ public sealed class WindowsSystemAccessManager : ISystemAccessManager
     private const string TokenPolicyPath = @"HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System";
 
     private readonly IPowerShellRunner _ps;
-    private readonly PortableSshServer _sshd;
+    private readonly ISshServer _sshd;
     private readonly string _statePath;
 
-    public WindowsSystemAccessManager(IPowerShellRunner ps, PortableSshServer sshd, string statePath)
+    public WindowsSystemAccessManager(IPowerShellRunner ps, ISshServer sshd, string statePath)
     {
         _ps = ps;
         _sshd = sshd;
