@@ -655,7 +655,7 @@ git commit -m "feat(agent): автообнаружение hub'а при пус�
   Адрес хоста для конфига агента. По умолчанию пусто — агент сам найдёт hub через
   автообнаружение в локальной сети (UDP-broadcast, см. HubDiscovery). Если клиент в
   другой сети/VPN без broadcast, или нужен жёсткий адрес — укажи явно:
-    .\tools\build-dist.ps1 -HubIp 192.168.94.239
+    .\tools\build-dist.ps1 -HubIp <HUB_LAN_IP>
     .\tools\build-dist.ps1 -HubIp localhost
 
 .PARAMETER Port

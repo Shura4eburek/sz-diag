@@ -16,7 +16,7 @@
 `SeTcbPrivilege` (есть только у LocalSystem). Итог: sshd слушает, KEX проходит, но сессия
 рвётся в самом начале userauth — `Connection reset`.
 
-Подтверждено 2026-07-20 на СЗ 159873 (машина онлайн, `192.168.94.124`): `ssh -vv` рвётся
+Подтверждено 2026-07-20 на СЗ 159873 (машина онлайн, `192.0.2.10`): `ssh -vv` рвётся
 сразу после `SSH2_MSG_SERVICE_ACCEPT`, до отправки ключа. Это не про ключ (иначе было бы
 `Permission denied (publickey)`), а про token-privilege. Симптом в логе клиента
 `C:\ProgramData\szdiag\ssh\sshd.log` — `unable to create logon token`.

@@ -13,7 +13,7 @@ cd sz-diag
 .\tools\build-dist.ps1
 
 # ИЛИ клиент — отдельная ВМ: укажи LAN-IP хоста
-.\tools\build-dist.ps1 -HubIp 192.168.1.50
+.\tools\build-dist.ps1 -HubIp <HUB_LAN_IP>
 ```
 Скрипт публикует exe, генерит SSH-ключ (`secrets\svc_diag_key`), пишет конфиги и
 лаунчеры. Результат:
