@@ -26,6 +26,9 @@ public sealed class WindowsSystemAccessManager : ISystemAccessManager
 
     public RevertState Open(AccessSpec spec)
     {
+        // Остаток от ДРУГОЙ незакрытой СЗ → откатить, иначе её задачи/автостарт повиснут.
+        RevertStaleState(spec.Sz);
+
         var state = new RevertState
         {
             Sz = spec.Sz,
@@ -33,7 +36,8 @@ public sealed class WindowsSystemAccessManager : ISystemAccessManager
             FirewallRuleName = $"szdiag-ssh-{spec.Sz}",
             WatchdogTaskName = $"szdiag-watchdog-{spec.Sz}",
             SshdTaskName = $"szdiag-sshd-{spec.Sz}",
-            AuthorizedKeyComment = $"szdiag-{spec.Sz}"
+            AuthorizedKeyComment = $"szdiag-{spec.Sz}",
+            AutostartTaskName = $"szdiag-autostart-{spec.Sz}"
         };
         void Persist() => RevertStateStore.Save(_statePath, state);
         Persist();
@@ -101,11 +105,23 @@ public sealed class WindowsSystemAccessManager : ISystemAccessManager
         state.CreatedWatchdogTask = true;
         Persist();
 
+        // 8. Автостарт после ребута: scheduled task -AtStartup → agent.exe --resume.
+        //    Ставится последним (доступ уже поднят), снимается в Revert первым.
+        _ps.Run(BuildAutostartTaskCommand(state.AutostartTaskName, exe, _statePath));
+        state.CreatedAutostartTask = true;
+        Persist();
+
         return state;
     }
 
     public void Revert(RevertState state)
     {
+        // Автостарт снимаем ПЕРВЫМ: если откат упадёт на середине, агент не должен
+        // воскреснуть при следующем ребуте.
+        if (state.CreatedAutostartTask)
+            _ps.Run($"Unregister-ScheduledTask -TaskName '{state.AutostartTaskName}' -Confirm:$false " +
+                    "-ErrorAction SilentlyContinue", throwOnError: false);
+
         // Обратный порядок; каждый шаг под флагом → повторный вызов безопасен.
         if (state.CreatedWatchdogTask)
             _ps.Run($"Unregister-ScheduledTask -TaskName '{state.WatchdogTaskName}' -Confirm:$false " +
@@ -142,6 +158,15 @@ public sealed class WindowsSystemAccessManager : ISystemAccessManager
             _ps.Run("Start-Service sshd -ErrorAction SilentlyContinue", throwOnError: false);
 
         RevertStateStore.Delete(_statePath);
+    }
+
+    /// <summary>Если на диске остался state.json от ДРУГОЙ (незакрытой) СЗ — откатить её,
+    /// прежде чем открывать новую. Иначе задачи/автостарт прошлой СЗ повиснут = след.</summary>
+    public void RevertStaleState(string currentSz)
+    {
+        var existing = RevertStateStore.Load(_statePath);
+        if (existing is not null && existing.Sz != currentSz)
+            Revert(existing);
     }
 
     /// <summary>PowerShell регистрации watchdog-задачи (-Once на runAt): по таймауту

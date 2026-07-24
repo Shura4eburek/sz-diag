@@ -64,6 +64,67 @@ public class WindowsSystemAccessManagerTests : IDisposable
     }
 
     [Fact]
+    public void Revert_WithAutostartTask_UnregistersItBeforeWatchdog()
+    {
+        var ps = new FakePs();
+        var state = new RevertState
+        {
+            Sz = "156864",
+            AutostartTaskName = "szdiag-autostart-156864", CreatedAutostartTask = true,
+            WatchdogTaskName = "szdiag-watchdog-156864", CreatedWatchdogTask = true
+        };
+
+        Make(ps).Revert(state);
+
+        var autostartIdx = ps.Scripts.FindIndex(s => s.Contains("szdiag-autostart-156864"));
+        var watchdogIdx = ps.Scripts.FindIndex(s => s.Contains("szdiag-watchdog-156864"));
+        Assert.True(autostartIdx >= 0, "автостарт-таск должен сниматься");
+        Assert.True(autostartIdx < watchdogIdx, "автостарт снимается ПЕРЕД watchdog");
+    }
+
+    [Fact]
+    public void Revert_WithoutAutostartFlag_DoesNotTouchAutostart()
+    {
+        var ps = new FakePs();
+        var state = new RevertState
+        {
+            Sz = "156864",
+            AutostartTaskName = "szdiag-autostart-156864", CreatedAutostartTask = false
+        };
+
+        Make(ps).Revert(state);
+
+        Assert.DoesNotContain(ps.Scripts, s => s.Contains("szdiag-autostart-156864"));
+    }
+
+    [Fact]
+    public void RevertStaleState_DifferentSz_RevertsOld()
+    {
+        var ps = new FakePs();
+        var mgr = Make(ps);
+        RevertStateStore.Save(_statePath, new RevertState
+        {
+            Sz = "111", AutostartTaskName = "szdiag-autostart-111", CreatedAutostartTask = true
+        });
+
+        mgr.RevertStaleState("222");
+
+        Assert.Contains(ps.Scripts, s => s.Contains("Unregister-ScheduledTask") && s.Contains("szdiag-autostart-111"));
+    }
+
+    [Fact]
+    public void RevertStaleState_SameSz_DoesNothing()
+    {
+        var ps = new FakePs();
+        var mgr = Make(ps);
+        RevertStateStore.Save(_statePath, new RevertState { Sz = "222", CreatedUser = true });
+
+        mgr.RevertStaleState("222");
+
+        Assert.Empty(ps.Scripts);
+    }
+
+    [Fact]
     public void BuildWatchdogTaskCommand_UsesRevertAndOnceTrigger()
     {
         var cmd = WindowsSystemAccessManager.BuildWatchdogTaskCommand(
