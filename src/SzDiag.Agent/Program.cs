@@ -118,90 +118,16 @@ Announce($"СЗ {sz}: доступ открыт ● online. Хост {Environmen
 // Стартовая активность в таблице CLI: простаиваем, готовы к прогону.
 try { await link.ReportActivityAsync(sz, "— готов", null); } catch { /* статус не критичен */ }
 
-// Тест-раннер: по команде hub RunTests прогнать набор и залить отчёт.
-var suitePath = ResolvePath(opts.TestSuitePath);
-if (File.Exists(suitePath))
-{
-    var suite = TestSuite.Load(suitePath);
-    var reportRunner = new TestReportRunner(
-        new TestRunner(new PowerShellCommandExecutor(ps), new GdiScreenCapturer()),
-        suite, link, Environment.MachineName);
-    link.OnRunTests(async (runSz, filter) =>
-    {
-        var scope = string.IsNullOrWhiteSpace(filter) ? "полный прогон" : $"фильтр {filter}";
-        Announce($"Прогон тестов для СЗ {runSz} ({scope})…", $"[grey]Прогон тестов для СЗ {runSz} ({scope})…[/]");
-        try
-        {
-            var outcome = await reportRunner.RunAndUploadAsync(runSz, filter);
-            if (!outcome.Ran)
-            {
-                var ids = string.Join(", ", outcome.AvailableIds);
-                Announce($"Не найдено шагов по фильтру '{filter}'. Доступные: {ids}",
-                    $"[yellow]Не найдено шагов по фильтру '{Markup.Escape(filter ?? "")}'.[/] Доступные: {Markup.Escape(ids)}");
-                await link.ReportActivityAsync(runSz, "— готов", null);
-            }
-            else
-            {
-                Announce("Отчёт залит на hub.", "[green]Отчёт залит на hub.[/]");
-                var mark = outcome.AllClean ? "✓" : "⚠";
-                await link.ReportActivityAsync(runSz, $"готов · последний: {outcome.RanLabel} {mark}", null);
-            }
-        }
-        catch (Exception ex)
-        {
-            Announce($"Ошибка прогона: {ex.Message}", $"[red]Ошибка прогона:[/] {Markup.Escape(ex.Message)}");
-            try { await link.ReportActivityAsync(runSz, "готов · последний: ошибка ⚠", null); } catch { }
-        }
-    });
-}
-
-// Диагностика: по команде hub RunDiag собрать read-only снапшот и залить diag.md.
-// Каталог проб встроен (DiagnosticProbes) — работает всегда, не требует testsuite.json.
-// Секции гоняются точечно по фильтру (`szcli diag run <СЗ> storage,events`), не всё пачкой.
-var diagRunner = new DiagReportRunner(
-    new TestRunner(new PowerShellCommandExecutor(ps), new GdiScreenCapturer()),
-    DiagnosticProbes.Suite, link, Environment.MachineName);
-link.OnRunDiag(async (runSz, sections) =>
-{
-    var scope = string.IsNullOrWhiteSpace(sections) ? "все секции" : $"секции {sections}";
-    Announce($"Диагностика СЗ {runSz} ({scope})…", $"[grey]Диагностика СЗ {runSz} ({scope})…[/]");
-    try
-    {
-        var outcome = await diagRunner.RunAndUploadAsync(runSz, sections);
-        if (!outcome.Ran)
-        {
-            var s = string.Join(", ", outcome.AvailableSections);
-            Announce($"Не найдено секций по фильтру '{sections}'. Доступные: {s}",
-                $"[yellow]Не найдено секций по фильтру '{Markup.Escape(sections ?? "")}'.[/] Доступные: {Markup.Escape(s)}");
-            await link.ReportActivityAsync(runSz, "— готов", null);
-        }
-        else
-        {
-            Announce("Диаг-отчёт залит на hub.", "[green]Диаг-отчёт залит на hub.[/]");
-            await link.ReportActivityAsync(runSz, $"готов · диагностика: {outcome.RanLabel}", null);
-        }
-    }
-    catch (Exception ex)
-    {
-        Announce($"Ошибка диагностики: {ex.Message}", $"[red]Ошибка диагностики:[/] {Markup.Escape(ex.Message)}");
-        try { await link.ReportActivityAsync(runSz, "готов · диагностика: ошибка ⚠", null); } catch { }
-    }
-});
+// Обработчики RunTests/RunDiag от hub (общие с resume-веткой — см. AgentCommandWiring).
+AgentCommandWiring.RegisterHandlers(link, Environment.MachineName, ps,
+    ResolvePath(opts.TestSuitePath), (plain, markup) => Announce(plain, markup));
 
 // Перехват закрытия окна консоли (крестик) → откат.
 using var closeGuard = new ConsoleCloseGuard(() => session.RevertAsync().GetAwaiter().GetResult());
 
 // Heartbeat в фоне.
 using var cts = new CancellationTokenSource();
-var heartbeat = Task.Run(async () =>
-{
-    while (!cts.IsCancellationRequested)
-    {
-        try { await session.HeartbeatOnceAsync(cts.Token); } catch { /* переподключение SignalR */ }
-        try { await Task.Delay(TimeSpan.FromSeconds(opts.HeartbeatSeconds), cts.Token); }
-        catch (OperationCanceledException) { break; }
-    }
-});
+var heartbeat = AgentCommandWiring.StartHeartbeatLoop(session, (int)opts.HeartbeatSeconds, cts.Token);
 
 term.MarkupLine("\n[green][[C]][/] Закрыть СЗ и откатить    [grey][[Q]][/] Выход без отката (не рекомендуется)");
 logFile.WriteLine("\n[C] Закрыть СЗ и откатить    [Q] Выход без отката (не рекомендуется)");
