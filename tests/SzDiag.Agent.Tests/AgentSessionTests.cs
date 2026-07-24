@@ -9,12 +9,14 @@ public class AgentSessionTests
     {
         public int OpenCalls { get; private set; }
         public int RevertCalls { get; private set; }
+        public int ResumeCalls { get; private set; }
         public RevertState Open(AccessSpec spec)
         {
             OpenCalls++;
             return new RevertState { Sz = spec.Sz };
         }
         public void Revert(RevertState state) => RevertCalls++;
+        public void Resume(RevertState state, AccessSpec spec) => ResumeCalls++;
     }
 
     private sealed class FakeHubLink : IHubLink
@@ -61,6 +63,34 @@ public class AgentSessionTests
         Assert.Equal(1, mgr.OpenCalls);
         Assert.True(link.Connected);
         Assert.Equal("156864", link.RegisteredSz);
+    }
+
+    [Fact]
+    public async Task ResumeAsync_ResumesAccessConnectsAndRegisters()
+    {
+        var mgr = new FakeManager();
+        var link = new FakeHubLink();
+        var session = new AgentSession(mgr, link, Spec(), "PC-1");
+
+        await session.ResumeAsync(new RevertState { Sz = "156864" });
+
+        Assert.Equal(1, mgr.ResumeCalls);
+        Assert.Equal(0, mgr.OpenCalls);
+        Assert.True(link.Connected);
+        Assert.Equal("156864", link.RegisteredSz);
+    }
+
+    [Fact]
+    public async Task Completion_CompletesAfterRevert()
+    {
+        var link = new FakeHubLink();
+        var session = new AgentSession(new FakeManager(), link, Spec(), "PC-1");
+        await session.ResumeAsync(new RevertState { Sz = "156864" });
+        Assert.False(session.Completion.IsCompleted);
+
+        await link.FireRevert("156864");
+
+        Assert.True(session.Completion.IsCompleted);
     }
 
     [Fact]

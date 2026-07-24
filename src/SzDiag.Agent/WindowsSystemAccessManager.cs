@@ -14,10 +14,10 @@ public sealed class WindowsSystemAccessManager : ISystemAccessManager
     private const string TokenPolicyPath = @"HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System";
 
     private readonly IPowerShellRunner _ps;
-    private readonly PortableSshServer _sshd;
+    private readonly ISshServer _sshd;
     private readonly string _statePath;
 
-    public WindowsSystemAccessManager(IPowerShellRunner ps, PortableSshServer sshd, string statePath)
+    public WindowsSystemAccessManager(IPowerShellRunner ps, ISshServer sshd, string statePath)
     {
         _ps = ps;
         _sshd = sshd;
@@ -26,6 +26,9 @@ public sealed class WindowsSystemAccessManager : ISystemAccessManager
 
     public RevertState Open(AccessSpec spec)
     {
+        // Остаток от ДРУГОЙ незакрытой СЗ → откатить, иначе её задачи/автостарт повиснут.
+        RevertStaleState(spec.Sz);
+
         var state = new RevertState
         {
             Sz = spec.Sz,
@@ -33,7 +36,8 @@ public sealed class WindowsSystemAccessManager : ISystemAccessManager
             FirewallRuleName = $"szdiag-ssh-{spec.Sz}",
             WatchdogTaskName = $"szdiag-watchdog-{spec.Sz}",
             SshdTaskName = $"szdiag-sshd-{spec.Sz}",
-            AuthorizedKeyComment = $"szdiag-{spec.Sz}"
+            AuthorizedKeyComment = $"szdiag-{spec.Sz}",
+            AutostartTaskName = $"szdiag-autostart-{spec.Sz}"
         };
         void Persist() => RevertStateStore.Save(_statePath, state);
         Persist();
@@ -96,13 +100,15 @@ public sealed class WindowsSystemAccessManager : ISystemAccessManager
 
         // 7. Watchdog scheduled task (запускает этот exe с --revert по таймауту)
         var exe = Environment.ProcessPath!;
-        var runAt = DateTime.Now.Add(spec.WatchdogTimeout).ToString("yyyy-MM-ddTHH:mm:ss");
-        _ps.Run(
-            $"$a = New-ScheduledTaskAction -Execute '{exe}' -Argument '--revert \"{_statePath}\"'; " +
-            $"$t = New-ScheduledTaskTrigger -Once -At '{runAt}'; " +
-            $"Register-ScheduledTask -TaskName '{state.WatchdogTaskName}' -Action $a -Trigger $t " +
-            "-RunLevel Highest -User 'SYSTEM' -Force");
+        _ps.Run(BuildWatchdogTaskCommand(state.WatchdogTaskName, exe, _statePath,
+            DateTime.Now.Add(spec.WatchdogTimeout)));
         state.CreatedWatchdogTask = true;
+        Persist();
+
+        // 8. Автостарт после ребута: scheduled task -AtStartup → agent.exe --resume.
+        //    Ставится последним (доступ уже поднят), снимается в Revert первым.
+        _ps.Run(BuildAutostartTaskCommand(state.AutostartTaskName, exe, _statePath));
+        state.CreatedAutostartTask = true;
         Persist();
 
         return state;
@@ -110,6 +116,12 @@ public sealed class WindowsSystemAccessManager : ISystemAccessManager
 
     public void Revert(RevertState state)
     {
+        // Автостарт снимаем ПЕРВЫМ: если откат упадёт на середине, агент не должен
+        // воскреснуть при следующем ребуте.
+        if (state.CreatedAutostartTask)
+            _ps.Run($"Unregister-ScheduledTask -TaskName '{state.AutostartTaskName}' -Confirm:$false " +
+                    "-ErrorAction SilentlyContinue", throwOnError: false);
+
         // Обратный порядок; каждый шаг под флагом → повторный вызов безопасен.
         if (state.CreatedWatchdogTask)
             _ps.Run($"Unregister-ScheduledTask -TaskName '{state.WatchdogTaskName}' -Confirm:$false " +
@@ -147,6 +159,44 @@ public sealed class WindowsSystemAccessManager : ISystemAccessManager
 
         RevertStateStore.Delete(_statePath);
     }
+
+    public void Resume(RevertState state, AccessSpec spec)
+    {
+        // Переподнять только sshd — единственное, что умирает от ребута (транзиентная
+        // задача). User/firewall/token policy/watchdog переживают ребут.
+        var keyLine = $"{spec.ServicePublicKey.Trim()} {state.AuthorizedKeyComment}";
+        _sshd.Start(spec.SshPort, keyLine, state.SshdTaskName);
+
+        // Пересоздать watchdog с новым дедлайном (-Force): серия ребутов под стрессом
+        // продлевает сессию, а не грохает её протухшим -Once из прошлой загрузки.
+        _ps.Run(BuildWatchdogTaskCommand(state.WatchdogTaskName, Environment.ProcessPath!,
+            _statePath, DateTime.Now.Add(spec.WatchdogTimeout)));
+    }
+
+    /// <summary>Если на диске остался state.json от ДРУГОЙ (незакрытой) СЗ — откатить её,
+    /// прежде чем открывать новую. Иначе задачи/автостарт прошлой СЗ повиснут = след.</summary>
+    public void RevertStaleState(string currentSz)
+    {
+        var existing = RevertStateStore.Load(_statePath);
+        if (existing is not null && existing.Sz != currentSz)
+            Revert(existing);
+    }
+
+    /// <summary>PowerShell регистрации watchdog-задачи (-Once на runAt): по таймауту
+    /// запускает этот exe с --revert. -Force перезаписывает существующую (для resume-сдвига).</summary>
+    public static string BuildWatchdogTaskCommand(string taskName, string exePath, string statePath, DateTime runAt) =>
+        $"$a = New-ScheduledTaskAction -Execute '{exePath}' -Argument '--revert \"{statePath}\"'; " +
+        $"$t = New-ScheduledTaskTrigger -Once -At '{runAt:yyyy-MM-ddTHH:mm:ss}'; " +
+        $"Register-ScheduledTask -TaskName '{taskName}' -Action $a -Trigger $t " +
+        "-RunLevel Highest -User 'SYSTEM' -Force";
+
+    /// <summary>PowerShell регистрации автостарт-задачи (-AtStartup): после ребута
+    /// поднимает этот exe с --resume под SYSTEM (до логина, headless).</summary>
+    public static string BuildAutostartTaskCommand(string taskName, string exePath, string statePath) =>
+        $"$a = New-ScheduledTaskAction -Execute '{exePath}' -Argument '--resume \"{statePath}\"'; " +
+        "$t = New-ScheduledTaskTrigger -AtStartup; " +
+        $"Register-ScheduledTask -TaskName '{taskName}' -Action $a -Trigger $t " +
+        "-RunLevel Highest -User 'SYSTEM' -Force";
 
     private static string GeneratePassword()
     {

@@ -16,7 +16,7 @@ public sealed class SshdStartException : Exception
 /// logon-токен при publickey-логине («unable to create logon token» → Connection reset).
 /// Задача снимается на откате (fail-closed через watchdog/close/клавишу C).
 /// </summary>
-public sealed class PortableSshServer
+public sealed class PortableSshServer : ISshServer
 {
     private readonly string _sshDir;
     private readonly string _workDir;

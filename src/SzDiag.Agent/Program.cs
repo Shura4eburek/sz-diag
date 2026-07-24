@@ -58,6 +58,80 @@ if (args.Length >= 2 && args[0] == "--revert")
     return 0;
 }
 
+// Режим возобновления после ребута: agent.exe --resume <statePath>. Поднимается
+// автостарт-задачей под SYSTEM (headless, без консоли). Переподнимает sshd и
+// реконнектится под тем же СЗ из persisted state; живёт до отката от hub/watchdog.
+if (args.Length >= 2 && args[0] == "--resume")
+{
+    var state = RevertStateStore.Load(args[1]);
+    if (state is null)
+    {
+        logFile.WriteLine("[resume] state.json отсутствует — возобновлять нечего.");
+        logFile.Flush();
+        return 0;
+    }
+
+    var rOpts = new AgentOptions();
+    config.Bind(rOpts);
+    string R(string p) => Path.IsPathRooted(p) ? p : Path.Combine(AppContext.BaseDirectory, p);
+
+    var rPubKey = File.ReadAllText(R(rOpts.ServicePublicKeyPath));
+    var rSpec = new AccessSpec(state.Sz, rOpts.ServiceAccount, rPubKey, rOpts.SshPort,
+        TimeSpan.FromHours(rOpts.WatchdogHours));
+    var rSshd = new PortableSshServer(R(rOpts.SshBinDir), rOpts.SshWorkDir, ps);
+    var rManager = new WindowsSystemAccessManager(ps, rSshd, args[1]);
+
+    var rHubUrl = rOpts.HubUrl;
+    if (string.IsNullOrWhiteSpace(rHubUrl))
+    {
+        try { rHubUrl = await HubDiscovery.FindHubAsync(rOpts.AgentToken); }
+        catch (HubNotFoundException ex)
+        {
+            logFile.WriteLine($"[resume] hub не найден: {ex.Message}");
+            logFile.Flush();
+            return 1; // автостарт повторит при следующем ребуте
+        }
+    }
+
+    var rLink = new SignalRHubLink(rHubUrl, rOpts.AgentToken);
+    var rSession = new AgentSession(rManager, rLink, rSpec, Environment.MachineName);
+
+    // Ребут мог случиться быстрее, чем поднялась сеть — bounded-ретрай подъёма.
+    const int maxAttempts = 10;
+    for (var attempt = 1; ; attempt++)
+    {
+        try
+        {
+            logFile.WriteLine($"[resume] СЗ {state.Sz}: переподнимаю доступ (попытка {attempt})…");
+            await rSession.ResumeAsync(state);
+            break;
+        }
+        catch (Exception ex) when (attempt < maxAttempts)
+        {
+            logFile.WriteLine($"[resume] попытка {attempt} не удалась: {ex.Message}; retry через 30с");
+            logFile.Flush();
+            await Task.Delay(TimeSpan.FromSeconds(30));
+        }
+    }
+
+    logFile.WriteLine($"[resume] СЗ {state.Sz}: online (после ребута).");
+    logFile.Flush();
+    try { await rLink.ReportActivityAsync(state.Sz, "— готов (после ребута)", null); } catch { }
+
+    AgentCommandWiring.RegisterHandlers(rLink, Environment.MachineName, ps,
+        R(rOpts.TestSuitePath), (plain, _) => { logFile.WriteLine(plain); logFile.Flush(); });
+
+    using var rCts = new CancellationTokenSource();
+    var rHeartbeat = AgentCommandWiring.StartHeartbeatLoop(rSession, (int)rOpts.HeartbeatSeconds, rCts.Token);
+
+    await rSession.Completion; // ждём отката от hub (close) или watchdog
+    rCts.Cancel();
+    try { await rHeartbeat; } catch { }
+    logFile.WriteLine($"[resume] СЗ {state.Sz}: сессия закрыта, откат выполнен.");
+    logFile.Flush();
+    return 0;
+}
+
 try
 {
 
@@ -118,90 +192,16 @@ Announce($"СЗ {sz}: доступ открыт ● online. Хост {Environmen
 // Стартовая активность в таблице CLI: простаиваем, готовы к прогону.
 try { await link.ReportActivityAsync(sz, "— готов", null); } catch { /* статус не критичен */ }
 
-// Тест-раннер: по команде hub RunTests прогнать набор и залить отчёт.
-var suitePath = ResolvePath(opts.TestSuitePath);
-if (File.Exists(suitePath))
-{
-    var suite = TestSuite.Load(suitePath);
-    var reportRunner = new TestReportRunner(
-        new TestRunner(new PowerShellCommandExecutor(ps), new GdiScreenCapturer()),
-        suite, link, Environment.MachineName);
-    link.OnRunTests(async (runSz, filter) =>
-    {
-        var scope = string.IsNullOrWhiteSpace(filter) ? "полный прогон" : $"фильтр {filter}";
-        Announce($"Прогон тестов для СЗ {runSz} ({scope})…", $"[grey]Прогон тестов для СЗ {runSz} ({scope})…[/]");
-        try
-        {
-            var outcome = await reportRunner.RunAndUploadAsync(runSz, filter);
-            if (!outcome.Ran)
-            {
-                var ids = string.Join(", ", outcome.AvailableIds);
-                Announce($"Не найдено шагов по фильтру '{filter}'. Доступные: {ids}",
-                    $"[yellow]Не найдено шагов по фильтру '{Markup.Escape(filter ?? "")}'.[/] Доступные: {Markup.Escape(ids)}");
-                await link.ReportActivityAsync(runSz, "— готов", null);
-            }
-            else
-            {
-                Announce("Отчёт залит на hub.", "[green]Отчёт залит на hub.[/]");
-                var mark = outcome.AllClean ? "✓" : "⚠";
-                await link.ReportActivityAsync(runSz, $"готов · последний: {outcome.RanLabel} {mark}", null);
-            }
-        }
-        catch (Exception ex)
-        {
-            Announce($"Ошибка прогона: {ex.Message}", $"[red]Ошибка прогона:[/] {Markup.Escape(ex.Message)}");
-            try { await link.ReportActivityAsync(runSz, "готов · последний: ошибка ⚠", null); } catch { }
-        }
-    });
-}
-
-// Диагностика: по команде hub RunDiag собрать read-only снапшот и залить diag.md.
-// Каталог проб встроен (DiagnosticProbes) — работает всегда, не требует testsuite.json.
-// Секции гоняются точечно по фильтру (`szcli diag run <СЗ> storage,events`), не всё пачкой.
-var diagRunner = new DiagReportRunner(
-    new TestRunner(new PowerShellCommandExecutor(ps), new GdiScreenCapturer()),
-    DiagnosticProbes.Suite, link, Environment.MachineName);
-link.OnRunDiag(async (runSz, sections) =>
-{
-    var scope = string.IsNullOrWhiteSpace(sections) ? "все секции" : $"секции {sections}";
-    Announce($"Диагностика СЗ {runSz} ({scope})…", $"[grey]Диагностика СЗ {runSz} ({scope})…[/]");
-    try
-    {
-        var outcome = await diagRunner.RunAndUploadAsync(runSz, sections);
-        if (!outcome.Ran)
-        {
-            var s = string.Join(", ", outcome.AvailableSections);
-            Announce($"Не найдено секций по фильтру '{sections}'. Доступные: {s}",
-                $"[yellow]Не найдено секций по фильтру '{Markup.Escape(sections ?? "")}'.[/] Доступные: {Markup.Escape(s)}");
-            await link.ReportActivityAsync(runSz, "— готов", null);
-        }
-        else
-        {
-            Announce("Диаг-отчёт залит на hub.", "[green]Диаг-отчёт залит на hub.[/]");
-            await link.ReportActivityAsync(runSz, $"готов · диагностика: {outcome.RanLabel}", null);
-        }
-    }
-    catch (Exception ex)
-    {
-        Announce($"Ошибка диагностики: {ex.Message}", $"[red]Ошибка диагностики:[/] {Markup.Escape(ex.Message)}");
-        try { await link.ReportActivityAsync(runSz, "готов · диагностика: ошибка ⚠", null); } catch { }
-    }
-});
+// Обработчики RunTests/RunDiag от hub (общие с resume-веткой — см. AgentCommandWiring).
+AgentCommandWiring.RegisterHandlers(link, Environment.MachineName, ps,
+    ResolvePath(opts.TestSuitePath), (plain, markup) => Announce(plain, markup));
 
 // Перехват закрытия окна консоли (крестик) → откат.
 using var closeGuard = new ConsoleCloseGuard(() => session.RevertAsync().GetAwaiter().GetResult());
 
 // Heartbeat в фоне.
 using var cts = new CancellationTokenSource();
-var heartbeat = Task.Run(async () =>
-{
-    while (!cts.IsCancellationRequested)
-    {
-        try { await session.HeartbeatOnceAsync(cts.Token); } catch { /* переподключение SignalR */ }
-        try { await Task.Delay(TimeSpan.FromSeconds(opts.HeartbeatSeconds), cts.Token); }
-        catch (OperationCanceledException) { break; }
-    }
-});
+var heartbeat = AgentCommandWiring.StartHeartbeatLoop(session, (int)opts.HeartbeatSeconds, cts.Token);
 
 term.MarkupLine("\n[green][[C]][/] Закрыть СЗ и откатить    [grey][[Q]][/] Выход без отката (не рекомендуется)");
 logFile.WriteLine("\n[C] Закрыть СЗ и откатить    [Q] Выход без отката (не рекомендуется)");

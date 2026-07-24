@@ -8,4 +8,8 @@ public interface ISystemAccessManager
 
     /// <summary>Откатить только применённые шаги. Обязана быть идемпотентной.</summary>
     void Revert(RevertState state);
+
+    /// <summary>Переподнять доступ после ребута из сохранённого state (только sshd +
+    /// сдвиг watchdog); user/firewall/token policy переживают ребут и не трогаются.</summary>
+    void Resume(RevertState state, AccessSpec spec);
 }

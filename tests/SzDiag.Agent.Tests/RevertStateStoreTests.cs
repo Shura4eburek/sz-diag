@@ -20,7 +20,9 @@ public class RevertStateStoreTests : IDisposable
             StoppedSystemSshd = true,
             GeneratedHostKeys = true,
             SshdTaskName = "szdiag-sshd-156864",
-            CreatedSshdTask = true
+            CreatedSshdTask = true,
+            AutostartTaskName = "szdiag-autostart-156864",
+            CreatedAutostartTask = true
         };
 
         RevertStateStore.Save(_path, state);
@@ -36,6 +38,8 @@ public class RevertStateStoreTests : IDisposable
         Assert.True(loaded.GeneratedHostKeys);
         Assert.Equal("szdiag-sshd-156864", loaded.SshdTaskName);
         Assert.True(loaded.CreatedSshdTask);
+        Assert.Equal("szdiag-autostart-156864", loaded.AutostartTaskName);
+        Assert.True(loaded.CreatedAutostartTask);
     }
 
     [Fact]

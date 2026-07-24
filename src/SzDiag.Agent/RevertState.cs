@@ -9,6 +9,7 @@ public sealed class RevertState
     public string WatchdogTaskName { get; set; } = "";
     public string SshdTaskName { get; set; } = "";
     public string AuthorizedKeyComment { get; set; } = "";
+    public string AutostartTaskName { get; set; } = "";
 
     public bool CreatedUser { get; set; }
     public bool StoppedSystemSshd { get; set; }
@@ -22,4 +23,5 @@ public sealed class RevertState
     /// <summary>Прежнее значение LocalAccountTokenFilterPolicy: null = отсутствовало.</summary>
     public int? TokenPolicyPreviousValue { get; set; }
     public bool CreatedWatchdogTask { get; set; }
+    public bool CreatedAutostartTask { get; set; }
 }
