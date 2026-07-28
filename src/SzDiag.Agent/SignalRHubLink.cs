@@ -1,4 +1,4 @@
-using Microsoft.AspNetCore.SignalR.Client;
+﻿using Microsoft.AspNetCore.SignalR.Client;
 using SzDiag.Contracts;
 
 namespace SzDiag.Agent;
@@ -18,8 +18,9 @@ public sealed class SignalRHubLink : IHubLink
 
     public Task ConnectAsync(CancellationToken ct = default) => _conn.StartAsync(ct);
 
-    public Task RegisterAsync(string sz, string hostname, CancellationToken ct = default)
-        => _conn.InvokeAsync(HubRoutes.Register, new RegisterRequest(sz, hostname), ct);
+    public Task RegisterAsync(string sz, string hostname, DateTimeOffset? bootTime = null,
+        CancellationToken ct = default)
+        => _conn.InvokeAsync(HubRoutes.Register, new RegisterRequest(sz, hostname, bootTime), ct);
 
     public Task HeartbeatAsync(string sz, CancellationToken ct = default)
         => _conn.InvokeAsync(HubRoutes.Heartbeat, sz, ct);

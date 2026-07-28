@@ -1,6 +1,9 @@
 namespace SzDiag.Contracts;
 
 /// <summary>Снимок активной сессии СЗ для реестра и CLI.</summary>
+/// <param name="BootTime">Время загрузки ОС клиента (null у агентов старых сборок).</param>
+/// <param name="LastRebootAt">Когда hub зафиксировал смену boot-time, т.е. реальный ребут
+/// клиента. Отличает «машина перезагрузилась» от «heartbeat опоздал под нагрузкой».</param>
 public sealed record SessionInfo(
     string Sz,
     string Ip,
@@ -9,4 +12,6 @@ public sealed record SessionInfo(
     DateTimeOffset ConnectedAt,
     DateTimeOffset LastHeartbeat,
     string Activity = "",
-    DateTimeOffset? ActivitySince = null);
+    DateTimeOffset? ActivitySince = null,
+    DateTimeOffset? BootTime = null,
+    DateTimeOffset? LastRebootAt = null);

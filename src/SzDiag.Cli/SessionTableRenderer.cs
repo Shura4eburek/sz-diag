@@ -13,11 +13,12 @@ public static class SessionTableRenderer
         table.AddColumn("Статус");
         table.AddColumn("IP");
         table.AddColumn("Хост");
+        table.AddColumn("Uptime");
         table.AddColumn("Активность");
 
         if (sessions.Count == 0)
         {
-            table.AddRow("[dim]нет активных СЗ[/]", "", "", "", "");
+            table.AddRow("[dim]нет активных СЗ[/]", "", "", "", "", "");
             return table;
         }
 
@@ -30,9 +31,21 @@ public static class SessionTableRenderer
             var status = s.Status == SessionStatus.Online
                 ? "[green]online [/]"
                 : "[grey]offline[/]";
-            table.AddRow(s.Sz, status, s.Ip, s.Hostname, ActivityCell(s, nowV));
+            table.AddRow(s.Sz, status, s.Ip, s.Hostname, UptimeCell(s, nowV), ActivityCell(s, nowV));
         }
         return table;
+    }
+
+    /// <summary>Ячейка uptime: сколько машина работает с загрузки ОС. Свежий ребут (менее часа
+    /// назад) подсвечивается — под стресс-тестом это главный сигнал «клиент реально упал»,
+    /// в отличие от пропавшего heartbeat, который под нагрузкой врёт.</summary>
+    private static string UptimeCell(SessionInfo s, DateTimeOffset now)
+    {
+        if (s.BootTime is not DateTimeOffset boot) return "[dim]—[/]";
+        var up = FormatElapsed(now - boot);
+        if (s.LastRebootAt is DateTimeOffset reboot && now - reboot < TimeSpan.FromHours(1))
+            return $"[red]{up} (ребут {reboot.ToLocalTime():HH:mm})[/]";
+        return $"[grey]{up}[/]";
     }
 
     /// <summary>Ячейка активности: идущий тест с тикающим временем, простой с меткой, или «—».</summary>

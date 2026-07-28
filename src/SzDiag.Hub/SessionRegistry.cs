@@ -13,11 +13,23 @@ public sealed class SessionRegistry
 
     public SessionRegistry(TimeProvider? time = null) => _time = time ?? TimeProvider.System;
 
-    public void Register(string sz, string ip, string hostname, string connectionId)
+    /// <summary>Регистрация (или переподключение) агента. Если у СЗ уже был известен boot-time
+    /// и пришёл другой — значит клиент реально перезагрузился: фиксируем момент в
+    /// <see cref="SessionInfo.LastRebootAt"/> и возвращаем true. Это единственный надёжный
+    /// признак ребута: пропажа heartbeat под нагрузкой ребутом не является.</summary>
+    public bool Register(string sz, string ip, string hostname, string connectionId,
+        DateTimeOffset? bootTime = null)
     {
         var now = _time.GetUtcNow();
-        var info = new SessionInfo(sz, ip, hostname, SessionStatus.Online, now, now);
+        var rebooted = _bySz.TryGetValue(sz, out var prev)
+                       && prev.Info.BootTime is { } was
+                       && bootTime is { } isNow
+                       && was != isNow;
+        var lastReboot = rebooted ? now : (_bySz.TryGetValue(sz, out var p) ? p.Info.LastRebootAt : null);
+        var info = new SessionInfo(sz, ip, hostname, SessionStatus.Online, now, now,
+            BootTime: bootTime, LastRebootAt: lastReboot);
         _bySz[sz] = new Entry(info, connectionId);
+        return rebooted;
     }
 
     public bool Heartbeat(string sz)

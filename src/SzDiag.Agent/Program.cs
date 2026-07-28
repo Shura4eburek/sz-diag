@@ -1,4 +1,4 @@
-using System.Runtime.InteropServices;
+﻿using System.Runtime.InteropServices;
 using System.Text;
 using Microsoft.Extensions.Configuration;
 using Spectre.Console;
@@ -94,7 +94,8 @@ if (args.Length >= 2 && args[0] == "--resume")
     }
 
     var rLink = new SignalRHubLink(rHubUrl, rOpts.AgentToken);
-    var rSession = new AgentSession(rManager, rLink, rSpec, Environment.MachineName);
+    var rSession = new AgentSession(rManager, rLink, rSpec, Environment.MachineName,
+        BootTimeReader.Read(ps));
 
     // Ребут мог случиться быстрее, чем поднялась сеть — bounded-ретрай подъёма.
     const int maxAttempts = 10;
@@ -173,7 +174,8 @@ if (string.IsNullOrWhiteSpace(hubUrl))
 }
 
 var link = new SignalRHubLink(hubUrl, opts.AgentToken);
-var session = new AgentSession(manager, link, spec, Environment.MachineName);
+var session = new AgentSession(manager, link, spec, Environment.MachineName,
+    BootTimeReader.Read(ps));
 
 Announce($"Открываю доступ для СЗ {sz}…", $"[grey]Открываю доступ для СЗ {sz}…[/]");
 try

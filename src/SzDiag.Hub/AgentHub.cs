@@ -24,7 +24,11 @@ public sealed class AgentHub : Microsoft.AspNetCore.SignalR.Hub
     public async Task Register(RegisterRequest request)
     {
         var ip = Context.GetHttpContext()?.Connection.RemoteIpAddress?.ToString() ?? "unknown";
-        _registry.Register(request.Sz, ip, request.Hostname, Context.ConnectionId);
+        var rebooted = _registry.Register(request.Sz, ip, request.Hostname, Context.ConnectionId,
+            request.BootTime);
+        if (rebooted)
+            Console.WriteLine($"[hub] СЗ {request.Sz}: клиент перезагрузился " +
+                              $"(boot-time сменился на {request.BootTime:yyyy-MM-dd HH:mm:ss})");
         _kb.EnsureSkeleton(request.Sz);
         await _store.RecordOpenAsync(
             new SessionRecord(request.Sz, ip, request.Hostname, DateTimeOffset.UtcNow, null));

@@ -1,4 +1,4 @@
-using SzDiag.Agent;
+﻿using SzDiag.Agent;
 using Xunit;
 
 namespace SzDiag.Agent.Tests;
@@ -28,7 +28,8 @@ public class AgentSessionTests
         private Func<string, Task>? _onRevert;
 
         public Task ConnectAsync(CancellationToken ct = default) { Connected = true; return Task.CompletedTask; }
-        public Task RegisterAsync(string sz, string hostname, CancellationToken ct = default) { RegisteredSz = sz; return Task.CompletedTask; }
+        public DateTimeOffset? RegisteredBootTime { get; private set; }
+        public Task RegisterAsync(string sz, string hostname, DateTimeOffset? bootTime = null, CancellationToken ct = default) { RegisteredSz = sz; RegisteredBootTime = bootTime; return Task.CompletedTask; }
         public Task HeartbeatAsync(string sz, CancellationToken ct = default) { Heartbeats++; return Task.CompletedTask; }
         public void OnRevert(Func<string, Task> handler) => _onRevert = handler;
         public List<SzDiag.Contracts.UploadReportPart> Uploaded { get; } = new();
@@ -63,6 +64,33 @@ public class AgentSessionTests
         Assert.Equal(1, mgr.OpenCalls);
         Assert.True(link.Connected);
         Assert.Equal("156864", link.RegisteredSz);
+    }
+
+    [Fact]
+    public async Task StartAsync_SendsBootTimeToHub()
+    {
+        // Hub по boot-time отличает реальный ребут от лага heartbeat под нагрузкой.
+        var boot = new DateTimeOffset(2026, 7, 28, 10, 56, 1, TimeSpan.Zero);
+        var link = new FakeHubLink();
+        var session = new AgentSession(new FakeManager(), link, Spec(), "PC-1", boot);
+
+        await session.StartAsync();
+
+        Assert.Equal(boot, link.RegisteredBootTime);
+    }
+
+    [Fact]
+    public async Task ResumeAsync_SendsBootTimeToHub()
+    {
+        // После ребута агент поднимается через Resume — именно здесь hub и должен увидеть
+        // новый boot-time, иначе перезагрузка останется незамеченной.
+        var boot = new DateTimeOffset(2026, 7, 28, 13, 5, 0, TimeSpan.Zero);
+        var link = new FakeHubLink();
+        var session = new AgentSession(new FakeManager(), link, Spec(), "PC-1", boot);
+
+        await session.ResumeAsync(new RevertState { Sz = "156864" });
+
+        Assert.Equal(boot, link.RegisteredBootTime);
     }
 
     [Fact]

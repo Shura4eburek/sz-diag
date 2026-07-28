@@ -1,4 +1,4 @@
-using SzDiag.Agent;
+﻿using SzDiag.Agent;
 using SzDiag.Contracts;
 using Xunit;
 
@@ -52,7 +52,7 @@ public class DiagReportRunnerTests
     {
         public List<UploadReportPart> Uploaded { get; } = new();
         public Task ConnectAsync(CancellationToken ct = default) => Task.CompletedTask;
-        public Task RegisterAsync(string sz, string hostname, CancellationToken ct = default) => Task.CompletedTask;
+        public Task RegisterAsync(string sz, string hostname, DateTimeOffset? bootTime = null, CancellationToken ct = default) => Task.CompletedTask;
         public Task HeartbeatAsync(string sz, CancellationToken ct = default) => Task.CompletedTask;
         public void OnRevert(Func<string, Task> handler) { }
         public void OnRunTests(Func<string, string?, Task> handler) { }

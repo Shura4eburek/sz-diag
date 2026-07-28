@@ -1,4 +1,4 @@
-using SzDiag.Contracts;
+﻿using SzDiag.Contracts;
 using SzDiag.Hub;
 using Xunit;
 
@@ -20,6 +20,57 @@ public class SessionRegistryTests
         Assert.Equal("10.0.0.42", s.Ip);
         Assert.Equal("PC-1", s.Hostname);
         Assert.Equal(SessionStatus.Online, s.Status);
+    }
+
+    [Fact]
+    public void Register_WithBootTime_StoresIt()
+    {
+        var reg = NewRegistry();
+        var boot = new DateTimeOffset(2026, 7, 28, 10, 56, 1, TimeSpan.Zero);
+        reg.Register("160306", "10.0.0.42", "PC-1", "conn-1", boot);
+
+        Assert.Equal(boot, Assert.Single(reg.GetActive()).BootTime);
+    }
+
+    [Fact]
+    public void Register_SameBootTime_NotTreatedAsReboot()
+    {
+        // Переподключение агента (упал SignalR, сеть моргнула) — машина при этом не ребутилась.
+        var reg = NewRegistry();
+        var boot = new DateTimeOffset(2026, 7, 28, 10, 56, 1, TimeSpan.Zero);
+        reg.Register("160306", "10.0.0.42", "PC-1", "conn-1", boot);
+
+        var rebooted = reg.Register("160306", "10.0.0.42", "PC-1", "conn-2", boot);
+
+        Assert.False(rebooted);
+        Assert.Null(Assert.Single(reg.GetActive()).LastRebootAt);
+    }
+
+    [Fact]
+    public void Register_ChangedBootTime_DetectsReboot()
+    {
+        var reg = NewRegistry();
+        reg.Register("160306", "10.0.0.42", "PC-1", "conn-1",
+            new DateTimeOffset(2026, 7, 28, 10, 56, 1, TimeSpan.Zero));
+
+        var rebooted = reg.Register("160306", "10.0.0.42", "PC-1", "conn-2",
+            new DateTimeOffset(2026, 7, 28, 13, 05, 0, TimeSpan.Zero));
+
+        Assert.True(rebooted);
+        Assert.NotNull(Assert.Single(reg.GetActive()).LastRebootAt);
+    }
+
+    [Fact]
+    public void Register_BootTimeUnknown_NoFalseReboot()
+    {
+        // Агент старой сборки boot-time не шлёт: молчание не должно выглядеть как ребут.
+        var reg = NewRegistry();
+        reg.Register("160306", "10.0.0.42", "PC-1", "conn-1",
+            new DateTimeOffset(2026, 7, 28, 10, 56, 1, TimeSpan.Zero));
+
+        var rebooted = reg.Register("160306", "10.0.0.42", "PC-1", "conn-2", bootTime: null);
+
+        Assert.False(rebooted);
     }
 
     [Fact]
