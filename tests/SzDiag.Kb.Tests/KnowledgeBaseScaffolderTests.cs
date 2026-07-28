@@ -21,6 +21,21 @@ public class KnowledgeBaseScaffolderTests : IDisposable
         Assert.True(File.Exists(Path.Combine(dir, "діагностика.md")));
         Assert.True(File.Exists(Path.Combine(dir, "дії.md")));
         Assert.True(Directory.Exists(Path.Combine(dir, "logs")));
+        // Без локального висновок.md эмбед ![[висновок]] в заметке СЗ утаскивает чужой
+        // файл из другой СЗ (Obsidian ищет короткую ссылку по всему vault).
+        Assert.True(File.Exists(Path.Combine(dir, "висновок.md")));
+    }
+
+    [Fact]
+    public void EnsureSkeleton_ExistingDirWithoutSummary_CreatesIt()
+    {
+        var s = NewScaffolder();
+        var dir = s.EnsureSkeleton("156864");
+        File.Delete(Path.Combine(dir, "висновок.md"));
+
+        s.EnsureSkeleton("156864");
+
+        Assert.True(File.Exists(Path.Combine(dir, "висновок.md")));
     }
 
     [Fact]

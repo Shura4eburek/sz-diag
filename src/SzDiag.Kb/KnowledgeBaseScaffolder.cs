@@ -19,8 +19,6 @@ public sealed class KnowledgeBaseScaffolder : IKnowledgeBaseScaffolder
     public string EnsureSkeleton(string sz)
     {
         var dir = _paths.SzDir(sz);
-        if (Directory.Exists(dir)) return dir;
-
         Directory.CreateDirectory(_paths.LogsDir(sz));
 
         var date = _now().ToString("yyyy-MM-dd");
@@ -28,6 +26,10 @@ public sealed class KnowledgeBaseScaffolder : IKnowledgeBaseScaffolder
         WriteIfMissing(_paths.Request(sz), $"# Дефект (зі слів клієнта) — СЗ {sz}\n\n");
         WriteIfMissing(_paths.Findings(sz), $"# Діагностика — СЗ {sz}\n\n");
         WriteIfMissing(_paths.Actions(sz), $"# Що замінили / зробили — СЗ {sz}\n\n");
+        // Заготовка висновку обязательна: HomeNote всегда содержит ![[висновок]], а Obsidian
+        // разрешает короткие ссылки по всему vault — без локального файла в заметку СЗ
+        // подтягивается чужой висновок из другой СЗ (ловили на 160467 → показывался 159794).
+        WriteIfMissing(_paths.Summary(sz), SummaryNote(sz));
         return dir;
     }
 
