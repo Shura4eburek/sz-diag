@@ -1,4 +1,4 @@
-using Microsoft.AspNetCore.SignalR;
+﻿using Microsoft.AspNetCore.SignalR;
 using SzDiag.Contracts;
 
 namespace SzDiag.Hub;
@@ -17,4 +17,7 @@ public sealed class SignalRAgentCommandSender : IAgentCommandSender
 
     public Task SendRunDiagAsync(string connectionId, string sz, string? sections, CancellationToken ct = default)
         => _hub.Clients.Client(connectionId).SendAsync(HubRoutes.RunDiag, sz, sections, ct);
+
+    public Task SendExecAsync(string connectionId, ExecRequest request, CancellationToken ct = default)
+        => _hub.Clients.Client(connectionId).SendAsync(HubRoutes.Exec, request, ct);
 }

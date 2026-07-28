@@ -1,4 +1,4 @@
-# CLAUDE.md
+﻿# CLAUDE.md
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
@@ -144,7 +144,10 @@ $env:SZDIAG_LIVE=1; dotnet test    # + live-тест vgabios (реально х�
   `SessionRegistry` (in-memory активные СЗ) + `SqliteSessionStore` (история). `OfflineSweeper`
   (hosted service) метит СЗ офлайн по таймауту heartbeat.
 - **SzDiag.Cli** (`szcli`) — тонкий клиент к `/api`. Команды: `watch` (по умолчанию),
-  `list`, `close <СЗ>`, `target <СЗ>`, `test run <СЗ>`, `kb record/summary/search …`.
+  `list`, `close <СЗ>`, `target <СЗ>`, `test run <СЗ>`, `exec <СЗ>`, `kb record/summary/search …`.
+  `szcli exec <СЗ> "<powershell>" | -f <файл> [--timeout <сек>]` — выполнить скрипт **на агенте**
+  и получить stdout: замена SSH для сбора данных (без ConPTY, без network-токена, работает даже
+  когда sshd задушен нагрузкой). Вывод режется на 200k символов, таймаут убивает скрипт.
 - **SzDiag.Agent** — консоль на клиенте (`net8.0`, требует прав админа, `app.manifest`).
   Открывает доступ, коннектится к hub по SignalR, шлёт heartbeat, по команде hub гоняет
   тест-раннер и заливает отчёт. `--revert <statePath>` — режим watchdog/автозакрытия.

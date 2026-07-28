@@ -1,4 +1,4 @@
-namespace SzDiag.Agent;
+﻿namespace SzDiag.Agent;
 
 /// <summary>Общая для интерактивной и resume-веток проводка: обработчики RunTests/RunDiag
 /// и фоновый heartbeat-цикл. announce(plain, markup) — вывод (markup=null → без разметки).</summary>
@@ -71,6 +71,18 @@ public static class AgentCommandWiring
                 announce($"Ошибка диагностики: {ex.Message}", null);
                 try { await link.ReportActivityAsync(runSz, "готов · диагностика: ошибка ⚠", null); } catch { }
             }
+        });
+
+        // Exec: ad-hoc PowerShell по запросу хоста — замена SSH для сбора данных.
+        // Обработчик сам НЕ бросает: любая ошибка уходит ответом, иначе вызывающий на хосте
+        // просто ждал бы таймаута, не понимая, что случилось.
+        var execHandler = new ExecCommandHandler(ps);
+        link.OnExec(async req =>
+        {
+            announce($"Exec на СЗ {req.Sz} ({req.Script.Length} символов, таймаут {req.TimeoutSeconds}с)…", null);
+            var result = execHandler.Handle(req);
+            try { await link.SendExecResultAsync(result); }
+            catch (Exception ex) { announce($"Не смог вернуть результат exec: {ex.Message}", null); }
         });
     }
 

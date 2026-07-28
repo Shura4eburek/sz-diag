@@ -16,6 +16,8 @@ public interface IHubLink
 
     /// <summary>Подписка на команду диагностики от hub (sz, sections → callback).</summary>
     void OnRunDiag(Func<string, string?, Task> handler);
+    void OnExec(Func<SzDiag.Contracts.ExecRequest, Task> handler);
+    Task SendExecResultAsync(SzDiag.Contracts.ExecResult result, CancellationToken ct = default);
 
     Task UploadReportFileAsync(SzDiag.Contracts.UploadReportPart part, CancellationToken ct = default);
 

@@ -1,4 +1,4 @@
-using SzDiag.Hub;
+﻿using SzDiag.Hub;
 using Xunit;
 
 namespace SzDiag.Hub.Tests;
@@ -13,6 +13,7 @@ public class TestRunTriggerTests
         public Task SendRunTestsAsync(string c, string sz, string? filter, CancellationToken ct = default) { Tests.Add((c, sz, filter)); return Task.CompletedTask; }
         public List<(string conn, string sz, string? sections)> Diags { get; } = new();
         public Task SendRunDiagAsync(string c, string sz, string? sections, CancellationToken ct = default) { Diags.Add((c, sz, sections)); return Task.CompletedTask; }
+        public Task SendExecAsync(string connectionId, SzDiag.Contracts.ExecRequest request, CancellationToken ct = default) => Task.CompletedTask;
     }
 
     [Fact]

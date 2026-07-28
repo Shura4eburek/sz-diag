@@ -23,6 +23,10 @@ public class TestReportRunnerTests
         public void OnRevert(Func<string, Task> handler) { }
         public void OnRunTests(Func<string, string?, Task> handler) { }
         public void OnRunDiag(Func<string, string?, Task> handler) { }
+        public Func<SzDiag.Contracts.ExecRequest, Task>? ExecHandler { get; private set; }
+        public List<SzDiag.Contracts.ExecResult> ExecResults { get; } = new();
+        public void OnExec(Func<SzDiag.Contracts.ExecRequest, Task> handler) => ExecHandler = handler;
+        public Task SendExecResultAsync(SzDiag.Contracts.ExecResult result, CancellationToken ct = default) { ExecResults.Add(result); return Task.CompletedTask; }
         public Task UploadReportFileAsync(UploadReportPart part, CancellationToken ct = default)
         {
             Uploaded.Add(part);

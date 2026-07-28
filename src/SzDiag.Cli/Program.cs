@@ -1,4 +1,4 @@
-using System.Text;
+﻿using System.Text;
 using Microsoft.Extensions.Configuration;
 using Spectre.Console;
 using SzDiag.Cli;
@@ -74,6 +74,50 @@ switch (command)
             AnsiConsole.MarkupLineInterpolated($"[red]СЗ {args[2]} не найдена[/] среди активных.");
         break;
 
+    // exec: ad-hoc PowerShell на агенте (без SSH). Скрипт строкой или -f <файл>.
+    case "exec" when args.Length >= 3:
+    {
+        var execSz = args[1];
+        string script;
+        if (args[2].Equals("-f", StringComparison.OrdinalIgnoreCase) && args.Length >= 4)
+        {
+            if (!File.Exists(args[3]))
+            {
+                AnsiConsole.MarkupLineInterpolated($"[red]Файл не найден:[/] {args[3]}");
+                break;
+            }
+            script = await File.ReadAllTextAsync(args[3]);
+        }
+        else script = args[2];
+
+        int? execTimeout = null;
+        var tIdx = Array.FindIndex(args, a => a.Equals("--timeout", StringComparison.OrdinalIgnoreCase));
+        if (tIdx >= 0 && args.Length > tIdx + 1 && int.TryParse(args[tIdx + 1], out var parsedTimeout))
+            execTimeout = parsedTimeout;
+
+        try
+        {
+            var res = await client.ExecAsync(execSz, script, execTimeout);
+            if (res is null)
+            {
+                AnsiConsole.MarkupLineInterpolated($"[red]СЗ {execSz} не найдена[/] среди активных.");
+                break;
+            }
+            if (!string.IsNullOrEmpty(res.StdOut)) Console.WriteLine(res.StdOut.TrimEnd());
+            if (!string.IsNullOrEmpty(res.StdErr))
+                AnsiConsole.MarkupLineInterpolated($"[yellow]stderr:[/] {res.StdErr.TrimEnd()}");
+            if (res.Truncated) AnsiConsole.MarkupLine("[yellow]⚠ вывод обрезан по лимиту[/]");
+            if (res.TimedOut) AnsiConsole.MarkupLine("[red]⚠ скрипт остановлен по таймауту[/]");
+            if (res.ExitCode != 0)
+                AnsiConsole.MarkupLineInterpolated($"[yellow]exit code: {res.ExitCode}[/]");
+        }
+        catch (TimeoutException ex)
+        {
+            AnsiConsole.MarkupLineInterpolated($"[red]Таймаут:[/] {ex.Message}");
+        }
+        break;
+    }
+
     default:
         AnsiConsole.Write(new Rule("[bold]sz-diag[/]").LeftJustified());
         AnsiConsole.MarkupLine("""
@@ -85,6 +129,8 @@ switch (command)
               [yellow]szcli test run[/] [blue]<СЗ>[/] [grey][[occt|tm5,furmark|…]][/]  прогон тестов (все или по id)
               [yellow]szcli diag run[/] [blue]<СЗ>[/] [grey][[storage,events|…]][/]  диагностика (снапшот; секции точечно)
                 [grey]секции: system cpu memory gpu storage temps drivers events reliability battery[/]
+              [yellow]szcli exec[/] [blue]<СЗ>[/] [grey]"<powershell>" | -f <файл> [[--timeout <сек>]][/]
+                [grey]выполнить скрипт на агенте и получить вывод (без SSH)[/]
               [yellow]szcli kb[/] …               работа с базой знаний
               [yellow]szcli hw[/] …               видяха по PCI hardware id
             """);

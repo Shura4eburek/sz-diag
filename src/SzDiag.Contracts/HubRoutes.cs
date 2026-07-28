@@ -21,6 +21,12 @@ public static class HubRoutes
     // Hub -> агент: собрать диагностический снапшот (read-only, по секциям).
     public const string RunDiag = nameof(RunDiag);
 
+    // Hub -> агент: выполнить PowerShell-скрипт и вернуть вывод (замена SSH для сбора данных).
+    public const string Exec = nameof(Exec);
+
+    // Агент -> hub: результат Exec (сопоставляется с запросом по RequestId).
+    public const string ExecResult = nameof(ExecResult);
+
     // Апдейтер клиента: раздача пакета агента (HTTP, под TokenHeader).
     public const string AgentApiPrefix = "/agent";
     public const string AgentVersionRoute = "/agent/version";

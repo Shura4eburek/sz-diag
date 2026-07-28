@@ -1,4 +1,4 @@
-using SzDiag.Contracts;
+﻿using SzDiag.Contracts;
 
 namespace SzDiag.Cli;
 
@@ -9,4 +9,5 @@ public interface IHubApiClient
     Task<TargetInfo?> GetTargetAsync(string sz, CancellationToken ct = default);
     Task<bool> TriggerTestAsync(string sz, string? filter = null, CancellationToken ct = default);
     Task<bool> TriggerDiagAsync(string sz, string? sections = null, CancellationToken ct = default);
+    Task<ExecResult?> ExecAsync(string sz, string script, int? timeoutSeconds = null, CancellationToken ct = default);
 }

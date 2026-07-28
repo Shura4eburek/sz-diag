@@ -1,4 +1,4 @@
-using Microsoft.AspNetCore.SignalR;
+﻿using Microsoft.AspNetCore.SignalR;
 using SzDiag.Contracts;
 using SzDiag.Kb;
 
@@ -11,14 +11,16 @@ public sealed class AgentHub : Microsoft.AspNetCore.SignalR.Hub
     private readonly ISessionStore _store;
     private readonly IKnowledgeBaseScaffolder _kb;
     private readonly IReportStore _reports;
+    private readonly ExecCoordinator _exec;
 
     public AgentHub(SessionRegistry registry, ISessionStore store,
-        IKnowledgeBaseScaffolder kb, IReportStore reports)
+        IKnowledgeBaseScaffolder kb, IReportStore reports, ExecCoordinator exec)
     {
         _registry = registry;
         _store = store;
         _kb = kb;
         _reports = reports;
+        _exec = exec;
     }
 
     public async Task Register(RegisterRequest request)
@@ -37,6 +39,13 @@ public sealed class AgentHub : Microsoft.AspNetCore.SignalR.Hub
     public Task Heartbeat(string sz)
     {
         _registry.Heartbeat(sz);
+        return Task.CompletedTask;
+    }
+
+    /// <summary>Агент вернул результат exec — отдаём его ожидающему HTTP-запросу CLI.</summary>
+    public Task ExecResult(ExecResult result)
+    {
+        _exec.Complete(result);
         return Task.CompletedTask;
     }
 

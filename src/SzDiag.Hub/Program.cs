@@ -1,4 +1,4 @@
-using Microsoft.Extensions.Options;
+﻿using Microsoft.Extensions.Options;
 using Spectre.Console;
 using SzDiag.Contracts;
 using SzDiag.Hub;
@@ -39,6 +39,7 @@ builder.Services.AddSingleton<IAgentCommandSender, SignalRAgentCommandSender>();
 builder.Services.AddSingleton<SessionCloser>();
 builder.Services.AddSingleton<TestRunTrigger>();
 builder.Services.AddSingleton<DiagRunTrigger>();
+builder.Services.AddSingleton<ExecCoordinator>();
 builder.Services.AddSignalR(o =>
 {
     o.MaximumReceiveMessageSize = 10 * 1024 * 1024;

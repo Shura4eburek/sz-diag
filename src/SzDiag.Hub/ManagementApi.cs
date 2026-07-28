@@ -1,4 +1,4 @@
-using Microsoft.AspNetCore.Builder;
+﻿using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Routing;
 using Microsoft.Extensions.DependencyInjection;
@@ -32,6 +32,21 @@ public static class ManagementApi
 
         group.MapPost("/sessions/{sz}/diag", async (string sz, string? sections, DiagRunTrigger trigger) =>
             await trigger.TriggerAsync(sz, sections) ? Results.Ok() : Results.NotFound());
+
+        // exec: синхронный запуск скрипта на агенте. 404 — СЗ не онлайн, 504 — агент молчит.
+        group.MapPost("/sessions/{sz}/exec", async (string sz, ExecCommandRequest body, ExecCoordinator exec) =>
+        {
+            if (string.IsNullOrWhiteSpace(body.Script)) return Results.BadRequest("пустой скрипт");
+            try
+            {
+                var result = await exec.RunAsync(sz, body.Script, body.TimeoutSeconds);
+                return result is null ? Results.NotFound() : Results.Ok(result);
+            }
+            catch (TimeoutException ex)
+            {
+                return Results.Problem(ex.Message, statusCode: StatusCodes.Status504GatewayTimeout);
+            }
+        });
 
         group.MapGet("/sessions/{sz}/target", (string sz, SessionRegistry reg, IOptions<HubOptions> opts) =>
         {
