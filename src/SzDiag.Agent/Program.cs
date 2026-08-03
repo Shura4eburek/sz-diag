@@ -133,6 +133,89 @@ if (args.Length >= 2 && args[0] == "--resume")
     return 0;
 }
 
+// Режим WinPE: agent.exe --pe [СЗ]. Загрузились с флешки в чистый PE — доступ не
+// открываем (в PE нет SAM/Task Scheduler/фаервола, см. WinPeAccessManager), sshd не
+// поднимаем. Работаем поверх исходящего SignalR: exec + diag. Ключ сервиса и
+// testsuite.json здесь не обязательны — их может не быть на флешке.
+if (args.Length >= 1 && args[0] == "--pe")
+{
+    term.Write(new Rule("[bold]sz-diag agent (WinPE)[/]").LeftJustified());
+
+    var peSz = args.Length >= 2 ? args[1].Trim() : "";
+    if (string.IsNullOrWhiteSpace(peSz))
+    {
+        term.Markup("Введите номер [yellow]СЗ[/]: ");
+        peSz = (Console.ReadLine() ?? "").Trim();
+    }
+    logFile.WriteLine($"[pe] СЗ: {peSz}");
+    if (string.IsNullOrWhiteSpace(peSz) || !peSz.All(char.IsDigit))
+    {
+        Announce("Некорректный номер СЗ.", "[red]Некорректный номер СЗ.[/]");
+        return 1;
+    }
+
+    var peOpts = new AgentOptions();
+    config.Bind(peOpts);
+    string PeResolve(string p) => Path.IsPathRooted(p) ? p : Path.Combine(AppContext.BaseDirectory, p);
+
+    var peKeyPath = PeResolve(peOpts.ServicePublicKeyPath);
+    var peKey = File.Exists(peKeyPath) ? File.ReadAllText(peKeyPath) : "";
+    var peSpec = new AccessSpec(peSz, peOpts.ServiceAccount, peKey, peOpts.SshPort,
+        TimeSpan.FromHours(peOpts.WatchdogHours));
+
+    var peHubUrl = peOpts.HubUrl;
+    if (string.IsNullOrWhiteSpace(peHubUrl))
+    {
+        Announce("Ищу hub в сети…", "[grey]Ищу hub в сети…[/]");
+        try
+        {
+            peHubUrl = await HubDiscovery.FindHubAsync(peOpts.AgentToken);
+            Announce($"Hub найден: {peHubUrl}", $"Hub найден: [green]{peHubUrl}[/]");
+        }
+        catch (HubNotFoundException ex)
+        {
+            Announce($"{ex.Message} Сеть в PE поднимается через wpeinit — если её нет, " +
+                     "в образ не инжектнуты драйверы сетевой карты.",
+                $"[red]{Markup.Escape(ex.Message)}[/]");
+            return 1;
+        }
+    }
+
+    var peLink = new SignalRHubLink(peHubUrl, peOpts.AgentToken);
+    var peSession = new AgentSession(new WinPeAccessManager(), peLink, peSpec,
+        Environment.MachineName, BootTimeReader.Read(ps));
+
+    await peSession.StartAsync();
+    Announce($"СЗ {peSz}: WinPE ● online. Хост {Environment.MachineName}.",
+        $"СЗ {peSz}: WinPE [green]● online[/]. Хост {Environment.MachineName}.");
+    try { await peLink.ReportActivityAsync(peSz, "— готов (WinPE)", null); } catch { }
+
+    AgentCommandWiring.RegisterHandlers(peLink, Environment.MachineName, ps,
+        PeResolve(peOpts.TestSuitePath), (plain, markup) => Announce(plain, markup));
+
+    using var peCts = new CancellationTokenSource();
+    var peHeartbeat = AgentCommandWiring.StartHeartbeatLoop(peSession, (int)peOpts.HeartbeatSeconds, peCts.Token);
+
+    term.MarkupLine("\n[green][[C]][/] Закрыть СЗ    [grey][[Q]][/] Выход");
+    logFile.WriteLine("\n[C] Закрыть СЗ    [Q] Выход");
+    while (true)
+    {
+        var peKeyPressed = Console.ReadKey(intercept: true).Key;
+        if (peKeyPressed == ConsoleKey.C)
+        {
+            Announce("\nЗакрываю СЗ…", "\n[yellow]Закрываю СЗ…[/]");
+            await peSession.RevertAsync();
+            break;
+        }
+        if (peKeyPressed == ConsoleKey.Q) break;
+    }
+
+    peCts.Cancel();
+    try { await peHeartbeat; } catch (OperationCanceledException) { }
+    logFile.Flush();
+    return 0;
+}
+
 try
 {
 
