@@ -115,4 +115,18 @@ public class HubApiClientTests
         Assert.Contains("/api/sessions/156864/diag", handler.LastRequest!.RequestUri!.AbsolutePath);
         Assert.Contains("sections=storage", handler.LastRequest!.RequestUri!.Query);
     }
+
+    [Fact]
+    public void Ctor_SnimaetDefoltniyTaymautHttpClient()
+    {
+        // Регрессия (СЗ 160450): дефолтные 100 секунд HttpClient.Timeout обрывали exec,
+        // которому через --timeout отвели 3000 — 8-гигабайтная закачка на агенте падала
+        // с TaskCanceledException на 100-й секунде, хотя скрипт продолжал работать.
+        // Срок теперь отмеряется на каждом вызове, а не общим потолком клиента.
+        var http = new HttpClient(new StubHandler(HttpStatusCode.OK)) { BaseAddress = new Uri("http://hub") };
+
+        _ = new HubApiClient(http, "mgmt-token");
+
+        Assert.Equal(Timeout.InfiniteTimeSpan, http.Timeout);
+    }
 }
