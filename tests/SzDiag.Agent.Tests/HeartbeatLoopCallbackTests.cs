@@ -1,0 +1,93 @@
+using SzDiag.Agent;
+
+namespace SzDiag.Agent.Tests;
+
+public class HeartbeatLoopCallbackTests
+{
+    /// <summary>Минимальный IHubLink: считает heartbeat'ы и по требованию падает.
+    /// Сигнатуры — по src/SzDiag.Agent/IHubLink.cs (все члены обязательны).</summary>
+    private sealed class CountingLink : IHubLink
+    {
+        private readonly bool _throw;
+        public int Calls;
+        public CountingLink(bool shouldThrow) => _throw = shouldThrow;
+
+        public Task ConnectAsync(CancellationToken ct = default) => Task.CompletedTask;
+        public Task RegisterAsync(string sz, string hostname, DateTimeOffset? bootTime = null,
+            CancellationToken ct = default) => Task.CompletedTask;
+        public Task HeartbeatAsync(string sz, CancellationToken ct = default)
+        {
+            Interlocked.Increment(ref Calls);
+            if (_throw) throw new InvalidOperationException("канал лёг");
+            return Task.CompletedTask;
+        }
+        public void OnRevert(Func<string, Task> handler) { }
+        public void OnRunTests(Func<string, string?, Task> handler) { }
+        public void OnRunDiag(Func<string, string?, Task> handler) { }
+        public void OnExec(Func<SzDiag.Contracts.ExecRequest, Task> handler) { }
+        public Task SendExecResultAsync(SzDiag.Contracts.ExecResult result,
+            CancellationToken ct = default) => Task.CompletedTask;
+        public Task UploadReportFileAsync(SzDiag.Contracts.UploadReportPart part,
+            CancellationToken ct = default) => Task.CompletedTask;
+        public Task ReportActivityAsync(string sz, string activity, DateTimeOffset? since,
+            CancellationToken ct = default) => Task.CompletedTask;
+        public ValueTask DisposeAsync() => ValueTask.CompletedTask;
+    }
+
+    private sealed class NoopAccessManager : ISystemAccessManager
+    {
+        public RevertState Open(AccessSpec spec) => new() { Sz = spec.Sz };
+        public void Revert(RevertState state) { }
+        public void Resume(RevertState state, AccessSpec spec) { }
+    }
+
+    /// <summary>StartAsync не зовём: HeartbeatOnceAsync дёргает link напрямую.</summary>
+    private static AgentSession MakeSession(IHubLink link) =>
+        new(new NoopAccessManager(), link,
+            new AccessSpec("156864", "svc-diag", "ssh-ed25519 AAAA...", 22, TimeSpan.FromHours(6)),
+            "PC-1");
+
+    [Fact]
+    public async Task Callback_FiresTrue_OnSuccess()
+    {
+        var link = new CountingLink(shouldThrow: false);
+        var ok = false;
+        using var cts = new CancellationTokenSource();
+        var loop = AgentCommandWiring.StartHeartbeatLoop(MakeSession(link), 60, cts.Token,
+            success => { if (success) ok = true; });
+
+        while (link.Calls == 0) await Task.Delay(5);
+        cts.Cancel();
+        try { await loop; } catch (OperationCanceledException) { }
+
+        Assert.True(ok);
+    }
+
+    [Fact]
+    public async Task Callback_FiresFalse_OnFailure()
+    {
+        var link = new CountingLink(shouldThrow: true);
+        bool? seen = null;
+        using var cts = new CancellationTokenSource();
+        var loop = AgentCommandWiring.StartHeartbeatLoop(MakeSession(link), 60, cts.Token,
+            success => seen ??= success);
+
+        while (link.Calls == 0) await Task.Delay(5);
+        cts.Cancel();
+        try { await loop; } catch (OperationCanceledException) { }
+
+        Assert.False(seen);
+    }
+
+    [Fact]
+    public async Task NoCallback_StillWorks()
+    {
+        var link = new CountingLink(shouldThrow: false);
+        using var cts = new CancellationTokenSource();
+        var loop = AgentCommandWiring.StartHeartbeatLoop(MakeSession(link), 60, cts.Token);
+        while (link.Calls == 0) await Task.Delay(5);
+        cts.Cancel();
+        try { await loop; } catch (OperationCanceledException) { }
+        Assert.True(link.Calls >= 1);
+    }
+}

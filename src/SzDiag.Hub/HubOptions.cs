@@ -29,4 +29,8 @@ public sealed class HubOptions
     /// <summary>Папка, из которой hub раздаёт пакет агента апдейтеру
     /// (version.txt, package.zip, package.sha256). Кладётся build-dist.</summary>
     public string AgentDistRoot { get; set; } = "agent-dist";
+
+    /// <summary>Липкая панель статуса в верхних строках консоли. false — обычный
+    /// линейный вывод (рубильник на случай проблемного терминала).</summary>
+    public bool StickyHeader { get; set; } = true;
 }

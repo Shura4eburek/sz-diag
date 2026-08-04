@@ -87,12 +87,18 @@ public static class AgentCommandWiring
     }
 
     /// <summary>Фоновый heartbeat-цикл до отмены. Ошибки глотаются (SignalR переподключается).</summary>
-    public static Task StartHeartbeatLoop(AgentSession session, int heartbeatSeconds, CancellationToken ct) =>
+    /// <param name="onResult">Необязательный колбэк с исходом каждой попытки — панель
+    /// статуса по нему отличает живой канал от переподключения.</param>
+    public static Task StartHeartbeatLoop(AgentSession session, int heartbeatSeconds,
+        CancellationToken ct, Action<bool>? onResult = null) =>
         Task.Run(async () =>
         {
             while (!ct.IsCancellationRequested)
             {
-                try { await session.HeartbeatOnceAsync(ct); } catch { /* переподключение SignalR */ }
+                var ok = false;
+                try { await session.HeartbeatOnceAsync(ct); ok = true; }
+                catch { /* переподключение SignalR */ }
+                try { onResult?.Invoke(ok); } catch { /* панель не должна ронять цикл */ }
                 try { await Task.Delay(TimeSpan.FromSeconds(heartbeatSeconds), ct); }
                 catch (OperationCanceledException) { break; }
             }

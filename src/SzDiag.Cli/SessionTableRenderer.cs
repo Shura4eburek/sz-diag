@@ -1,4 +1,5 @@
 using Spectre.Console;
+using SzDiag.ConsoleUi;
 using SzDiag.Contracts;
 
 namespace SzDiag.Cli;
@@ -60,13 +61,6 @@ public static class SessionTableRenderer
         return $"[grey]{text}[/]";
     }
 
-    /// <summary>Человекочитаемое время: «44сек» / «5мин 44сек» / «1ч 05мин».</summary>
-    public static string FormatElapsed(TimeSpan t)
-    {
-        if (t < TimeSpan.Zero) t = TimeSpan.Zero;
-        var total = (int)t.TotalSeconds;
-        if (total < 60) return $"{total}сек";
-        if (total < 3600) return $"{total / 60}мин {total % 60:D2}сек";
-        return $"{total / 3600}ч {(total % 3600) / 60:D2}мин";
-    }
+    /// <summary>Человекочитаемое время. Формат общий с липкой панелью — см. <see cref="Elapsed"/>.</summary>
+    public static string FormatElapsed(TimeSpan t) => Elapsed.Format(t);
 }

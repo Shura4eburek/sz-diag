@@ -3,6 +3,7 @@ using System.Text;
 using Microsoft.Extensions.Configuration;
 using Spectre.Console;
 using SzDiag.Agent;
+using SzDiag.ConsoleUi;
 using SzDiag.Contracts;
 
 // UTF-8 в консоли — иначе кириллица превращается в «?» на Windows.
@@ -26,7 +27,12 @@ var logPath = Path.IsPathRooted(opts.LogPath)
     ? opts.LogPath
     : Path.Combine(AppContext.BaseDirectory, opts.LogPath);
 var logFile = AgentLog.Init(logPath);
-var rawOut = Console.Out;
+
+// Единый лок на запись в консоль: липкая панель перерисовывается из таймер-потока, логи и
+// вывод Spectre — из своих. Оборачиваем именно rawOut, чтобы под локом оказались оба пути
+// вывода (Tee для логов и Spectre для цветного).
+var consoleGate = new object();
+var rawOut = new SyncedConsoleWriter(Console.Out, consoleGate);
 Console.SetOut(new TeeTextWriter(rawOut, logFile));
 
 // Цветной вывод (Spectre.Console) идёт напрямую в реальную консоль, минуя Tee — иначе в
@@ -193,10 +199,31 @@ if (args.Length >= 1 && args[0] == "--pe")
     AgentCommandWiring.RegisterHandlers(peLink, Environment.MachineName, ps,
         PeResolve(peOpts.TestSuitePath), (plain, markup) => Announce(plain, markup));
 
-    using var peCts = new CancellationTokenSource();
-    var peHeartbeat = AgentCommandWiring.StartHeartbeatLoop(peSession, (int)peOpts.HeartbeatSeconds, peCts.Token);
+    // Панель в PE: watchdog не ставится (в PE нет Task Scheduler — см. WinPeAccessManager),
+    // поэтому WatchdogAt = null и в панели будет прочерк.
+    DateTimeOffset? peLastHeartbeatOk = null;
+    using var peSticky = StickyHeader.TryStart(
+        width => AgentStatusLine.Render(new AgentStatusContext(
+            Sz: peSz,
+            HubUrl: peHubUrl,
+            SshPort: peOpts.SshPort,
+            WatchdogAt: null,
+            BootTime: BootTimeReader.Read(ps),
+            LastHeartbeatOk: peLastHeartbeatOk,
+            HeartbeatTimeout: TimeSpan.FromSeconds(peOpts.HeartbeatSeconds * 3),
+            Mode: "WinPE",
+            Now: DateTimeOffset.Now), width),
+        new StickyOptions(Lines: 2, ConfigEnabled: peOpts.StickyHeader),
+        new SystemTerminalSurface(rawOut),
+        SystemTerminalSurface.TryEnableVirtualTerminal(),
+        consoleGate);
 
-    term.MarkupLine("\n[green][[C]][/] Закрыть СЗ    [grey][[Q]][/] Выход");
+    using var peCts = new CancellationTokenSource();
+    var peHeartbeat = AgentCommandWiring.StartHeartbeatLoop(peSession, (int)peOpts.HeartbeatSeconds,
+        peCts.Token, ok => { if (ok) peLastHeartbeatOk = DateTimeOffset.Now; });
+
+    // При липкой панели хоткеи живут в ней — в поток их не печатаем, чтобы не дублировать.
+    if (peSticky is null) term.MarkupLine("\n[green][[C]][/] Закрыть СЗ    [grey][[Q]][/] Выход");
     logFile.WriteLine("\n[C] Закрыть СЗ    [Q] Выход");
     while (true)
     {
@@ -216,6 +243,8 @@ if (args.Length >= 1 && args[0] == "--pe")
     return 0;
 }
 
+// Объявлена до try, чтобы finally мог сбросить область прокрутки консоли.
+StickyHeader? sticky = null;
 try
 {
 
@@ -281,14 +310,41 @@ try { await link.ReportActivityAsync(sz, "— готов", null); } catch { /* �
 AgentCommandWiring.RegisterHandlers(link, Environment.MachineName, ps,
     ResolvePath(opts.TestSuitePath), (plain, markup) => Announce(plain, markup));
 
+// Липкая панель статуса. Момент открытия доступа — точка отсчёта watchdog.
+var openedAt = DateTimeOffset.Now;
+DateTimeOffset? lastHeartbeatOk = null;
+var bootTime = BootTimeReader.Read(ps);
+sticky = StickyHeader.TryStart(
+    width => AgentStatusLine.Render(new AgentStatusContext(
+        Sz: sz,
+        HubUrl: hubUrl,
+        SshPort: opts.SshPort,
+        WatchdogAt: openedAt + TimeSpan.FromHours(opts.WatchdogHours),
+        BootTime: bootTime,
+        LastHeartbeatOk: lastHeartbeatOk,
+        HeartbeatTimeout: TimeSpan.FromSeconds(opts.HeartbeatSeconds * 3),
+        Mode: "",
+        Now: DateTimeOffset.Now), width),
+    new StickyOptions(Lines: 2, ConfigEnabled: opts.StickyHeader),
+    new SystemTerminalSurface(rawOut),
+    SystemTerminalSurface.TryEnableVirtualTerminal(),
+    consoleGate);
+
 // Перехват закрытия окна консоли (крестик) → откат.
-using var closeGuard = new ConsoleCloseGuard(() => session.RevertAsync().GetAwaiter().GetResult());
+using var closeGuard = new ConsoleCloseGuard(() =>
+{
+    sticky?.Dispose();
+    session.RevertAsync().GetAwaiter().GetResult();
+});
 
 // Heartbeat в фоне.
 using var cts = new CancellationTokenSource();
-var heartbeat = AgentCommandWiring.StartHeartbeatLoop(session, (int)opts.HeartbeatSeconds, cts.Token);
+var heartbeat = AgentCommandWiring.StartHeartbeatLoop(session, (int)opts.HeartbeatSeconds,
+    cts.Token, ok => { if (ok) lastHeartbeatOk = DateTimeOffset.Now; });
 
-term.MarkupLine("\n[green][[C]][/] Закрыть СЗ и откатить    [grey][[Q]][/] Выход без отката (не рекомендуется)");
+// При липкой панели хоткеи живут в ней — в поток их не печатаем, чтобы не дублировать.
+if (sticky is null)
+    term.MarkupLine("\n[green][[C]][/] Закрыть СЗ и откатить    [grey][[Q]][/] Выход без отката (не рекомендуется)");
 logFile.WriteLine("\n[C] Закрыть СЗ и откатить    [Q] Выход без отката (не рекомендуется)");
 while (true)
 {
@@ -325,6 +381,7 @@ catch (Exception ex)
 }
 finally
 {
+    sticky?.Dispose();   // сброс области прокрутки — иначе консоль остаётся усечённой
     logFile.Flush();
 }
 
