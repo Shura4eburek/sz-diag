@@ -466,7 +466,11 @@ dist/host/hub.new, но dist/host/hub залочен` — **притом что 
 **Что сделать.** В секции `whea` для событий `Id=17/18/19/20/47` печатать поля `EventData`
 (`MCABank`, `MciStat`, `MciAddr`, `MciMisc`, `ErrorType`, `TransactionType`, `Participation`,
 `RequestType`, `MemorIO`, `MemHierarchyLvl`, `Timeout`, `ApicId`) и рядом — расшифровку:
-* `ErrorType`: 8=Cache, 9=TLB, 10=Bus/Interconnect, 11=Memory (по WHEA `MCA_EXCEPTION`);
+* `ErrorType`: 8=TLB, **9=Cache**, 10=Bus/Interconnect, 11=Memory (по WHEA `MCA_EXCEPTION`).
+  ⚠️ Раньше здесь было записано «8=Cache, 9=TLB» — **это ошибка, значения сдвинуты**.
+  Эталон с живой СЗ 160587 (2026-08-04): `ErrorType=9`, и Windows в тексте события пишет
+  ровно `Error Type: Cache Hierarchy Error`. Сверяйся с текстом события, а не с памятью —
+  спутать кэш с TLB значит уехать не в тот компонент;
 * биты `MciStat`: 63 VAL, 62 OVER, 61 UC, 60 EN, 59 MISCV, 58 ADDRV, 57 PCC — «UC+PCC = фатальная,
   контекст ядра испорчен», «OVER = ошибок было больше, чем банк успел записать»;
 * младшие 16 бит `MciStat` = MCA error code (для Bus/Interconnect формат `0000 1PPT RRRR IILL`).
