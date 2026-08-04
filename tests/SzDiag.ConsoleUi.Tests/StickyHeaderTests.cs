@@ -35,6 +35,31 @@ public class StickyHeaderTests
     }
 
     [Fact]
+    public void TryStart_ClearsAreaBelowPanel()
+    {
+        // Вывод, напечатанный до старта панели, остаётся на экране под ней; короткая
+        // новая строка не затирает хвост длинной старой и текст наслаивается.
+        var s = new FakeSurface();
+        using var h = Start(s, _ => new[] { "a", "b" });
+
+        var text = s.Text;
+        var move = text.IndexOf(Ansi.MoveCursor(4, 1), StringComparison.Ordinal);
+        var clear = text.IndexOf(Ansi.ClearBelow, StringComparison.Ordinal);
+        Assert.True(move >= 0, "курсор не переставлен в начало области прокрутки");
+        Assert.True(clear > move, "область под панелью не очищена после установки курсора");
+    }
+
+    [Fact]
+    public void TryStart_DoesNotPrintNewlines()
+    {
+        // Резерв делается сдвигом области прокрутки, а не печатью пустых строк:
+        // печать скроллит уже написанное и сама создаёт наслоения.
+        var s = new FakeSurface();
+        using var h = Start(s, _ => new[] { "a", "b" });
+        Assert.DoesNotContain("\n", s.Text);
+    }
+
+    [Fact]
     public void TryStart_WhenRedirected_ReturnsNull()
     {
         var s = new FakeSurface { OutputRedirected = true };

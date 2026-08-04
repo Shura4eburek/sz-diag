@@ -79,11 +79,13 @@ public sealed class StickyHeader : IDisposable
     {
         lock (_gate)
         {
-            // Пустые строки — чтобы панель не легла поверх уже напечатанного текста.
-            for (var i = 0; i < _reserved; i++) _surface.Write("\n");
             _surface.Write(Ansi.SetScrollRegion(_reserved + 1, _knownHeight));
             // Курсор — в начало области прокрутки, иначе первый лог уйдёт под панель.
             _surface.Write(Ansi.MoveCursor(_reserved + 1, 1));
+            // Всё, что напечатано до старта панели, осталось на экране под ней. Не стереть
+            // его нельзя: короткая новая строка не затирает хвост длинной старой, и вывод
+            // наслаивается. Сам текст никуда не девается — он продублирован в лог-файл.
+            _surface.Write(Ansi.ClearBelow);
         }
     }
 
