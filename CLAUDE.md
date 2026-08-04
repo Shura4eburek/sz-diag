@@ -133,7 +133,7 @@ $env:SZDIAG_LIVE=1; dotnet test    # + live-тест vgabios (реально х�
 
 ## Архитектура
 
-Семь проектов в `src/` + зеркальные тесты в `tests/`:
+Восемь проектов в `src/` + зеркальные тесты в `tests/`:
 
 - **SzDiag.Contracts** — DTO и константы, общие для агента и hub (`HubRoutes` — единый
   источник имён SignalR-методов и заголовков, чтобы строки не расходились). Меняешь протокол
@@ -156,6 +156,15 @@ $env:SZDIAG_LIVE=1; dotnet test    # + live-тест vgabios (реально х�
   качает пакет агента с hub (`/agent/version|package|package.sha256`, sha256-проверка),
   распаковывает поверх (`PackageApplier` — кроме `appsettings.json`/`tools/`) и запускает
   `agent.exe`. Пакет собирает `build-dist` в `dist\host\hub\agent-dist\`.
+- **SzDiag.ConsoleUi** — консольный UI, общий для hub, агента и CLI. `StickyHeader` —
+  липкая панель статуса в верхних строках через ANSI scroll region (DECSTBM): логи
+  скроллятся под ней обычным потоком, поэтому **перехват логов не нужен**.
+  `SyncedConsoleWriter` — общий лок на запись в консоль (панель рисуется из таймер-потока,
+  без лока курсор уедет посреди чужой строки). `MarkupText` — длина и обрезка строк со
+  Spectre-разметкой (учитывает экранированные `[[`/`]]`; обрезка **дозакрывает** теги,
+  иначе Spectre бросает исключение). Фоллбэк в линейный вывод при перенаправленном выводе,
+  отсутствии VT, окне ниже 10 строк или `StickyHeader: false` в конфиге. Строки статуса
+  поставляют `HubStatusLine`/`AgentStatusLine` в своих проектах.
 - **SzDiag.Hardware** — определение видеокарты по Windows PCI hardware ID
   (`PCI\VEN_..&DEV_..&SUBSYS_..`). `PciId.Parse` разбирает id, `PciIdsParser` парсит базу
   pci.ids, `GpuRepository` (SQLite `gpu.db`) хранит вендоров/устройства/платы, `GpuResolver`
