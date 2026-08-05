@@ -14,6 +14,7 @@ public class TestRunTriggerTests
         public List<(string conn, string sz, string? sections)> Diags { get; } = new();
         public Task SendRunDiagAsync(string c, string sz, string? sections, CancellationToken ct = default) { Diags.Add((c, sz, sections)); return Task.CompletedTask; }
         public Task SendExecAsync(string connectionId, SzDiag.Contracts.ExecRequest request, CancellationToken ct = default) => Task.CompletedTask;
+        public Task SendExecStatusAsync(string connectionId, SzDiag.Contracts.ExecStatusRequest request, CancellationToken ct = default) => Task.CompletedTask;
         public Task SendPullAsync(string connectionId, SzDiag.Contracts.PullRequest request, CancellationToken ct = default) => Task.CompletedTask;
         public Task SendPushAsync(string connectionId, SzDiag.Contracts.PushRequest request, CancellationToken ct = default) => Task.CompletedTask;
     }

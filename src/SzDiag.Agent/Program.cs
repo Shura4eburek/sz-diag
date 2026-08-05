@@ -47,6 +47,12 @@ void Announce(string plain, string? markup = null)
 // UTF-8 для дочернего PowerShell включается сам по среде: на обычной винде — да (иначе
 // кириллица в diag.md/exec превращается в кракозябры), в WinPE — нет (там присвоение
 // [Console]::OutputEncoding вешает powershell.exe, см. WinPeEnvironment).
+// Агент — служебный процесс и обязан отвечать именно тогда, когда машине плохо. Под OCCT
+// Extreme на всех ядрах он конкурирует с нагрузкой на равных и не получает квант: на 160636
+// три exec подряд ушли в таймаут при живом heartbeat (бэклог п.33/п.43).
+try { System.Diagnostics.Process.GetCurrentProcess().PriorityClass = System.Diagnostics.ProcessPriorityClass.AboveNormal; }
+catch { /* нет прав на смену приоритета — не критично */ }
+
 var ps = new PowerShellRunner();
 
 // Режим watchdog / автозакрытие: sz-agent --revert <statePath>.

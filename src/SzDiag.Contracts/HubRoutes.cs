@@ -27,6 +27,13 @@ public static class HubRoutes
     // Агент -> hub: результат Exec (сопоставляется с запросом по RequestId).
     public const string ExecResult = nameof(ExecResult);
 
+    // Агент -> hub: команда принята (до запуска скрипта) — отличает «не дошло» от «долго идёт».
+    public const string ExecAck = nameof(ExecAck);
+
+    // Hub -> агент: состояние фоновой задачи; агент -> hub: ответ по ней.
+    public const string ExecStatus = nameof(ExecStatus);
+    public const string ExecJobStatus = nameof(ExecJobStatus);
+
     // Hub -> агент: забрать файл(ы) с клиента на хост.
     public const string Pull = nameof(Pull);
 

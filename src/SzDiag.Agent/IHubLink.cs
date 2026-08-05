@@ -19,6 +19,13 @@ public interface IHubLink
     void OnExec(Func<SzDiag.Contracts.ExecRequest, Task> handler);
     Task SendExecResultAsync(SzDiag.Contracts.ExecResult result, CancellationToken ct = default);
 
+    /// <summary>Подтверждение приёма команды — до запуска скрипта.</summary>
+    Task SendExecAckAsync(SzDiag.Contracts.ExecAck ack, CancellationToken ct = default);
+
+    /// <summary>Подписка на запрос состояния фоновой задачи.</summary>
+    void OnExecStatus(Func<SzDiag.Contracts.ExecStatusRequest, Task> handler);
+    Task SendExecJobStatusAsync(SzDiag.Contracts.ExecJobStatus status, CancellationToken ct = default);
+
     /// <summary>Подписка на команду доставки инструмента (агент качает его с hub сам).</summary>
     void OnPush(Func<SzDiag.Contracts.PushRequest, Task> handler);
     Task SendPushResultAsync(SzDiag.Contracts.PushResult result, CancellationToken ct = default);

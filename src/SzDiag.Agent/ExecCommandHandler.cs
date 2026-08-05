@@ -8,11 +8,34 @@ namespace SzDiag.Agent;
 public sealed class ExecCommandHandler
 {
     private readonly IPowerShellRunner _ps;
+    private readonly BackgroundJobs _jobs;
 
-    public ExecCommandHandler(IPowerShellRunner ps) => _ps = ps;
+    public ExecCommandHandler(IPowerShellRunner ps, BackgroundJobs? jobs = null)
+    {
+        _ps = ps;
+        _jobs = jobs ?? new BackgroundJobs();
+    }
+
+    /// <summary>Где лежат выводы фоновых задач (для сообщений оператору).</summary>
+    public string JobsRoot => _jobs.Root;
+
+    /// <summary>Состояние фоновой задачи + хвост вывода.</summary>
+    public ExecJobStatus Status(ExecStatusRequest request)
+    {
+        try { return _jobs.Status(request); }
+        catch (Exception ex)
+        {
+            return new ExecJobStatus(request.RequestId, request.JobId, false, null, "",
+                DateTimeOffset.MinValue, 0, ex.Message);
+        }
+    }
 
     public ExecResult Handle(ExecRequest request)
     {
+        // Detached: под полной нагрузкой это единственный режим, который вообще проходит —
+        // агент отвечает сразу, а вывод копится в файле (бэклог п.43/п.46/п.53).
+        if (request.Detached) return _jobs.Start(request);
+
         var timeout = TimeSpan.FromSeconds(
             request.TimeoutSeconds > 0 ? request.TimeoutSeconds : ExecLimits.DefaultTimeoutSeconds);
         try

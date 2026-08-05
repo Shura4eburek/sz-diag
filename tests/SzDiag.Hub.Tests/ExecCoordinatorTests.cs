@@ -17,6 +17,12 @@ public class ExecCoordinatorTests
             Sent.Add(request);
             return Task.CompletedTask;
         }
+        public List<ExecStatusRequest> StatusSent { get; } = new();
+        public Task SendExecStatusAsync(string c, ExecStatusRequest request, CancellationToken ct = default)
+        {
+            StatusSent.Add(request);
+            return Task.CompletedTask;
+        }
         public Task SendPullAsync(string connectionId, PullRequest request, CancellationToken ct = default)
             => Task.CompletedTask;
         public Task SendPushAsync(string c, PushRequest request, CancellationToken ct = default)

@@ -27,6 +27,9 @@ public class HeartbeatLoopCallbackTests
         public void OnExec(Func<SzDiag.Contracts.ExecRequest, Task> handler) { }
         public Task SendExecResultAsync(SzDiag.Contracts.ExecResult result,
             CancellationToken ct = default) => Task.CompletedTask;
+        public Task SendExecAckAsync(SzDiag.Contracts.ExecAck ack, CancellationToken ct = default) => Task.CompletedTask;
+        public void OnExecStatus(Func<SzDiag.Contracts.ExecStatusRequest, Task> handler) { }
+        public Task SendExecJobStatusAsync(SzDiag.Contracts.ExecJobStatus status, CancellationToken ct = default) => Task.CompletedTask;
         public void OnPush(Func<SzDiag.Contracts.PushRequest, Task> handler) { }
         public Task SendPushResultAsync(SzDiag.Contracts.PushResult result, CancellationToken ct = default) => Task.CompletedTask;
         public void OnPull(Func<SzDiag.Contracts.PullRequest, Task> handler) { }

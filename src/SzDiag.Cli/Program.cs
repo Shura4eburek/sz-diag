@@ -70,6 +70,10 @@ switch (command)
             AnsiConsole.MarkupLineInterpolated($"[red]СЗ {args[1]} не найдена[/] среди активных.");
         break;
 
+    // sensors: наблюдатель нагрузки на время стресс-прогона + разбор его CSV.
+    case "sensors" when args.Length >= 2:
+        return await SensorsCommand.RunAsync(client, args[1..], AppContext.BaseDirectory);
+
     // freeze/unfreeze: заморозка Windows Update на время сессии. Прежние значения хранятся
     // на хосте рядом с szcli — клиент их потерять не может.
     case "freeze" when args.Length >= 2:
@@ -244,6 +248,40 @@ switch (command)
         }
     }
 
+    // exec --result <jobId>: забрать состояние и хвост вывода фоновой задачи. Короткий
+    // запрос — проходит даже под полной нагрузкой, когда обычный exec уже не проходит.
+    case "exec" when args.Length >= 4 && args[2].Equals("--result", StringComparison.OrdinalIgnoreCase):
+    {
+        var tailIdx = Array.FindIndex(args, a => a.Equals("--tail", StringComparison.OrdinalIgnoreCase));
+        var tailLines = tailIdx >= 0 && args.Length > tailIdx + 1 && int.TryParse(args[tailIdx + 1], out var tl)
+            ? tl : ExecLimits.DefaultTailLines;
+        try
+        {
+            var status = await client.ExecStatusAsync(args[1], args[3], tailLines);
+            if (status is null)
+            {
+                AnsiConsole.MarkupLineInterpolated($"[red]СЗ {args[1]} не найдена[/] среди активных.");
+                return 1;
+            }
+            if (!string.IsNullOrEmpty(status.Error))
+            {
+                AnsiConsole.MarkupLineInterpolated($"[red]{status.Error}[/]");
+                return 1;
+            }
+            var state = status.Running
+                ? $"[yellow]выполняется[/] ({SessionTableRenderer.FormatElapsed(DateTimeOffset.Now - status.StartedAt)})"
+                : $"[green]завершена[/] (exit {status.ExitCode})";
+            AnsiConsole.MarkupLineInterpolated($"Задача {args[3]}: {state}, вывода {status.OutputBytes} б");
+            if (!string.IsNullOrEmpty(status.Tail)) Console.WriteLine(status.Tail);
+            return 0;
+        }
+        catch (TimeoutException ex)
+        {
+            AnsiConsole.MarkupLineInterpolated($"[red]Таймаут:[/] {ex.Message}");
+            return 1;
+        }
+    }
+
     // exec: ad-hoc PowerShell на агенте (без SSH). Скрипт строкой или -f <файл>.
     case "exec" when args.Length >= 3:
     {
@@ -273,9 +311,11 @@ switch (command)
         if (tIdx >= 0 && args.Length > tIdx + 1 && int.TryParse(args[tIdx + 1], out var parsedTimeout))
             execTimeout = parsedTimeout;
 
+        var detach = args.Any(a => a.Equals("--detach", StringComparison.OrdinalIgnoreCase));
+
         try
         {
-            var res = await client.ExecAsync(execSz, script, execTimeout);
+            var res = await client.ExecAsync(execSz, script, execTimeout, default, detach);
             if (res is null)
             {
                 AnsiConsole.MarkupLineInterpolated($"[red]СЗ {execSz} не найдена[/] среди активных.");
@@ -315,13 +355,16 @@ static void PrintUsage()
               [yellow]szcli close[/] [blue]<СЗ>[/]         закрыть СЗ (revert на агенте)
               [yellow]szcli target[/] [blue]<СЗ>[/]        SSH-адрес по номеру СЗ
               [yellow]szcli reboots[/] [blue]<СЗ>[/]       таймлайн вырубонов (по смене boot-time)
+              [yellow]szcli sensors[/] [grey]start|status|stop <СЗ> | report <csv>[/]
+                [grey]наблюдатель нагрузки (CSV построчно, переживает вырубон) и его разбор[/]
               [yellow]szcli freeze[/] [blue]<СЗ>[/]        заморозить Windows Update на время сессии
               [yellow]szcli unfreeze[/] [blue]<СЗ>[/]      вернуть Windows Update как было (обязательно!)
               [yellow]szcli test run[/] [blue]<СЗ>[/] [grey][[occt|tm5,furmark|…]][/]  прогон тестов (все или по id)
               [yellow]szcli diag run[/] [blue]<СЗ>[/] [grey][[storage,events|…]][/]  диагностика (снапшот; секции точечно)
                 [grey]секции: system cpu memory gpu storage temps drivers events reboots whea livekernel reliability battery[/]
                 [grey]можно через запятую или пробел; all — все; алиасы: hw ram disks video bsod tdr temp[/]
-              [yellow]szcli exec[/] [blue]<СЗ>[/] [grey]"<powershell>" | -f <файл> [[--timeout <сек>]][/]
+              [yellow]szcli exec[/] [blue]<СЗ>[/] [grey]"<powershell>" | -f <файл> [[--timeout <сек>]] [[--detach]][/]
+              [yellow]szcli exec[/] [blue]<СЗ>[/] [grey]--result <jobId> [[--tail N]]   состояние фоновой задачи[/]
                 [grey]выполнить скрипт на агенте и получить вывод (без SSH)[/]
                 [grey]всё сложнее однострочника — через [/][yellow]-f[/][grey]: inline-строку портит твой шелл[/]
               [yellow]szcli push[/] [blue]<СЗ>[/] [grey]<tool> | --list[/]

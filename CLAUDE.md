@@ -107,7 +107,7 @@ boot-time в heartbeat, freshness-guard для `build-dist`, валидация 
 
 ```powershell
 dotnet build                       # сборка солюшена
-dotnet test                        # все автотесты (~441), без хоста/клиента
+dotnet test                        # все автотесты (~481), без хоста/клиента
 dotnet test tests/SzDiag.Agent.Tests            # тесты одного проекта
 dotnet test --filter FullyQualifiedName~RevertCoordinator   # один класс/тест
 $env:SZDIAG_LIVE=1; dotnet test    # + live-тест vgabios (реально ходит на TPU; по умолчанию skip)
@@ -172,6 +172,13 @@ IP и пинг hub; ручной повтор — команда `net-up`. Но�
   (`Start=4` в реестре для `wuauserv`/`UsoSvc`/**`WaaSMedicSvc`** + политика WSUS на
   `127.0.0.1:8530`; прежние значения — на хосте в `clireeze\<СЗ>.json`). **Разморозка
   обязательна** — `szcli close` кричит, если её забыли.
+  `szcli exec <СЗ> "<script>" --detach` → `szcli exec <СЗ> --result <jobId> [--tail N]` —
+  фоновая задача с файлом вывода на клиенте: **единственный режим, который проходит под
+  полной нагрузкой** (синхронный exec под OCCT не отвечает). Агент подтверждает приём команды
+  (ack), поэтому таймаут различает «не принял» и «принял, но задавлен нагрузкой».
+  `szcli sensors start|status|stop <СЗ>` / `szcli sensors report <csv>` — лёгкий наблюдатель
+  нагрузки (CSV построчно, переживает вырубон) и разбор: **сколько времени нагрузка реально
+  держалась**. Без этого «40 минут выстояла» оказывалось 4.2 минутами нагрузки.
   `szcli reboots <СЗ>` — таймлайн вырубонов: когда, сколько продержалась, чем была занята.
   Hub заводит событие **только по смене `bootTime`** и хранит его в SQLite (переживает рестарт);
   в `list`/`watch` рядом с uptime висит счётчик `⚡N`, а `close` печатает сводку.

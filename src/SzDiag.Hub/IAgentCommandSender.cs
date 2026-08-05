@@ -10,6 +10,9 @@ public interface IAgentCommandSender
     Task SendRunDiagAsync(string connectionId, string sz, string? sections, CancellationToken ct = default);
     Task SendExecAsync(string connectionId, ExecRequest request, CancellationToken ct = default);
 
+    /// <summary>Спросить состояние фоновой exec-задачи.</summary>
+    Task SendExecStatusAsync(string connectionId, ExecStatusRequest request, CancellationToken ct = default);
+
     /// <summary>Забрать файл(ы) с клиента: агент отвечает потоком чанков + итогом.</summary>
     Task SendPullAsync(string connectionId, PullRequest request, CancellationToken ct = default);
 

@@ -39,8 +39,25 @@ public static class ManagementApi
             if (string.IsNullOrWhiteSpace(body.Script)) return Results.BadRequest("пустой скрипт");
             try
             {
-                var result = await exec.RunAsync(sz, body.Script, body.TimeoutSeconds);
+                var result = await exec.RunAsync(sz, body.Script, body.TimeoutSeconds,
+                    detached: body.Detached);
                 return result is null ? Results.NotFound() : Results.Ok(result);
+            }
+            catch (TimeoutException ex)
+            {
+                return Results.Problem(ex.Message, statusCode: StatusCodes.Status504GatewayTimeout);
+            }
+        });
+
+        // Состояние фоновой задачи: короткий запрос, проходит даже под полной нагрузкой,
+        // когда обычный exec уже не проходит (бэклог п.43/п.46).
+        group.MapGet("/sessions/{sz}/exec/{jobId}", async (string sz, string jobId, int? tail,
+            ExecCoordinator exec) =>
+        {
+            try
+            {
+                var status = await exec.StatusAsync(sz, jobId, tail ?? ExecLimits.DefaultTailLines);
+                return status is null ? Results.NotFound() : Results.Ok(status);
             }
             catch (TimeoutException ex)
             {

@@ -64,6 +64,20 @@ public sealed class AgentHub : Microsoft.AspNetCore.SignalR.Hub
         return Task.CompletedTask;
     }
 
+    /// <summary>Агент подтвердил приём команды — до запуска скрипта.</summary>
+    public Task ExecAck(ExecAck ack)
+    {
+        _exec.Acknowledge(ack);
+        return Task.CompletedTask;
+    }
+
+    /// <summary>Агент прислал состояние фоновой задачи.</summary>
+    public Task ExecJobStatus(ExecJobStatus status)
+    {
+        _exec.CompleteStatus(status);
+        return Task.CompletedTask;
+    }
+
     /// <summary>Агент отчитался о доставке инструмента.</summary>
     public Task PushResult(PushResult result)
     {

@@ -85,10 +85,22 @@ public static class AgentCommandWiring
         var execHandler = new ExecCommandHandler(ps);
         link.OnExec(async req =>
         {
-            announce($"Exec на СЗ {req.Sz} ({req.Script.Length} символов, таймаут {req.TimeoutSeconds}с)…", null);
+            // Ack уходит ДО запуска: иначе «команда не дошла» и «скрипт долго идёт»
+            // неотличимы — оба выглядят глухим таймаутом (бэклог п.35/п.43).
+            try { await link.SendExecAckAsync(new ExecAck(req.RequestId, DateTimeOffset.UtcNow)); } catch { }
+
+            var mode = req.Detached ? "фоном" : $"таймаут {req.TimeoutSeconds}с";
+            announce($"Exec на СЗ {req.Sz} ({req.Script.Length} символов, {mode})…", null);
             var result = execHandler.Handle(req);
             try { await link.SendExecResultAsync(result); }
             catch (Exception ex) { announce($"Не смог вернуть результат exec: {ex.Message}", null); }
+        });
+
+        link.OnExecStatus(async req =>
+        {
+            var status = execHandler.Status(req);
+            try { await link.SendExecJobStatusAsync(status); }
+            catch (Exception ex) { announce($"Не смог вернуть статус задачи: {ex.Message}", null); }
         });
 
         // Push: скачать инструмент с hub (клиент тянет с хоста — как в модели угроз).

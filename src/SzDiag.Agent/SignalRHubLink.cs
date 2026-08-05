@@ -40,6 +40,15 @@ public sealed class SignalRHubLink : IHubLink
     public Task SendExecResultAsync(ExecResult result, CancellationToken ct = default)
         => _conn.InvokeAsync(HubRoutes.ExecResult, result, ct);
 
+    public Task SendExecAckAsync(ExecAck ack, CancellationToken ct = default)
+        => _conn.SendAsync(HubRoutes.ExecAck, ack, ct);   // Send, а не Invoke: ack не должен ждать hub
+
+    public void OnExecStatus(Func<ExecStatusRequest, Task> handler)
+        => _conn.On<ExecStatusRequest>(HubRoutes.ExecStatus, req => handler(req));
+
+    public Task SendExecJobStatusAsync(ExecJobStatus status, CancellationToken ct = default)
+        => _conn.InvokeAsync(HubRoutes.ExecJobStatus, status, ct);
+
     public void OnPush(Func<PushRequest, Task> handler)
         => _conn.On<PushRequest>(HubRoutes.Push, req => handler(req));
 
