@@ -13,23 +13,47 @@ public sealed class SessionRegistry
 
     public SessionRegistry(TimeProvider? time = null) => _time = time ?? TimeProvider.System;
 
+    /// <summary>Что произошло при регистрации агента.</summary>
+    /// <param name="Rebooted">Boot-time сменился — машина реально перезагрузилась.</param>
+    /// <param name="PreviousBootTime">Прежний boot-time (для записи события).</param>
+    /// <param name="UptimeBefore">Сколько машина продержалась до вырубона.</param>
+    /// <param name="ActivityBefore">Чем была занята — «продержалась N минут под тестом».</param>
+    public sealed record RegisterOutcome(
+        bool Rebooted,
+        DateTimeOffset? PreviousBootTime = null,
+        TimeSpan? UptimeBefore = null,
+        string? ActivityBefore = null);
+
     /// <summary>Регистрация (или переподключение) агента. Если у СЗ уже был известен boot-time
     /// и пришёл другой — значит клиент реально перезагрузился: фиксируем момент в
-    /// <see cref="SessionInfo.LastRebootAt"/> и возвращаем true. Это единственный надёжный
-    /// признак ребута: пропажа heartbeat под нагрузкой ребутом не является.</summary>
-    public bool Register(string sz, string ip, string hostname, string connectionId,
+    /// <see cref="SessionInfo.LastRebootAt"/>, считаем ребуты и отдаём подробности вызывающему.
+    /// Это единственный надёжный признак ребута: пропажа heartbeat под нагрузкой ребутом не
+    /// является, а ICMP у типовой клиентской винды закрыт из коробки.</summary>
+    public RegisterOutcome Register(string sz, string ip, string hostname, string connectionId,
         DateTimeOffset? bootTime = null)
     {
         var now = _time.GetUtcNow();
-        var rebooted = _bySz.TryGetValue(sz, out var prev)
+        _bySz.TryGetValue(sz, out var prev);
+
+        var rebooted = prev is not null
                        && prev.Info.BootTime is { } was
                        && bootTime is { } isNow
                        && was != isNow;
-        var lastReboot = rebooted ? now : (_bySz.TryGetValue(sz, out var p) ? p.Info.LastRebootAt : null);
+
+        var lastReboot = rebooted ? now : prev?.Info.LastRebootAt;
+        var rebootCount = (prev?.Info.RebootCount ?? 0) + (rebooted ? 1 : 0);
         var info = new SessionInfo(sz, ip, hostname, SessionStatus.Online, now, now,
-            BootTime: bootTime, LastRebootAt: lastReboot);
+            BootTime: bootTime, LastRebootAt: lastReboot, RebootCount: rebootCount);
         _bySz[sz] = new Entry(info, connectionId);
-        return rebooted;
+
+        if (!rebooted) return new RegisterOutcome(false);
+
+        // Аптайм считаем от прежнего boot-time до нового: это и есть «сколько продержалась».
+        TimeSpan? uptime = prev!.Info.BootTime is { } oldBoot && bootTime is { } newBoot
+            ? newBoot - oldBoot
+            : null;
+        return new RegisterOutcome(true, prev.Info.BootTime, uptime,
+            string.IsNullOrWhiteSpace(prev.Info.Activity) ? null : prev.Info.Activity);
     }
 
     public bool Heartbeat(string sz)

@@ -17,6 +17,10 @@ public class ExecCoordinatorTests
             Sent.Add(request);
             return Task.CompletedTask;
         }
+        public Task SendPullAsync(string connectionId, PullRequest request, CancellationToken ct = default)
+            => Task.CompletedTask;
+        public Task SendPushAsync(string c, PushRequest request, CancellationToken ct = default)
+            => Task.CompletedTask;
     }
 
     private static SessionRegistry RegistryWith(string sz)

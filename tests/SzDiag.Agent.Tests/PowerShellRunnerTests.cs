@@ -32,6 +32,45 @@ public class PowerShellRunnerTests
     }
 
     [Fact]
+    public void Run_CyrillicOutput_SurvivesRoundTrip()
+    {
+        // Регрессия (бэклог п.17/29/62): дочерний powershell писал stdout в кодовой странице
+        // консоли (cp866 у headless-агента), и кириллица в diag.md/exec приезжала мусором
+        // («�������� Windows 11 Pro»). Проверяем сквозной путь: скрипт → stdout → строка.
+        var runner = new PowerShellRunner(utf8: true);
+
+        var r = runner.Run("Write-Output 'Перевірка кирилиці: ёжик'", timeout: TimeSpan.FromSeconds(15));
+
+        Assert.Contains("Перевірка кирилиці: ёжик", r.StdOut);
+    }
+
+    [Fact]
+    public void Run_CyrillicInScriptBody_ParsesAndCompares()
+    {
+        // Скрипт уходит через -EncodedCommand (UTF-16LE), поэтому кириллица в теле
+        // (литералы, сравнения) не должна ломать парсер PowerShell.
+        var runner = new PowerShellRunner(utf8: true);
+
+        var r = runner.Run("$s = 'ошибка'; if ($s -eq 'ошибка') { 'СОВПАЛО' }",
+            timeout: TimeSpan.FromSeconds(15));
+
+        Assert.Contains("СОВПАЛО", r.StdOut);
+    }
+
+    [Fact]
+    public void Run_WithoutUtf8_StillWorksForAscii()
+    {
+        // PE-режим: шапку с [Console]::OutputEncoding не ставим (там она вешает процесс —
+        // СЗ 159948), но обычный ASCII-вывод обязан работать как раньше.
+        var runner = new PowerShellRunner(utf8: false);
+
+        var r = runner.Run("Write-Output 'pe-ok'", timeout: TimeSpan.FromSeconds(15));
+
+        Assert.Equal(0, r.ExitCode);
+        Assert.Contains("pe-ok", r.StdOut);
+    }
+
+    [Fact]
     public void Run_MultilinePipeline_ReturnsAllLines()
     {
         // Регрессия: скрипт раньше шёл через stdin `-Command -`, который в PowerShell 5.1

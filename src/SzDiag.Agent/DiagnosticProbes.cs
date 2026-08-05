@@ -125,23 +125,54 @@ public static class DiagnosticProbes
                 Format-Table -Auto | Out-String
             """),
 
-        Probe("reboots", "Перезагрузки: Kernel-Power 41 + dirty shutdown + BSOD-коды", """
-            "=== Kernel-Power 41 (unexpected reboot, last 20) ==="
-            $kp = Get-WinEvent -FilterHashtable @{ LogName='System'; ProviderName='Microsoft-Windows-Kernel-Power'; Id=41 } -MaxEvents 20 -ErrorAction SilentlyContinue
-            if ($kp) {
-                foreach ($e in $kp) {
-                    $x = [xml]$e.ToXml(); $d = @{}; foreach ($p in $x.Event.EventData.Data) { $d[$p.Name] = $p.'#text' }
-                    "[{0}] BugcheckCode={1} Param1={2} PowerButtonTs={3} SleepInProgress={4}" -f `
-                        $e.TimeCreated, $d['BugcheckCode'], $d['BugcheckParameter1'], $d['PowerButtonTimestamp'], $d['SleepInProgress']
+        // Kernel-Power 41 берём БЕЗ MaxEvents: лимит в 20 записей показывал только последние
+        // дни и прятал главное — сколько всего вырубонов и когда был первый. На СЗ 160705
+        // из-за этого дефект «приехал с завода» (первый hard-off через 7 минут после
+        // установки ОС) читался как «сломалось в процессе эксплуатации». Событий этого типа
+        // единицы-десятки, читать их все дёшево.
+        Probe("reboots", "Перезагрузки: Kernel-Power 41 + dirty shutdown + BSOD-коды",
+            BugcheckCodes.PowerShellPrologue() + """
+            "=== Kernel-Power 41 (unexpected reboot) - FULL HISTORY ==="
+            $kp = @(Get-WinEvent -FilterHashtable @{ LogName='System'; ProviderName='Microsoft-Windows-Kernel-Power'; Id=41 } -ErrorAction SilentlyContinue)
+            if ($kp.Count -gt 0) {
+                $first = $kp[-1].TimeCreated; $last = $kp[0].TimeCreated
+                "TOTAL: {0} events, first {1:yyyy-MM-dd HH:mm:ss}, last {2:yyyy-MM-dd HH:mm:ss}" -f $kp.Count, $first, $last
+                $os = Get-CimInstance Win32_OperatingSystem -ErrorAction SilentlyContinue
+                if ($os -and $os.InstallDate) {
+                    "OS installed: {0:yyyy-MM-dd HH:mm:ss}" -f $os.InstallDate
+                    $age = $first - $os.InstallDate
+                    "First unexpected shutdown: {0:N1} h after OS install" -f $age.TotalHours
+                    if ($age.TotalHours -lt 24) {
+                        "!!! First hard-off within 24h of OS install => defect came with the machine, not caused by usage/software."
+                    }
                 }
+                "--- per-day histogram ---"
+                $kp | Group-Object { $_.TimeCreated.ToString('yyyy-MM-dd') } | Sort-Object Name |
+                    ForEach-Object { "{0}: {1}" -f $_.Name, $_.Count }
+                "--- last 20 events (details) ---"
+                foreach ($e in ($kp | Select-Object -First 20)) {
+                    $x = [xml]$e.ToXml(); $d = @{}; foreach ($p in $x.Event.EventData.Data) { $d[$p.Name] = $p.'#text' }
+                    "[{0}] Bugcheck={1} Param1={2} PowerButtonTs={3} SleepInProgress={4}" -f `
+                        $e.TimeCreated, (Fmt-Bug $d['BugcheckCode']), $d['BugcheckParameter1'], $d['PowerButtonTimestamp'], $d['SleepInProgress']
+                }
+                if ($kp.Count -gt 20) { "... {0} earlier events not listed (see totals and histogram above)" -f ($kp.Count - 20) }
                 "Podskazka: BugcheckCode=0 i net BSOD/WHEA => zhestkiy obryv (pitanie/peregrev), a ne soft."
-            } else { "none" }
+            } else { "Kernel-Power 41: 0 events (net avariynyh vyrubonov v zhurnale)" }
             "=== Dirty shutdown / EventLog 6008/6005/6006 (last 20) ==="
-            Get-WinEvent -FilterHashtable @{ LogName='System'; ProviderName='EventLog'; Id=6008,6005,6006 } -MaxEvents 20 -ErrorAction SilentlyContinue |
+            $ds = @(Get-WinEvent -FilterHashtable @{ LogName='System'; ProviderName='EventLog'; Id=6008,6005,6006 } -ErrorAction SilentlyContinue)
+            "TOTAL 6008 (dirty shutdown): {0}" -f @($ds | Where-Object { $_.Id -eq 6008 }).Count
+            $ds | Select-Object -First 20 |
                 Select-Object TimeCreated, Id, @{n='Msg';e={($_.Message -split "`r?`n")[0]}} | Format-Table -Auto | Out-String
-            "=== BugCheck 1001 (BSOD stop codes, last 10) ==="
-            $bc = Get-WinEvent -FilterHashtable @{ LogName='System'; Id=1001; ProviderName='Microsoft-Windows-WER-SystemErrorReporting' } -MaxEvents 10 -ErrorAction SilentlyContinue
-            if ($bc) { $bc | ForEach-Object { "[{0}] {1}" -f $_.TimeCreated, (($_.Message -split "`r?`n")[0]) } } else { "none (no BSOD)" }
+            "=== BugCheck 1001 (BSOD stop codes) ==="
+            $bc = @(Get-WinEvent -FilterHashtable @{ LogName='System'; Id=1001; ProviderName='Microsoft-Windows-WER-SystemErrorReporting' } -ErrorAction SilentlyContinue)
+            if ($bc.Count -gt 0) {
+                "TOTAL: {0} BSOD, first {1:yyyy-MM-dd HH:mm:ss}, last {2:yyyy-MM-dd HH:mm:ss}" -f $bc.Count, $bc[-1].TimeCreated, $bc[0].TimeCreated
+                $bc | Select-Object -First 10 | ForEach-Object {
+                    $code = ''
+                    if ($_.Message -match '0x([0-9a-fA-F]{8})') { $code = Fmt-Bug ([Convert]::ToInt64($matches[1], 16)) }
+                    "[{0}] {1}" -f $_.TimeCreated, $(if ($code) { $code } else { ($_.Message -split "`r?`n")[0] })
+                }
+            } else { "none (no BSOD)" }
             """),
 
         Probe("whea", "Аппаратные ошибки железа (WHEA-Logger, все уровни)", """

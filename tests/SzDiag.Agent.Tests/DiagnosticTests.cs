@@ -1,4 +1,4 @@
-﻿using SzDiag.Agent;
+using SzDiag.Agent;
 using SzDiag.Contracts;
 using Xunit;
 
@@ -15,6 +15,9 @@ public class DiagnosticProbesTests
             "temps", "drivers", "events", "reboots", "whea", "reliability", "battery"
         };
         Assert.Equal(expected, DiagnosticProbes.Sections);
+        // Каталог проб и словарь для валидации в CLI обязаны совпадать: иначе szcli либо
+        // отвергнет живую секцию, либо пропустит несуществующую (бэклог п.6).
+        Assert.Equal(DiagSections.All, DiagnosticProbes.Sections);
         Assert.DoesNotContain("network", DiagnosticProbes.Sections);
         Assert.DoesNotContain("security", DiagnosticProbes.Sections);
     }
@@ -28,6 +31,29 @@ public class DiagnosticProbesTests
             Assert.False(string.IsNullOrWhiteSpace(s.Id));
             Assert.False(string.IsNullOrWhiteSpace(s.Run));
         });
+    }
+
+    [Fact]
+    public void RebootsProbe_ReadsFullHistoryAndDecodesBugchecks()
+    {
+        // Регрессия (бэклог п.61/13): секция резала Kernel-Power 41 до 20 записей и печатала
+        // BugcheckCode десятичным. Итог, дата установки ОС и hex-имена — обязательны.
+        var run = DiagnosticProbes.Suite.Steps.Single(s => s.Id == "reboots").Run!;
+
+        Assert.DoesNotContain("Id=41 } -MaxEvents", run);   // историю берём целиком
+        Assert.Contains("TOTAL:", run);                      // общее число событий
+        Assert.Contains("per-day histogram", run);           // деградация видна по дням
+        Assert.Contains("OS installed", run);                // «дефект с первого дня»
+        Assert.Contains("Fmt-Bug", run);                     // hex + имя стоп-кода
+        Assert.Contains("'190'='ATTEMPTED_WRITE_TO_READONLY_MEMORY'", run);
+    }
+
+    [Fact]
+    public void AllProbeBodies_AreAscii()
+    {
+        // Тела проб — строго ASCII (см. комментарий класса): русские заголовки живут в Name.
+        foreach (var step in DiagnosticProbes.Suite.Steps)
+            Assert.All(step.Run!, c => Assert.True(c < 128, $"не-ASCII в секции {step.Id}: {c}"));
     }
 
     [Fact]
@@ -61,6 +87,11 @@ public class DiagReportRunnerTests
         public List<SzDiag.Contracts.ExecResult> ExecResults { get; } = new();
         public void OnExec(Func<SzDiag.Contracts.ExecRequest, Task> handler) => ExecHandler = handler;
         public Task SendExecResultAsync(SzDiag.Contracts.ExecResult result, CancellationToken ct = default) { ExecResults.Add(result); return Task.CompletedTask; }
+        public void OnPush(Func<SzDiag.Contracts.PushRequest, Task> handler) { }
+        public Task SendPushResultAsync(SzDiag.Contracts.PushResult result, CancellationToken ct = default) => Task.CompletedTask;
+        public void OnPull(Func<SzDiag.Contracts.PullRequest, Task> handler) { }
+        public Task SendPullChunkAsync(SzDiag.Contracts.PullChunk chunk, CancellationToken ct = default) => Task.CompletedTask;
+        public Task SendPullResultAsync(SzDiag.Contracts.PullResult result, CancellationToken ct = default) => Task.CompletedTask;
         public Task UploadReportFileAsync(UploadReportPart part, CancellationToken ct = default)
         {
             Uploaded.Add(part);

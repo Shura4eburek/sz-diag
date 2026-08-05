@@ -1,4 +1,4 @@
-﻿using SzDiag.Agent;
+using SzDiag.Agent;
 using SzDiag.Contracts;
 using Xunit;
 
@@ -27,6 +27,11 @@ public class TestReportRunnerTests
         public List<SzDiag.Contracts.ExecResult> ExecResults { get; } = new();
         public void OnExec(Func<SzDiag.Contracts.ExecRequest, Task> handler) => ExecHandler = handler;
         public Task SendExecResultAsync(SzDiag.Contracts.ExecResult result, CancellationToken ct = default) { ExecResults.Add(result); return Task.CompletedTask; }
+        public void OnPush(Func<SzDiag.Contracts.PushRequest, Task> handler) { }
+        public Task SendPushResultAsync(SzDiag.Contracts.PushResult result, CancellationToken ct = default) => Task.CompletedTask;
+        public void OnPull(Func<SzDiag.Contracts.PullRequest, Task> handler) { }
+        public Task SendPullChunkAsync(SzDiag.Contracts.PullChunk chunk, CancellationToken ct = default) => Task.CompletedTask;
+        public Task SendPullResultAsync(SzDiag.Contracts.PullResult result, CancellationToken ct = default) => Task.CompletedTask;
         public Task UploadReportFileAsync(UploadReportPart part, CancellationToken ct = default)
         {
             Uploaded.Add(part);

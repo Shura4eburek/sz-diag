@@ -39,14 +39,17 @@ public static class SessionTableRenderer
 
     /// <summary>Ячейка uptime: сколько машина работает с загрузки ОС. Свежий ребут (менее часа
     /// назад) подсвечивается — под стресс-тестом это главный сигнал «клиент реально упал»,
-    /// в отличие от пропавшего heartbeat, который под нагрузкой врёт.</summary>
+    /// в отличие от пропавшего heartbeat, который под нагрузкой врёт. Счётчик вырубонов
+    /// висит рядом постоянно: иначе о них узнаёшь, только если специально спросишь
+    /// (на 160306 вырубон на стенде заметили через неделю — бэклог п.55).</summary>
     private static string UptimeCell(SessionInfo s, DateTimeOffset now)
     {
         if (s.BootTime is not DateTimeOffset boot) return "[dim]—[/]";
         var up = FormatElapsed(now - boot);
+        var counter = s.RebootCount > 0 ? $" [red]⚡{s.RebootCount}[/]" : "";
         if (s.LastRebootAt is DateTimeOffset reboot && now - reboot < TimeSpan.FromHours(1))
-            return $"[red]{up} (ребут {reboot.ToLocalTime():HH:mm})[/]";
-        return $"[grey]{up}[/]";
+            return $"[red]{up} (ребут {reboot.ToLocalTime():HH:mm})[/]{counter}";
+        return $"[grey]{up}[/]{counter}";
     }
 
     /// <summary>Ячейка активности: идущий тест с тикающим временем, простой с меткой, или «—».</summary>

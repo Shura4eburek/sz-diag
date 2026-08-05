@@ -42,7 +42,7 @@ public class SessionRegistryTests
 
         var rebooted = reg.Register("160306", "10.0.0.42", "PC-1", "conn-2", boot);
 
-        Assert.False(rebooted);
+        Assert.False(rebooted.Rebooted);
         Assert.Null(Assert.Single(reg.GetActive()).LastRebootAt);
     }
 
@@ -56,7 +56,7 @@ public class SessionRegistryTests
         var rebooted = reg.Register("160306", "10.0.0.42", "PC-1", "conn-2",
             new DateTimeOffset(2026, 7, 28, 13, 05, 0, TimeSpan.Zero));
 
-        Assert.True(rebooted);
+        Assert.True(rebooted.Rebooted);
         Assert.NotNull(Assert.Single(reg.GetActive()).LastRebootAt);
     }
 
@@ -70,7 +70,7 @@ public class SessionRegistryTests
 
         var rebooted = reg.Register("160306", "10.0.0.42", "PC-1", "conn-2", bootTime: null);
 
-        Assert.False(rebooted);
+        Assert.False(rebooted.Rebooted);
     }
 
     [Fact]

@@ -10,11 +10,21 @@ var builder = WebApplication.CreateBuilder(args);
 // Единый лок на запись в консоль: липкая панель перерисовывается из таймер-потока,
 // логи пишутся из своих. Без лока курсор уедет посреди чужой строки.
 var consoleGate = new object();
-Console.SetOut(new SyncedConsoleWriter(Console.Out, consoleGate));
+var rawOut = new SyncedConsoleWriter(Console.Out, consoleGate);
+Console.SetOut(rawOut);
 
 // Читать appsettings.json рядом с exe независимо от текущего каталога запуска.
 builder.Configuration.AddJsonFile(
     Path.Combine(AppContext.BaseDirectory, "appsettings.json"), optional: true, reloadOnChange: false);
+
+// Лог в файл: без него залипший hub нечем разбирать — окно консоли к тому моменту
+// потеряно, а рестарт уносит причину с собой (бэклог п.41/п.50). Дублируем весь
+// консольный вывод (свои строки + ILogger) в hub-<дата>.log.
+var logDir = builder.Configuration["Hub:LogDir"] ?? "logs";
+var logRetention = int.TryParse(builder.Configuration["Hub:LogRetentionDays"], out var parsedRetention)
+    ? parsedRetention : 14;
+var hubLogFile = string.IsNullOrWhiteSpace(logDir) ? TextWriter.Null : HubLog.Init(logDir, logRetention);
+if (hubLogFile != TextWriter.Null) Console.SetOut(new TeeTextWriter(rawOut, hubLogFile));
 
 // Адрес прослушивания: из конфига "Urls" (для standalone-exe), иначе 0.0.0.0:5099.
 var listenUrls = (builder.Configuration["Urls"] ?? "http://0.0.0.0:5099")
@@ -53,6 +63,15 @@ builder.Services.AddSingleton<SessionCloser>();
 builder.Services.AddSingleton<TestRunTrigger>();
 builder.Services.AddSingleton<DiagRunTrigger>();
 builder.Services.AddSingleton<ExecCoordinator>();
+builder.Services.AddSingleton(sp =>
+{
+    var opts = sp.GetRequiredService<IOptions<HubOptions>>().Value;
+    return new PullCoordinator(sp.GetRequiredService<SessionRegistry>(),
+        sp.GetRequiredService<IAgentCommandSender>(), opts.PullRoot);
+});
+builder.Services.AddSingleton<PushCoordinator>();
+builder.Services.AddSingleton(sp =>
+    new ToolCatalog(sp.GetRequiredService<IOptions<HubOptions>>().Value.ToolsRoot));
 builder.Services.AddSignalR(o =>
 {
     o.MaximumReceiveMessageSize = 10 * 1024 * 1024;
@@ -77,7 +96,9 @@ app.Lifetime.ApplicationStarted.Register(() =>
     var lanIp = HubStatusLine.FindLanIp();
     var startedAt = DateTimeOffset.Now;
 
-    var surface = new SystemTerminalSurface(Console.Out);
+    // Панель рисуется в rawOut, минуя Tee: иначе в лог-файл попадали бы ANSI-коды
+    // перерисовки, и он стал бы нечитаемым (в агенте ровно та же развязка).
+    var surface = new SystemTerminalSurface(rawOut);
     sticky = StickyHeader.TryStart(
         width => HubStatusLine.Render(new HubStatusContext(
             registry.GetActive(), listen, lanIp, hubOpts.KnowledgeBaseRoot,
@@ -96,7 +117,10 @@ app.Lifetime.ApplicationStarted.Register(() =>
             .Border(BoxBorder.Rounded)
             .BorderColor(Color.Grey)
             .Padding(1, 0);
-        AnsiConsole.Write(panel);
+        // Тоже мимо Tee — цветная рамка в лог-файле только мешает; текстовую копию
+        // строкой ниже пишем сами.
+        AnsiConsole.Create(new AnsiConsoleSettings { Out = new AnsiConsoleOutput(rawOut) }).Write(panel);
+        hubLogFile.WriteLine($"sz-diag hub: слушает {listen}; kb {hubOpts.KnowledgeBaseRoot}");
     }
 });
 
@@ -123,9 +147,15 @@ app.Use(async (ctx, next) =>
 app.MapHub<AgentHub>(HubRoutes.Path);
 app.MapManagementApi();
 app.MapAgentPackageApi();
+app.MapToolsApi();
 
 try { app.Run(); }
-finally { sticky?.Dispose(); }
+finally
+{
+    sticky?.Dispose();
+    // Лог сбрасываем последним: сюда попадает и текст падения, если hub уронило исключение.
+    try { hubLogFile.Flush(); hubLogFile.Dispose(); } catch { }
+}
 
 // Для WebApplicationFactory в тестах.
 public partial class Program { }

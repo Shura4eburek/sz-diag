@@ -30,6 +30,20 @@ public sealed class HubOptions
     /// (version.txt, package.zip, package.sha256). Кладётся build-dist.</summary>
     public string AgentDistRoot { get; set; } = "agent-dist";
 
+    /// <summary>Папка с инструментами, которые hub раздаёт агентам (`szcli push`).
+    /// Относительный путь — от папки exe; build-dist кладёт сюда копию `client-tools`.</summary>
+    public string ToolsRoot { get; set; } = "tools";
+
+    /// <summary>Куда складывать файлы, забранные с клиентов (`szcli pull`). Относительный —
+    /// от папки exe. Намеренно НЕ в vault: дампы и CSV раздувают git-историю базы знаний.</summary>
+    public string PullRoot { get; set; } = "pulled";
+
+    /// <summary>Каталог лог-файлов hub (относительный — от папки exe). Пусто — не писать в файл.</summary>
+    public string LogDir { get; set; } = "logs";
+
+    /// <summary>Сколько дней хранить лог-файлы hub. 0 — не чистить.</summary>
+    public int LogRetentionDays { get; set; } = 14;
+
     /// <summary>Липкая панель статуса в верхних строках консоли. false — обычный
     /// линейный вывод (рубильник на случай проблемного терминала).</summary>
     public bool StickyHeader { get; set; } = true;

@@ -76,6 +76,42 @@ $common = "-c","Release","-r","win-x64","--self-contained","-p:PublishSingleFile
 # новая не соберётся. dotnet.exe — внешний процесс, $ErrorActionPreference="Stop" на его
 # код возврата не действует, и вывод заглушен через Out-Null — без явной проверки
 # $LASTEXITCODE такая неудача проходит молча, а скрипт бодро репортует "Готово".
+# Конфиг компонента живёт своей жизнью: в собранном виде он дефолтный, а рабочий содержит
+# абсолютные пути к kb/szdiag.db. При подмене файлов поверх его не трогаем.
+$configFile = "appsettings.json"
+
+# Хендлы убитого процесса отпускаются с задержкой, а свежий 90-мегабайтный exe после
+# публикации ещё какое-то время держит антивирус. Пересборка сразу после Stop-Process
+# падала ровно на этом, а через полминуты проходила — поэтому ретрай, а не одна попытка.
+function Invoke-WithRetry([scriptblock]$action, [int]$attempts = 8, [int]$delayMs = 750) {
+    for ($i = 1; $i -le $attempts; $i++) {
+        try { & $action; return $true }
+        catch {
+            if ($i -eq $attempts) { return $false }
+            Start-Sleep -Milliseconds $delayMs
+        }
+    }
+    return $false
+}
+
+# Фоллбэк, когда папку не переименовать: копируем файлы поверх (кроме конфига). Помогает,
+# когда залочен один-два файла из папки, а не она целиком. Возвращает список файлов,
+# которые скопировать не удалось, — по нему решаем, обновился компонент или нет.
+function Copy-Over($from, $to) {
+    $failures = @()
+    foreach ($src in Get-ChildItem $from -Recurse -File) {
+        $rel = $src.FullName.Substring((Resolve-Path $from).Path.Length).TrimStart('\')
+        if ($rel -ieq $configFile) { continue }
+        $dst = Join-Path $to $rel
+        $dstDir = Split-Path $dst -Parent
+        if (-not (Test-Path $dstDir)) { New-Item -ItemType Directory $dstDir -Force | Out-Null }
+        if (-not (Invoke-WithRetry { Copy-Item $src.FullName $dst -Force -ErrorAction Stop } 4 500)) {
+            $failures += $rel
+        }
+    }
+    return $failures
+}
+
 function Publish($project, $out) {
     $staging = "$out.new"
     $backup = "$out.old"
@@ -93,11 +129,18 @@ function Publish($project, $out) {
     # целиком, либо не срабатывает вообще — старая версия остаётся невредимой в любом случае.
     if (Test-Path $out) {
         Remove-Item $backup -Recurse -Force -ErrorAction SilentlyContinue
-        try { Rename-Item $out (Split-Path $backup -Leaf) -ErrorAction Stop }
-        catch {
-            throw "Собрано в $staging, но $out залочен (запущен hub/cli/агент из этой папки?) " +
-                  "и не переименовался. Закрой процесс и запусти сборку ещё раз. Старая версия " +
-                  "в $out цела и не тронута."
+        $renamed = Invoke-WithRetry { Rename-Item $out (Split-Path $backup -Leaf) -ErrorAction Stop }
+        if (-not $renamed) {
+            Write-Host "-- $out залочен, пробую подменить файлы поверх" -ForegroundColor Yellow
+            $stuck = Copy-Over $staging $out
+            if ($stuck.Count -eq 0) {
+                Remove-Item $staging -Recurse -Force -ErrorAction SilentlyContinue
+                Write-Host "-- $out обновлён поверх (конфиг не тронут)" -ForegroundColor Green
+                return
+            }
+            throw "Собрано в $staging, но $out залочен (запущен hub/cli/агент из этой папки?): " +
+                  "не удалось подменить $($stuck.Count) файлов ($([string]::Join(', ', ($stuck | Select-Object -First 3)))). " +
+                  "Закрой процесс и запусти сборку ещё раз. Старая версия в $out цела."
         }
     }
     Move-Item $staging $out
@@ -107,6 +150,7 @@ function Publish($project, $out) {
 # правим только agent/cli) — сбой одного не должен мешать пересобрать остальные. Копим
 # ошибки и валимся с сводкой только в самом конце, после того как попробовали все три.
 $failed = @()
+$staleDirs = @()   # компоненты, оставшиеся на старом бинаре: их конфиг трогать нельзя
 foreach ($p in @(
     @{ Project = "src/SzDiag.Hub"; Out = "dist/host/hub" },
     @{ Project = "src/SzDiag.Cli"; Out = "dist/host/cli" },
@@ -116,7 +160,21 @@ foreach ($p in @(
     catch {
         Write-Host "-- ПРОПУСК $($p.Project): $($_.Exception.Message)" -ForegroundColor Yellow
         $failed += $p.Project
+        $staleDirs += $p.Out
     }
+}
+
+# Конфиг пересобранного компонента переписываем, непересобранного — нет. Иначе получается
+# рассинхрон «конфиг новый, exe старый»: ровно так hub 05.08 крутил билд пятичасовой давности
+# со свежим appsettings.json, и по времени файлов это выглядело как каша (бэклог п.51).
+function Should-WriteConfig($outDir) {
+    $normalized = $outDir.Replace('/', '\')
+    $isStale = $staleDirs | Where-Object { $_.Replace('/', '\') -ieq $normalized }
+    if (-not $isStale) { return $true }
+    $cfg = Join-Path $outDir "appsettings.json"
+    if (-not (Test-Path $cfg)) { return $true }   # конфига вообще нет — писать безопасно
+    Write-Host "-- конфиг $cfg НЕ переписан: компонент остался на старой сборке" -ForegroundColor Yellow
+    return $false
 }
 if (Test-Path dist\client\SzDiag.Agent.exe) {
     Copy-Item secrets\svc_diag_key.pub dist\client\service_key.pub -Force
@@ -203,6 +261,7 @@ $hubCfg = @"
     "SqliteConnectionString": "Data Source=$db",
     "KnowledgeBaseRoot": "$kb",
     "AgentDistRoot": "$(("$root\dist\host\hub\agent-dist").Replace('\','\\'))",
+    "ToolsRoot": "$(("$root\client-tools").Replace('\','\\'))",
     "HeartbeatTimeout": "00:01:00",
     "SweepInterval": "00:00:15",
     "KbBackup": {
@@ -217,7 +276,9 @@ $hubCfg = @"
 "@
 # Пишем конфиг только если папка компонента реально существует — если его publish выше
 # провалился и старой копии тоже никогда не было (напр. самый первый запуск), писать некуда.
-if (Test-Path dist\host\hub) { Set-Content -Path dist\host\hub\appsettings.json -Value $hubCfg -Encoding utf8 }
+if ((Test-Path dist\host\hub) -and (Should-WriteConfig "dist/host/hub")) {
+    Set-Content -Path dist\host\hub\appsettings.json -Value $hubCfg -Encoding utf8
+}
 
 $cliCfg = @"
 {
@@ -226,7 +287,9 @@ $cliCfg = @"
   "KbRoot": "$kb"
 }
 "@
-if (Test-Path dist\host\cli) { Set-Content -Path dist\host\cli\appsettings.json -Value $cliCfg -Encoding utf8 }
+if ((Test-Path dist\host\cli) -and (Should-WriteConfig "dist/host/cli")) {
+    Set-Content -Path dist\host\cli\appsettings.json -Value $cliCfg -Encoding utf8
+}
 
 $hubUrlValue = if ([string]::IsNullOrWhiteSpace($HubIp)) { "" } else { "http://$($HubIp):$($Port)" }
 
@@ -243,7 +306,9 @@ $agentCfg = @"
   "TestSuitePath": "testsuite.json"
 }
 "@
-if (Test-Path dist\client) { Set-Content -Path dist\client\appsettings.json -Value $agentCfg -Encoding utf8 }
+if ((Test-Path dist\client) -and (Should-WriteConfig "dist/client")) {
+    Set-Content -Path dist\client\appsettings.json -Value $agentCfg -Encoding utf8
+}
 
 # 4. Удобные лаунчеры на хосте (single-quoted here-string — литералы)
 $startHub = @'
@@ -262,8 +327,14 @@ Set-Content -Path dist\host\szcli.cmd -Value $szcli -Encoding ascii
 
 Write-Host ""
 if ($failed.Count -gt 0) {
-    Write-Host "== Готово частично — не пересобрались: $($failed -join ', ') ==" -ForegroundColor Yellow
-    Write-Host "Старые версии этих компонентов не тронуты и продолжают работать. Закрой их процессы и запусти сборку ещё раз."
+    # Явно и громко: «готово частично» раньше читалось как «готово», и правка молча не
+    # доезжала до рантайма — hub крутил старый билд, а по логу сборки всё выглядело нормально.
+    Write-Host "==================================================================" -ForegroundColor Red
+    Write-Host "  ВНИМАНИЕ: РАНТАЙМ ОСТАЛСЯ НА СТАРОЙ ВЕРСИИ" -ForegroundColor Red
+    Write-Host "  Не пересобрались: $($failed -join ', ')" -ForegroundColor Red
+    Write-Host "  Их конфиги не переписаны (чтобы не было 'конфиг новый, exe старый')." -ForegroundColor Red
+    Write-Host "  Закрой процессы этих компонентов и запусти сборку ещё раз." -ForegroundColor Red
+    Write-Host "==================================================================" -ForegroundColor Red
 } else {
     Write-Host "== Готово =="
 }

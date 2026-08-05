@@ -1,0 +1,821 @@
+{
+  "ScheduleType": "Custom",
+  "StabilityCertificateType": "System",
+  "IsPrivate": false,
+  "Periods": [
+    {
+      "Duration": "00:30:00",
+      "Version": "140020052000",
+      "IsInfinite": true,
+      "TestType": "Combined",
+      "CpuOcctConfig": {
+        "DataSet": "Large",
+        "OcctInstructionSet": "Avx512",
+        "LoadType": "Variable",
+        "Mode": "Extreme",
+        "Threads": "Auto",
+        "FixedThreadCount": 1,
+        "StartAtCycle": 1,
+        "AdvancedThreadConfig": {
+          "AdvancedThreadType": "CycleAllCores",
+          "CycleActiveCoreInterval": 5,
+          "CycleActiveCoreIntervalUnit": "Minutes",
+          "CoreConfigs": [
+            {
+              "CoreNumber": 0,
+              "State": 2
+            },
+            {
+              "CoreNumber": 1,
+              "State": 1
+            },
+            {
+              "CoreNumber": 2,
+              "State": 1
+            },
+            {
+              "CoreNumber": 3,
+              "State": 1
+            },
+            {
+              "CoreNumber": 4,
+              "State": 1
+            },
+            {
+              "CoreNumber": 5,
+              "State": 1
+            }
+          ],
+          "NumThreadsPerGroup": 2
+        },
+        "Priority": "Normal"
+      },
+      "CpuOnlyOcctConfig": {
+        "DataSet": "Large",
+        "OcctInstructionSet": "Auto",
+        "LoadType": "Variable",
+        "Mode": "Normal",
+        "Threads": "Fixed",
+        "FixedThreadCount": 1,
+        "StartAtCycle": 1,
+        "AdvancedThreadConfig": {
+          "AdvancedThreadType": "CycleAllCores",
+          "CycleActiveCoreInterval": 5,
+          "CycleActiveCoreIntervalUnit": "Minutes",
+          "CoreConfigs": [
+            {
+              "CoreNumber": 0,
+              "State": 2
+            },
+            {
+              "CoreNumber": 1,
+              "State": 1
+            },
+            {
+              "CoreNumber": 2,
+              "State": 1
+            },
+            {
+              "CoreNumber": 3,
+              "State": 1
+            },
+            {
+              "CoreNumber": 4,
+              "State": 1
+            },
+            {
+              "CoreNumber": 5,
+              "State": 1
+            },
+            {
+              "CoreNumber": 6,
+              "State": 1
+            },
+            {
+              "CoreNumber": 7,
+              "State": 1
+            }
+          ],
+          "NumThreadsPerGroup": 2
+        },
+        "Priority": "Normal"
+      },
+      "CpuLinpackConfig": {
+        "Version": "v2021",
+        "Threads": "PhysicalAndVirtual",
+        "Memory": 2048,
+        "Priority": "Normal"
+      },
+      "MemoryConfig": {
+        "MemoryInPercent": 90,
+        "MemoryMemUnit": "Percent",
+        "Threads": "Auto",
+        "FixedThreadCount": 0,
+        "InstructionSet": "Auto",
+        "Priority": "Normal"
+      },
+      "Gpu3dConfig": {
+        "Mode": "ErrorDetection",
+        "UsageLimit": 100,
+        "ShaderComplexity": 3,
+        "GpuIndexes": [
+          0
+        ],
+        "TestAllGpus": false,
+        "Priority": "Normal"
+      },
+      "GpuUnrealConfig": {
+        "IntensityType": "Steady",
+        "SteadyIntensityType": "Extreme",
+        "SteadyLoad": 50,
+        "VariableIntensityIncreaseIntervalTimeSpan": "00:00:30",
+        "VariableIntensityIncreaseStep": 5,
+        "VariableMinIntensity": 40,
+        "VariableMaxIntensity": 100,
+        "SwitchInterval": 500,
+        "SwitchFirstIntensity": 20,
+        "SwitchSecondIntensity": 100,
+        "GpuIndexes": [
+          0
+        ],
+        "TestAllGpus": false,
+        "SelectType": 0,
+        "Priority": "Normal"
+      },
+      "GpuComputeConfig": {
+        "GpuIndexes": [],
+        "TestAllGpus": false,
+        "MemoryInMiB": 0,
+        "MemoryInPercent": 0,
+        "MemoryMemUnit": "Percent",
+        "SelectType": 0,
+        "Priority": "Normal"
+      },
+      "VramConfig": {
+        "GpuIndexes": [
+          0
+        ],
+        "TestAllGpus": false,
+        "GpuIndex": 0,
+        "MemoryInMiB": 0,
+        "MemoryInPercent": 90,
+        "MemoryMemUnit": "Percent",
+        "SelectType": 1,
+        "Priority": "Normal"
+      },
+      "MonitoringOnlyConfig": {
+        "Type": 0,
+        "Priority": "Normal"
+      },
+      "PowerSupplyConfig": {
+        "CpuOcctInstructionSet": "Auto",
+        "GpuIndexes": [
+          0
+        ],
+        "TestAllGpus": false,
+        "SelectType": 0
+      },
+      "CombinedConfig": {
+        "CpuOcct": true,
+        "CpuOcctConfig": {
+          "DataSet": "Large",
+          "OcctInstructionSet": "Auto",
+          "LoadType": "Variable",
+          "Mode": "Extreme",
+          "Threads": "Auto",
+          "FixedThreadCount": 12,
+          "StartAtCycle": 1,
+          "AdvancedThreadConfig": {
+            "AdvancedThreadType": "CycleAllCores",
+            "CycleActiveCoreInterval": 5,
+            "CycleActiveCoreIntervalUnit": "Minutes",
+            "CoreConfigs": [
+              {
+                "CoreNumber": 0,
+                "State": 2
+              },
+              {
+                "CoreNumber": 1,
+                "State": 1
+              },
+              {
+                "CoreNumber": 2,
+                "State": 1
+              },
+              {
+                "CoreNumber": 3,
+                "State": 1
+              },
+              {
+                "CoreNumber": 4,
+                "State": 1
+              },
+              {
+                "CoreNumber": 5,
+                "State": 1
+              },
+              {
+                "CoreNumber": 6,
+                "State": 1
+              },
+              {
+                "CoreNumber": 7,
+                "State": 1
+              },
+              {
+                "CoreNumber": 8,
+                "State": 1
+              },
+              {
+                "CoreNumber": 9,
+                "State": 1
+              },
+              {
+                "CoreNumber": 10,
+                "State": 1
+              },
+              {
+                "CoreNumber": 11,
+                "State": 1
+              }
+            ],
+            "NumThreadsPerGroup": 2
+          },
+          "Priority": "AboveNormal"
+        },
+        "CpuOnlyOcct": true,
+        "CpuOnlyOcctConfig": {
+          "DataSet": "Large",
+          "OcctInstructionSet": "Auto",
+          "LoadType": "Variable",
+          "Mode": "Extreme",
+          "Threads": "Auto",
+          "FixedThreadCount": 12,
+          "StartAtCycle": 1,
+          "AdvancedThreadConfig": {
+            "AdvancedThreadType": "CycleAllCores",
+            "CycleActiveCoreInterval": 5,
+            "CycleActiveCoreIntervalUnit": "Minutes",
+            "CoreConfigs": [
+              {
+                "CoreNumber": 0,
+                "State": 2
+              },
+              {
+                "CoreNumber": 1,
+                "State": 1
+              },
+              {
+                "CoreNumber": 2,
+                "State": 1
+              },
+              {
+                "CoreNumber": 3,
+                "State": 1
+              },
+              {
+                "CoreNumber": 4,
+                "State": 1
+              },
+              {
+                "CoreNumber": 5,
+                "State": 1
+              },
+              {
+                "CoreNumber": 6,
+                "State": 1
+              },
+              {
+                "CoreNumber": 7,
+                "State": 1
+              },
+              {
+                "CoreNumber": 8,
+                "State": 1
+              },
+              {
+                "CoreNumber": 9,
+                "State": 1
+              },
+              {
+                "CoreNumber": 10,
+                "State": 1
+              },
+              {
+                "CoreNumber": 11,
+                "State": 1
+              }
+            ],
+            "NumThreadsPerGroup": 2
+          },
+          "Priority": "Normal"
+        },
+        "CpuLinpack": true,
+        "CpuLinpackConfig": {
+          "Version": "v2021",
+          "Threads": "PhysicalAndVirtual",
+          "Memory": 2048,
+          "Priority": "Normal"
+        },
+        "Memory": true,
+        "MemoryConfig": {
+          "MemoryInPercent": 95,
+          "MemoryMemUnit": "Percent",
+          "Threads": "Auto",
+          "FixedThreadCount": 0,
+          "InstructionSet": "Auto",
+          "Priority": "High"
+        },
+        "Gpu3d": false,
+        "Gpu3dConfig": {
+          "Mode": "ErrorDetection",
+          "UsageLimit": 100,
+          "ShaderComplexity": 3,
+          "GpuIndexes": [
+            0
+          ],
+          "TestAllGpus": false,
+          "Priority": "Normal"
+        },
+        "GpuUnreal": true,
+        "GpuUnrealConfig": {
+          "IntensityType": "Steady",
+          "SteadyIntensityType": "Extreme",
+          "SteadyLoad": 50,
+          "VariableIntensityIncreaseIntervalTimeSpan": "00:00:30",
+          "VariableIntensityIncreaseStep": 5,
+          "VariableMinIntensity": 40,
+          "VariableMaxIntensity": 100,
+          "SwitchInterval": 500,
+          "SwitchFirstIntensity": 20,
+          "SwitchSecondIntensity": 100,
+          "GpuIndexes": [
+            0
+          ],
+          "TestAllGpus": false,
+          "SelectType": 0,
+          "Priority": "High"
+        },
+        "GpuCompute": false,
+        "GpuComputeConfig": {
+          "GpuIndexes": [],
+          "TestAllGpus": false,
+          "MemoryInMiB": 0,
+          "MemoryInPercent": 0,
+          "MemoryMemUnit": "Percent",
+          "SelectType": 0,
+          "Priority": "Normal"
+        },
+        "Vram": true,
+        "VramConfig": {
+          "GpuIndexes": [
+            0
+          ],
+          "TestAllGpus": false,
+          "GpuIndex": 0,
+          "MemoryInMiB": 0,
+          "MemoryInPercent": 95,
+          "MemoryMemUnit": "Percent",
+          "SelectType": 1,
+          "Priority": "High"
+        }
+      },
+      "CpuBenchmarkConfig": {
+        "Run": 0,
+        "Threads": "Multiple",
+        "InstructionSet": "Avx"
+      },
+      "MemoryBenchmarkConfig": {
+        "Run": 0,
+        "BenchmarkType": "Read"
+      },
+      "LatencyBandwidthBenchmarkConfig": {
+        "BandwidthBenchmarkType": 0,
+        "CustomSizeInKb": [
+          8,
+          12,
+          16,
+          24,
+          32,
+          48,
+          64,
+          96,
+          128,
+          192,
+          256,
+          384,
+          512,
+          768,
+          1024,
+          1536,
+          2048,
+          3072,
+          4096,
+          6144,
+          8192,
+          12288,
+          16384,
+          24576,
+          32768,
+          49152,
+          65536,
+          98304,
+          131072,
+          196608,
+          262144,
+          393216,
+          524288,
+          786432,
+          1048576,
+          1572864,
+          2097152,
+          3145728,
+          4194304
+        ]
+      }
+    },
+    {
+      "Duration": "00:30:00",
+      "Version": "140020052000",
+      "IsInfinite": true,
+      "TestType": "PowerSupply",
+      "CpuOcctConfig": {
+        "DataSet": "Large",
+        "OcctInstructionSet": "Auto",
+        "LoadType": "Variable",
+        "Mode": "Normal",
+        "Threads": "Auto",
+        "FixedThreadCount": 12,
+        "StartAtCycle": 1,
+        "AdvancedThreadConfig": {
+          "AdvancedThreadType": "CycleAllCores",
+          "CycleActiveCoreInterval": 5,
+          "CycleActiveCoreIntervalUnit": "Minutes",
+          "CoreConfigs": [
+            {
+              "CoreNumber": 0,
+              "State": 2
+            },
+            {
+              "CoreNumber": 1,
+              "State": 1
+            },
+            {
+              "CoreNumber": 2,
+              "State": 1
+            },
+            {
+              "CoreNumber": 3,
+              "State": 1
+            },
+            {
+              "CoreNumber": 4,
+              "State": 1
+            },
+            {
+              "CoreNumber": 5,
+              "State": 1
+            }
+          ],
+          "NumThreadsPerGroup": 2
+        },
+        "Priority": "Normal"
+      },
+      "CpuOnlyOcctConfig": {
+        "DataSet": "Large",
+        "OcctInstructionSet": "Avx512",
+        "LoadType": "Variable",
+        "Mode": "Extreme",
+        "Threads": "Auto",
+        "FixedThreadCount": 16,
+        "StartAtCycle": 1,
+        "AdvancedThreadConfig": {
+          "AdvancedThreadType": "CycleAllCores",
+          "CycleActiveCoreInterval": 5,
+          "CycleActiveCoreIntervalUnit": "Minutes",
+          "CoreConfigs": [
+            {
+              "CoreNumber": 0,
+              "State": 2
+            },
+            {
+              "CoreNumber": 1,
+              "State": 1
+            },
+            {
+              "CoreNumber": 2,
+              "State": 1
+            },
+            {
+              "CoreNumber": 3,
+              "State": 1
+            },
+            {
+              "CoreNumber": 4,
+              "State": 1
+            },
+            {
+              "CoreNumber": 5,
+              "State": 1
+            },
+            {
+              "CoreNumber": 6,
+              "State": 1
+            },
+            {
+              "CoreNumber": 7,
+              "State": 1
+            }
+          ],
+          "NumThreadsPerGroup": 2
+        },
+        "Priority": "Normal"
+      },
+      "CpuLinpackConfig": {
+        "Version": "v2021",
+        "Threads": "PhysicalAndVirtual",
+        "Memory": 2048,
+        "Priority": "Normal"
+      },
+      "MemoryConfig": {
+        "MemoryInPercent": 80,
+        "MemoryMemUnit": "Percent",
+        "Threads": "Auto",
+        "FixedThreadCount": 0,
+        "InstructionSet": "Auto",
+        "Priority": "Normal"
+      },
+      "Gpu3dConfig": {
+        "Mode": "ErrorDetection",
+        "UsageLimit": 100,
+        "ShaderComplexity": 3,
+        "GpuIndexes": [
+          0
+        ],
+        "TestAllGpus": false,
+        "Priority": "Normal"
+      },
+      "GpuUnrealConfig": {
+        "IntensityType": "Steady",
+        "SteadyIntensityType": "Extreme",
+        "SteadyLoad": 50,
+        "VariableIntensityIncreaseIntervalTimeSpan": "00:00:30",
+        "VariableIntensityIncreaseStep": 5,
+        "VariableMinIntensity": 40,
+        "VariableMaxIntensity": 100,
+        "SwitchInterval": 500,
+        "SwitchFirstIntensity": 20,
+        "SwitchSecondIntensity": 100,
+        "GpuIndexes": [
+          0
+        ],
+        "TestAllGpus": false,
+        "SelectType": 0,
+        "Priority": "Normal"
+      },
+      "GpuComputeConfig": {
+        "GpuIndexes": [],
+        "TestAllGpus": false,
+        "MemoryInMiB": 0,
+        "MemoryInPercent": 0,
+        "MemoryMemUnit": "Percent",
+        "SelectType": 0,
+        "Priority": "Normal"
+      },
+      "VramConfig": {
+        "GpuIndexes": [
+          0
+        ],
+        "TestAllGpus": false,
+        "GpuIndex": 0,
+        "MemoryInMiB": 0,
+        "MemoryInPercent": 80,
+        "MemoryMemUnit": "Percent",
+        "SelectType": 1,
+        "Priority": "Normal"
+      },
+      "MonitoringOnlyConfig": {
+        "Type": 0,
+        "Priority": "Normal"
+      },
+      "PowerSupplyConfig": {
+        "CpuOcctInstructionSet": "Auto",
+        "GpuIndexes": [
+          0
+        ],
+        "TestAllGpus": false,
+        "SelectType": 0
+      },
+      "CombinedConfig": {
+        "CpuOcct": true,
+        "CpuOcctConfig": {
+          "DataSet": "Large",
+          "OcctInstructionSet": "Avx512",
+          "LoadType": "Variable",
+          "Mode": "Extreme",
+          "Threads": "Auto",
+          "FixedThreadCount": 12,
+          "StartAtCycle": 1,
+          "AdvancedThreadConfig": {
+            "AdvancedThreadType": "CycleAllCores",
+            "CycleActiveCoreInterval": 5,
+            "CycleActiveCoreIntervalUnit": "Minutes",
+            "CoreConfigs": [
+              {
+                "CoreNumber": 0,
+                "State": 2
+              },
+              {
+                "CoreNumber": 1,
+                "State": 1
+              },
+              {
+                "CoreNumber": 2,
+                "State": 1
+              },
+              {
+                "CoreNumber": 3,
+                "State": 1
+              },
+              {
+                "CoreNumber": 4,
+                "State": 1
+              },
+              {
+                "CoreNumber": 5,
+                "State": 1
+              }
+            ],
+            "NumThreadsPerGroup": 2
+          },
+          "Priority": "High"
+        },
+        "CpuOnlyOcct": true,
+        "CpuOnlyOcctConfig": {
+          "DataSet": "Large",
+          "OcctInstructionSet": "Avx512",
+          "LoadType": "Variable",
+          "Mode": "Extreme",
+          "Threads": "Auto",
+          "FixedThreadCount": 12,
+          "StartAtCycle": 1,
+          "AdvancedThreadConfig": {
+            "AdvancedThreadType": "CycleAllCores",
+            "CycleActiveCoreInterval": 5,
+            "CycleActiveCoreIntervalUnit": "Minutes",
+            "CoreConfigs": [
+              {
+                "CoreNumber": 0,
+                "State": 2
+              },
+              {
+                "CoreNumber": 1,
+                "State": 1
+              },
+              {
+                "CoreNumber": 2,
+                "State": 1
+              },
+              {
+                "CoreNumber": 3,
+                "State": 1
+              },
+              {
+                "CoreNumber": 4,
+                "State": 1
+              },
+              {
+                "CoreNumber": 5,
+                "State": 1
+              }
+            ],
+            "NumThreadsPerGroup": 2
+          },
+          "Priority": "AboveNormal"
+        },
+        "CpuLinpack": true,
+        "CpuLinpackConfig": {
+          "Version": "v2021",
+          "Threads": "PhysicalAndVirtual",
+          "Memory": 2048,
+          "Priority": "Normal"
+        },
+        "Memory": true,
+        "MemoryConfig": {
+          "MemoryInPercent": 80,
+          "MemoryMemUnit": "Percent",
+          "Threads": "Auto",
+          "FixedThreadCount": 0,
+          "InstructionSet": "Auto",
+          "Priority": "Normal"
+        },
+        "Gpu3d": false,
+        "Gpu3dConfig": {
+          "Mode": "ErrorDetection",
+          "UsageLimit": 100,
+          "ShaderComplexity": 3,
+          "GpuIndexes": [
+            0
+          ],
+          "TestAllGpus": false,
+          "Priority": "Normal"
+        },
+        "GpuUnreal": true,
+        "GpuUnrealConfig": {
+          "IntensityType": "Steady",
+          "SteadyIntensityType": "Extreme",
+          "SteadyLoad": 50,
+          "VariableIntensityIncreaseIntervalTimeSpan": "00:00:30",
+          "VariableIntensityIncreaseStep": 5,
+          "VariableMinIntensity": 40,
+          "VariableMaxIntensity": 100,
+          "SwitchInterval": 500,
+          "SwitchFirstIntensity": 20,
+          "SwitchSecondIntensity": 100,
+          "GpuIndexes": [
+            0
+          ],
+          "TestAllGpus": false,
+          "SelectType": 0,
+          "Priority": "Normal"
+        },
+        "GpuCompute": false,
+        "GpuComputeConfig": {
+          "GpuIndexes": [],
+          "TestAllGpus": false,
+          "MemoryInMiB": 0,
+          "MemoryInPercent": 0,
+          "MemoryMemUnit": "Percent",
+          "SelectType": 0,
+          "Priority": "Normal"
+        },
+        "Vram": true,
+        "VramConfig": {
+          "GpuIndexes": [
+            0
+          ],
+          "TestAllGpus": false,
+          "GpuIndex": 0,
+          "MemoryInMiB": 0,
+          "MemoryInPercent": 80,
+          "MemoryMemUnit": "Percent",
+          "SelectType": 1,
+          "Priority": "Normal"
+        }
+      },
+      "CpuBenchmarkConfig": {
+        "Run": 0,
+        "Threads": "Single",
+        "InstructionSet": "Sse"
+      },
+      "MemoryBenchmarkConfig": {
+        "Run": 0,
+        "BenchmarkType": "Read"
+      },
+      "LatencyBandwidthBenchmarkConfig": {
+        "BandwidthBenchmarkType": 0,
+        "CustomSizeInKb": [
+          8,
+          12,
+          16,
+          24,
+          32,
+          48,
+          64,
+          96,
+          128,
+          192,
+          256,
+          384,
+          512,
+          768,
+          1024,
+          1536,
+          2048,
+          3072,
+          4096,
+          6144,
+          8192,
+          12288,
+          16384,
+          24576,
+          32768,
+          49152,
+          65536,
+          98304,
+          131072,
+          196608,
+          262144,
+          393216,
+          524288,
+          786432,
+          1048576,
+          1572864,
+          2097152,
+          3145728,
+          4194304
+        ]
+      }
+    }
+  ]
+}

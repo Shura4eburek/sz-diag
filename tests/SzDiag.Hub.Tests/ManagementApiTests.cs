@@ -21,7 +21,8 @@ public class ManagementApiTests : IClassFixture<WebApplicationFactory<Program>>,
             b.UseSetting("Hub:ManagementToken", "mgmt-token")
              .UseSetting("Hub:AgentToken", "agent-token")
              .UseSetting("Hub:SqliteConnectionString", $"Data Source={_dbPath}")
-             .UseSetting("Hub:KnowledgeBaseRoot", _kbRoot));
+             .UseSetting("Hub:KnowledgeBaseRoot", _kbRoot)
+             .WithoutSystemLogging());
     }
 
     private HttpClient Client()

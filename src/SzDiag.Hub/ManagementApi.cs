@@ -48,6 +48,42 @@ public static class ManagementApi
             }
         });
 
+        // push: доставить инструмент на клиента (агент качает его с hub сам).
+        group.MapGet("/tools", (ToolCatalog catalog) => Results.Ok(catalog.List()));
+
+        group.MapPost("/sessions/{sz}/push", async (string sz, PushCommandRequest body, PushCoordinator push) =>
+        {
+            if (string.IsNullOrWhiteSpace(body.Tool)) return Results.BadRequest("не указан инструмент");
+            try
+            {
+                var result = await push.PushAsync(sz, body.Tool);
+                return result is null ? Results.NotFound() : Results.Ok(result);
+            }
+            catch (TimeoutException ex)
+            {
+                return Results.Problem(ex.Message, statusCode: StatusCodes.Status504GatewayTimeout);
+            }
+        });
+
+        // pull: забрать файл(ы) с клиента на хост. 404 — СЗ не онлайн, 504 — агент не закончил.
+        group.MapPost("/sessions/{sz}/pull", async (string sz, PullCommandRequest body, PullCoordinator pull) =>
+        {
+            if (string.IsNullOrWhiteSpace(body.Path)) return Results.BadRequest("пустой путь");
+            try
+            {
+                var result = await pull.PullAsync(sz, body.Path, body.MaxBytes);
+                return result is null ? Results.NotFound() : Results.Ok(result);
+            }
+            catch (TimeoutException ex)
+            {
+                return Results.Problem(ex.Message, statusCode: StatusCodes.Status504GatewayTimeout);
+            }
+        });
+
+        // Таймлайн вырубонов по СЗ: живёт в SQLite и переживает рестарт hub.
+        group.MapGet("/sessions/{sz}/reboots", async (string sz, ISessionStore store) =>
+            Results.Ok(await store.GetRebootsAsync(sz)));
+
         group.MapGet("/sessions/{sz}/target", (string sz, SessionRegistry reg, IOptions<HubOptions> opts) =>
         {
             var s = reg.GetActive().FirstOrDefault(x => x.Sz == sz);

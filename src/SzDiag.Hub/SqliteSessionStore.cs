@@ -28,6 +28,19 @@ public sealed class SqliteSessionStore : ISessionStore
                 closed_at INTEGER NULL
             );
             CREATE INDEX IF NOT EXISTS ix_sessions_sz ON sessions(sz);
+
+            -- Вырубоны: заводятся по смене boot-time. Живут отдельно от sessions, потому что
+            -- переживают и переподключение агента, и рестарт hub (in-memory реестр — нет).
+            CREATE TABLE IF NOT EXISTS reboots (
+                id            INTEGER PRIMARY KEY AUTOINCREMENT,
+                sz            TEXT    NOT NULL,
+                at            INTEGER NOT NULL,
+                prev_boot     INTEGER NULL,
+                new_boot      INTEGER NULL,
+                uptime_before INTEGER NULL,
+                activity      TEXT    NULL
+            );
+            CREATE INDEX IF NOT EXISTS ix_reboots_sz ON reboots(sz);
             """;
         await cmd.ExecuteNonQueryAsync(ct);
     }
@@ -64,6 +77,53 @@ public sealed class SqliteSessionStore : ISessionStore
         cmd.Parameters.AddWithValue("$closed", closedAt.ToUnixTimeSeconds());
         cmd.Parameters.AddWithValue("$sz", sz);
         await cmd.ExecuteNonQueryAsync(ct);
+    }
+
+    public async Task RecordRebootAsync(RebootEvent evt, CancellationToken ct = default)
+    {
+        await using var conn = new SqliteConnection(_connectionString);
+        await conn.OpenAsync(ct);
+        await using var cmd = conn.CreateCommand();
+        cmd.CommandText = """
+            INSERT INTO reboots (sz, at, prev_boot, new_boot, uptime_before, activity)
+            VALUES ($sz, $at, $prev, $new, $uptime, $activity);
+            """;
+        cmd.Parameters.AddWithValue("$sz", evt.Sz);
+        cmd.Parameters.AddWithValue("$at", evt.At.ToUnixTimeSeconds());
+        cmd.Parameters.AddWithValue("$prev", (object?)evt.PreviousBootTime?.ToUnixTimeSeconds() ?? DBNull.Value);
+        cmd.Parameters.AddWithValue("$new", (object?)evt.NewBootTime?.ToUnixTimeSeconds() ?? DBNull.Value);
+        cmd.Parameters.AddWithValue("$uptime", (object?)evt.UptimeBeforeSeconds ?? DBNull.Value);
+        cmd.Parameters.AddWithValue("$activity", (object?)evt.ActivityBefore ?? DBNull.Value);
+        await cmd.ExecuteNonQueryAsync(ct);
+    }
+
+    public async Task<RebootTimeline> GetRebootsAsync(string sz, CancellationToken ct = default)
+    {
+        await using var conn = new SqliteConnection(_connectionString);
+        await conn.OpenAsync(ct);
+        await using var cmd = conn.CreateCommand();
+        cmd.CommandText = """
+            SELECT at, prev_boot, new_boot, uptime_before, activity
+            FROM reboots WHERE sz = $sz ORDER BY at, id;
+            """;
+        cmd.Parameters.AddWithValue("$sz", sz);
+
+        var events = new List<RebootEvent>();
+        long? maxUptime = null;
+        await using var reader = await cmd.ExecuteReaderAsync(ct);
+        while (await reader.ReadAsync(ct))
+        {
+            var uptime = reader.IsDBNull(3) ? (long?)null : reader.GetInt64(3);
+            if (uptime is { } u && (maxUptime is null || u > maxUptime)) maxUptime = u;
+            events.Add(new RebootEvent(
+                sz,
+                DateTimeOffset.FromUnixTimeSeconds(reader.GetInt64(0)),
+                reader.IsDBNull(1) ? null : DateTimeOffset.FromUnixTimeSeconds(reader.GetInt64(1)),
+                reader.IsDBNull(2) ? null : DateTimeOffset.FromUnixTimeSeconds(reader.GetInt64(2)),
+                uptime,
+                reader.IsDBNull(4) ? null : reader.GetString(4)));
+        }
+        return new RebootTimeline(sz, events, maxUptime);
     }
 
     public async Task<IReadOnlyList<SessionRecord>> GetHistoryAsync(CancellationToken ct = default)

@@ -40,6 +40,23 @@ public sealed class SignalRHubLink : IHubLink
     public Task SendExecResultAsync(ExecResult result, CancellationToken ct = default)
         => _conn.InvokeAsync(HubRoutes.ExecResult, result, ct);
 
+    public void OnPush(Func<PushRequest, Task> handler)
+        => _conn.On<PushRequest>(HubRoutes.Push, req => handler(req));
+
+    public Task SendPushResultAsync(PushResult result, CancellationToken ct = default)
+        => _conn.InvokeAsync(HubRoutes.PushResult, result, ct);
+
+    public void OnPull(Func<PullRequest, Task> handler)
+        => _conn.On<PullRequest>(HubRoutes.Pull, req => handler(req));
+
+    // InvokeAsync (а не SendAsync): чанки обязаны дойти по порядку и с подтверждением —
+    // потерянный кусок означал бы битый файл на хосте.
+    public Task SendPullChunkAsync(PullChunk chunk, CancellationToken ct = default)
+        => _conn.InvokeAsync(HubRoutes.PullChunk, chunk, ct);
+
+    public Task SendPullResultAsync(PullResult result, CancellationToken ct = default)
+        => _conn.InvokeAsync(HubRoutes.PullResult, result, ct);
+
     public Task UploadReportFileAsync(UploadReportPart part, CancellationToken ct = default)
         => _conn.InvokeAsync(HubRoutes.UploadReportFile, part, ct);
 

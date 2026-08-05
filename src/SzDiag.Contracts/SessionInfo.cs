@@ -14,4 +14,7 @@ public sealed record SessionInfo(
     string Activity = "",
     DateTimeOffset? ActivitySince = null,
     DateTimeOffset? BootTime = null,
-    DateTimeOffset? LastRebootAt = null);
+    DateTimeOffset? LastRebootAt = null,
+    /// <summary>Сколько вырубонов hub насчитал за эту сессию (с момента своего старта).
+    /// Полная история переживает рестарт hub и лежит в SQLite — `szcli reboots &lt;СЗ&gt;`.</summary>
+    int RebootCount = 0);

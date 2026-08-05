@@ -89,6 +89,61 @@ public sealed class HubApiClient : IHubApiClient
         return await resp.Content.ReadFromJsonAsync<ExecResult>(cancellationToken: cts.Token);
     }
 
+    /// <summary>Забрать файл(ы) с клиента на хост. null — СЗ не онлайн.</summary>
+    /// <exception cref="TimeoutException">Агент не закончил забор (hub вернул 504).</exception>
+    public async Task<PullResponse?> PullAsync(string sz, string path, long? maxBytes = null,
+        CancellationToken ct = default)
+    {
+        using var req = new HttpRequestMessage(HttpMethod.Post, $"/api/sessions/{sz}/pull")
+        {
+            Content = JsonContent.Create(new PullCommandRequest(path, maxBytes)),
+        };
+        // Ждём дольше hub — иначе вместо честного 504 вылезет TaskCanceledException.
+        using var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        cts.CancelAfter(TimeSpan.FromSeconds(PullLimits.TimeoutSeconds + 60));
+
+        var resp = await _http.SendAsync(req, cts.Token);
+        if (resp.StatusCode == HttpStatusCode.NotFound) return null;
+        if (resp.StatusCode == HttpStatusCode.GatewayTimeout)
+            throw new TimeoutException($"агент СЗ {sz} не закончил забор файлов");
+        resp.EnsureSuccessStatusCode();
+        return await resp.Content.ReadFromJsonAsync<PullResponse>(cancellationToken: cts.Token);
+    }
+
+    /// <summary>Доставить инструмент на клиента. null — СЗ не онлайн.</summary>
+    /// <exception cref="TimeoutException">Агент не отчитался (hub вернул 504).</exception>
+    public async Task<PushResult?> PushAsync(string sz, string tool, CancellationToken ct = default)
+    {
+        using var req = new HttpRequestMessage(HttpMethod.Post, $"/api/sessions/{sz}/push")
+        {
+            Content = JsonContent.Create(new PushCommandRequest(tool)),
+        };
+        // Ждём дольше hub: иначе вместо честного 504 вылезет TaskCanceledException.
+        using var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        cts.CancelAfter(TimeSpan.FromSeconds(PushLimits.TimeoutSeconds + 60));
+
+        var resp = await _http.SendAsync(req, cts.Token);
+        if (resp.StatusCode == HttpStatusCode.NotFound) return null;
+        if (resp.StatusCode == HttpStatusCode.GatewayTimeout)
+            throw new TimeoutException($"агент СЗ {sz} не завершил доставку '{tool}'");
+        resp.EnsureSuccessStatusCode();
+        return await resp.Content.ReadFromJsonAsync<PushResult>(cancellationToken: cts.Token);
+    }
+
+    /// <summary>Что hub может раздать (`szcli push --list`).</summary>
+    public async Task<IReadOnlyList<ToolInfo>> GetToolsAsync(CancellationToken ct = default)
+    {
+        using var cts = Short(ct);
+        return await _http.GetFromJsonAsync<List<ToolInfo>>("/api/tools", cts.Token) ?? new();
+    }
+
+    /// <summary>Таймлайн вырубонов по СЗ (смены boot-time, зафиксированные hub).</summary>
+    public async Task<RebootTimeline?> GetRebootsAsync(string sz, CancellationToken ct = default)
+    {
+        using var cts = Short(ct);
+        return await _http.GetFromJsonAsync<RebootTimeline>($"/api/sessions/{sz}/reboots", cts.Token);
+    }
+
     public async Task<bool> TriggerDiagAsync(string sz, string? sections = null, CancellationToken ct = default)
     {
         var url = string.IsNullOrWhiteSpace(sections)

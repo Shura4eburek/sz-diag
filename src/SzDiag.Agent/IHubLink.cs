@@ -19,6 +19,15 @@ public interface IHubLink
     void OnExec(Func<SzDiag.Contracts.ExecRequest, Task> handler);
     Task SendExecResultAsync(SzDiag.Contracts.ExecResult result, CancellationToken ct = default);
 
+    /// <summary>Подписка на команду доставки инструмента (агент качает его с hub сам).</summary>
+    void OnPush(Func<SzDiag.Contracts.PushRequest, Task> handler);
+    Task SendPushResultAsync(SzDiag.Contracts.PushResult result, CancellationToken ct = default);
+
+    /// <summary>Подписка на команду забора файлов с клиента.</summary>
+    void OnPull(Func<SzDiag.Contracts.PullRequest, Task> handler);
+    Task SendPullChunkAsync(SzDiag.Contracts.PullChunk chunk, CancellationToken ct = default);
+    Task SendPullResultAsync(SzDiag.Contracts.PullResult result, CancellationToken ct = default);
+
     Task UploadReportFileAsync(SzDiag.Contracts.UploadReportPart part, CancellationToken ct = default);
 
     /// <summary>Агент -> hub: текущая активность (метка + время старта; since=null — простой).</summary>

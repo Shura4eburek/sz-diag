@@ -19,6 +19,16 @@ public interface IPowerShellRunner
 /// <summary>Запуск PowerShell-команд. Кидает при ненулевом коде, если throwOnError.</summary>
 public sealed class PowerShellRunner : IPowerShellRunner
 {
+    private readonly bool _utf8;
+
+    /// <param name="utf8">Заставлять дочерний PowerShell писать stdout/stderr в UTF-8.
+    /// На обычной винде — обязательно (иначе кириллица уезжает в cp866: кракозябры в
+    /// diag.md и в выводе exec). В WinPE — <b>нельзя</b>: там консоль на cp437, вывод
+    /// перенаправлен, и присвоение <c>[Console]::OutputEncoding</c> вешает powershell.exe
+    /// намертво (ловили на СЗ 159948 — exec молчал до таймаута даже на скрипте из одной
+    /// строки). Дефолт определяется средой.</param>
+    public PowerShellRunner(bool? utf8 = null) => _utf8 = utf8 ?? !WinPeEnvironment.IsWinPe;
+
     public PsResult Run(string script, bool throwOnError = true, TimeSpan? timeout = null)
     {
         // Скрипт передаём через -EncodedCommand (base64 UTF-16LE), а НЕ через stdin
@@ -27,8 +37,16 @@ public sealed class PowerShellRunner : IPowerShellRunner
         // из-за чего все секции RunDiag на живой машине выходили пустыми. EncodedCommand
         // исполняет скрипт как единое целое. $ProgressPreference убирает CLIXML-шум
         // прогресса из stderr.
+        // Кодировка вывода задаётся здесь, а не строкой в пользовательском скрипте: при
+        // перенаправлённом stdout PowerShell 5.1 кодирует вывод в [Console]::OutputEncoding,
+        // а у headless-агента (автостарт-задача под SYSTEM, консоли нет) это OEM-страница
+        // клиента — кириллица приезжает мусором. Прибиваем UTF-8 с обеих сторон: в шапке
+        // скрипта (как пишет дочерний процесс) и в StandardOutputEncoding (как читаем мы).
+        var prefix = _utf8
+            ? "[Console]::OutputEncoding=[Text.Encoding]::UTF8;$OutputEncoding=[Text.Encoding]::UTF8;\n"
+            : string.Empty;
         var encoded = Convert.ToBase64String(
-            System.Text.Encoding.Unicode.GetBytes("$ProgressPreference='SilentlyContinue';\n" + script));
+            System.Text.Encoding.Unicode.GetBytes(prefix + "$ProgressPreference='SilentlyContinue';\n" + script));
         var psi = new ProcessStartInfo
         {
             FileName = "powershell.exe",
@@ -39,6 +57,11 @@ public sealed class PowerShellRunner : IPowerShellRunner
             UseShellExecute = false,
             CreateNoWindow = true
         };
+        if (_utf8)
+        {
+            psi.StandardOutputEncoding = new System.Text.UTF8Encoding(false);
+            psi.StandardErrorEncoding = new System.Text.UTF8Encoding(false);
+        }
         using var p = Process.Start(psi)!;
         p.StandardInput.Close();   // дочерним процессам — сразу EOF на stdin, чтобы не висли
 

@@ -19,7 +19,8 @@ public class ReportUploadIntegrationTests : IClassFixture<WebApplicationFactory<
         _factory = factory.WithWebHostBuilder(b =>
             b.UseSetting("Hub:AgentToken", "test-token")
              .UseSetting("Hub:SqliteConnectionString", $"Data Source={_dbPath}")
-             .UseSetting("Hub:KnowledgeBaseRoot", _kbRoot));
+             .UseSetting("Hub:KnowledgeBaseRoot", _kbRoot)
+             .WithoutSystemLogging());
     }
 
     [Fact]

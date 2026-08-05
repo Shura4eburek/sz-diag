@@ -23,7 +23,8 @@ public class AgentPackageApiTests : IClassFixture<WebApplicationFactory<Program>
             b.UseSetting("Hub:AgentToken", "test-token")
              .UseSetting("Hub:AgentDistRoot", _dist)
              .UseSetting("Hub:SqliteConnectionString", $"Data Source={_dbPath}")
-             .UseSetting("Hub:KnowledgeBaseRoot", _kbRoot));
+             .UseSetting("Hub:KnowledgeBaseRoot", _kbRoot)
+             .WithoutSystemLogging());
     }
 
     private HttpClient WithToken()

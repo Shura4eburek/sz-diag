@@ -17,6 +17,8 @@ public class SessionCloserTests
         public Task SendRunTestsAsync(string connectionId, string sz, string? filter, CancellationToken ct = default) => Task.CompletedTask;
         public Task SendRunDiagAsync(string connectionId, string sz, string? sections, CancellationToken ct = default) => Task.CompletedTask;
         public Task SendExecAsync(string connectionId, SzDiag.Contracts.ExecRequest request, CancellationToken ct = default) => Task.CompletedTask;
+        public Task SendPullAsync(string connectionId, SzDiag.Contracts.PullRequest request, CancellationToken ct = default) => Task.CompletedTask;
+        public Task SendPushAsync(string connectionId, SzDiag.Contracts.PushRequest request, CancellationToken ct = default) => Task.CompletedTask;
     }
 
     private sealed class SpyStore : ISessionStore
@@ -31,6 +33,10 @@ public class SessionCloserTests
         }
         public Task<IReadOnlyList<SessionRecord>> GetHistoryAsync(CancellationToken ct = default)
             => Task.FromResult((IReadOnlyList<SessionRecord>)new List<SessionRecord>());
+        public Task RecordRebootAsync(SzDiag.Contracts.RebootEvent evt, CancellationToken ct = default)
+            => Task.CompletedTask;
+        public Task<SzDiag.Contracts.RebootTimeline> GetRebootsAsync(string sz, CancellationToken ct = default)
+            => Task.FromResult(new SzDiag.Contracts.RebootTimeline(sz, Array.Empty<SzDiag.Contracts.RebootEvent>(), null));
     }
 
     [Fact]

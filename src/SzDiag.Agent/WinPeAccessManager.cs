@@ -14,7 +14,8 @@ public sealed class WinPeAccessManager : ISystemAccessManager
 {
     public RevertState Open(AccessSpec spec) => new() { Sz = spec.Sz };
 
-    public void Revert(RevertState state) { /* нечего откатывать: см. комментарий класса */ }
+    public RevertOutcome Revert(RevertState state)
+        => new(Array.Empty<string>(), Array.Empty<RevertStepFailure>());   // нечего откатывать
 
     public void Resume(RevertState state, AccessSpec spec) { /* PE не переживает ребут */ }
 }

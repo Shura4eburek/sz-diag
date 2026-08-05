@@ -44,14 +44,28 @@ void Announce(string plain, string? markup = null)
     logFile.WriteLine(plain);
 }
 
+// UTF-8 для дочернего PowerShell включается сам по среде: на обычной винде — да (иначе
+// кириллица в diag.md/exec превращается в кракозябры), в WinPE — нет (там присвоение
+// [Console]::OutputEncoding вешает powershell.exe, см. WinPeEnvironment).
 var ps = new PowerShellRunner();
 
-// Режим watchdog / автозакрытие: sz-agent --revert <statePath>
+// Режим watchdog / автозакрытие: sz-agent --revert <statePath>.
+// Ничему тут падать нельзя: на 160705 этот режим умер на необработанном System.IO —
+// доступ остался на машине навсегда, а watchdog-задача отстрелялась и второй попытки не
+// было (бэклог п.59). Поэтому: всё в try/catch, полный текст ошибки в файл рядом с
+// state.json, при неудаче — перевзвод watchdog и ненулевой код возврата.
 if (args.Length >= 2 && args[0] == "--revert")
 {
-    var st = RevertStateStore.Load(args[1]);
-    if (st is not null)
+    var revertLog = RevertLog.Open(args[1]);
+    try
     {
+        var st = RevertStateStore.Load(args[1]);
+        if (st is null)
+        {
+            revertLog.Write("state.json отсутствует — откатывать нечего.");
+            return 0;
+        }
+
         var revertOpts = new AgentOptions();
         config.Bind(revertOpts);
         var revertSshd = new PortableSshServer(
@@ -59,9 +73,49 @@ if (args.Length >= 2 && args[0] == "--revert")
                 ? revertOpts.SshBinDir
                 : Path.Combine(AppContext.BaseDirectory, revertOpts.SshBinDir),
             revertOpts.SshWorkDir, ps);
-        new WindowsSystemAccessManager(ps, revertSshd, args[1]).Revert(st);
+
+        var outcome = new WindowsSystemAccessManager(ps, revertSshd, args[1]).Revert(st);
+        revertLog.Write($"СЗ {st.Sz}: {outcome.Summary()}");
+        logFile.WriteLine($"[revert] СЗ {st.Sz}: {outcome.Summary()}");
+        logFile.Flush();
+        if (outcome.AllClean) return 0;
+
+        // Не всё откатилось — даём себе вторую попытку через 10 минут вместо «N/A» в
+        // расписании задачи. Шаги идемпотентны, повтор безопасен.
+        try
+        {
+            ps.Run(WindowsSystemAccessManager.BuildWatchdogTaskCommand(
+                st.WatchdogTaskName, Environment.ProcessPath!, args[1],
+                DateTime.Now.AddMinutes(10)), throwOnError: false);
+            revertLog.Write("watchdog перевзведён на +10 минут для повторной попытки.");
+        }
+        catch (Exception ex)
+        {
+            revertLog.Write($"не удалось перевзвести watchdog: {ex}");
+        }
+        return 1;
     }
-    return 0;
+    catch (Exception ex)
+    {
+        // Сюда попадать не должно (шаги изолированы), но если попали — след обязан остаться.
+        revertLog.Write($"ОТКАТ УПАЛ ЦЕЛИКОМ: {ex}");
+        try { logFile.WriteLine($"[revert] упал целиком: {ex}"); logFile.Flush(); } catch { }
+        return 1;
+    }
+    finally { revertLog.Dispose(); }
+}
+
+// Второй агент на машине — всегда авария: дерётся за лог и state.json, а первый при этом
+// перестаёт слать heartbeat (СЗ 160306 час висела offline при живой машине). Режим --revert
+// сюда не попадает намеренно: watchdog откатывает доступ как раз при живом агенте.
+using var instanceGuard = SingleInstanceGuard.Acquire();
+if (!instanceGuard.IsPrimary)
+{
+    logFile.WriteLine("Агент уже запущен на этой машине — второй экземпляр не нужен.");
+    logFile.WriteLine("Закрой окно первого агента или сними задачу szdiag-autostart-<СЗ>.");
+    logFile.Flush();
+    term.MarkupLine("[red]Агент уже запущен на этой машине.[/] Второй экземпляр не запускается.");
+    return 3;
 }
 
 // Режим возобновления после ребута: agent.exe --resume <statePath>. Поднимается
@@ -126,7 +180,8 @@ if (args.Length >= 2 && args[0] == "--resume")
     try { await rLink.ReportActivityAsync(state.Sz, "— готов (после ребута)", null); } catch { }
 
     AgentCommandWiring.RegisterHandlers(rLink, Environment.MachineName, ps,
-        R(rOpts.TestSuitePath), (plain, _) => { logFile.WriteLine(plain); logFile.Flush(); });
+        R(rOpts.TestSuitePath), (plain, _) => { logFile.WriteLine(plain); logFile.Flush(); },
+        rHubUrl, rOpts.AgentToken);
 
     using var rCts = new CancellationTokenSource();
     var rHeartbeat = AgentCommandWiring.StartHeartbeatLoop(rSession, (int)rOpts.HeartbeatSeconds, rCts.Token);
@@ -154,9 +209,10 @@ if (args.Length >= 1 && args[0] == "--pe")
         peSz = (Console.ReadLine() ?? "").Trim();
     }
     logFile.WriteLine($"[pe] СЗ: {peSz}");
-    if (string.IsNullOrWhiteSpace(peSz) || !peSz.All(char.IsDigit))
+    if (!SzNumber.IsValid(peSz))
     {
-        Announce("Некорректный номер СЗ.", "[red]Некорректный номер СЗ.[/]");
+        var peWhy = SzNumber.Explain(peSz);
+        Announce($"Некорректный номер СЗ: {peWhy}.", $"[red]Некорректный номер СЗ:[/] {Markup.Escape(peWhy)}.");
         return 1;
     }
 
@@ -253,7 +309,8 @@ if (args.Length >= 1 && args[0] == "--pe")
     try { await peLink.ReportActivityAsync(peSz, "— готов (WinPE)", null); } catch { }
 
     AgentCommandWiring.RegisterHandlers(peLink, Environment.MachineName, ps,
-        PeResolve(peOpts.TestSuitePath), (plain, markup) => Announce(plain, markup));
+        PeResolve(peOpts.TestSuitePath), (plain, markup) => Announce(plain, markup),
+        peHubUrl, peOpts.AgentToken);
 
     // Панель в PE: watchdog не ставится (в PE нет Task Scheduler — см. WinPeAccessManager),
     // поэтому WatchdogAt = null и в панели будет прочерк.
@@ -308,9 +365,12 @@ term.Write(new Rule("[bold]sz-diag agent[/]").LeftJustified());
 term.Markup("Введите номер [yellow]СЗ[/]: ");
 var sz = (Console.ReadLine() ?? "").Trim();
 logFile.WriteLine($"Введите номер СЗ: {sz}");
-if (string.IsNullOrWhiteSpace(sz) || !sz.All(char.IsDigit))
+// Формат номера — ровно 6 цифр: hub по нему заводит скелет заметок, и опечатка оседает
+// в базе знаний отдельной папкой-призраком (бэклог п.57).
+if (!SzNumber.IsValid(sz))
 {
-    Announce("Некорректный номер СЗ.", "[red]Некорректный номер СЗ.[/]");
+    var why = SzNumber.Explain(sz);
+    Announce($"Некорректный номер СЗ: {why}.", $"[red]Некорректный номер СЗ:[/] {Markup.Escape(why)}.");
     return 1;
 }
 
@@ -364,7 +424,8 @@ try { await link.ReportActivityAsync(sz, "— готов", null); } catch { /* �
 
 // Обработчики RunTests/RunDiag от hub (общие с resume-веткой — см. AgentCommandWiring).
 AgentCommandWiring.RegisterHandlers(link, Environment.MachineName, ps,
-    ResolvePath(opts.TestSuitePath), (plain, markup) => Announce(plain, markup));
+    ResolvePath(opts.TestSuitePath), (plain, markup) => Announce(plain, markup),
+    hubUrl, opts.AgentToken);
 
 // Липкая панель статуса. Момент открытия доступа — точка отсчёта watchdog.
 var openedAt = DateTimeOffset.Now;
@@ -393,10 +454,23 @@ using var closeGuard = new ConsoleCloseGuard(() =>
     session.RevertAsync().GetAwaiter().GetResult();
 });
 
+// Пока агент жив, машина не уходит в простойный сон: на 160705 она уснула посреди
+// диагностики, diag.md не появился вовсе, а агент после пробуждения залип (бэклог п.58).
+// Правок схемы питания не делаем — удержание исчезает вместе с процессом, откатывать нечего.
+if (SleepGuard.Prevent())
+    logFile.WriteLine("Сон машины подавлен на время сессии (power request).");
+else
+    Announce("Не удалось подавить сон — машина может уснуть посреди прогона.", null);
+
 // Heartbeat в фоне.
 using var cts = new CancellationTokenSource();
 var heartbeat = AgentCommandWiring.StartHeartbeatLoop(session, (int)opts.HeartbeatSeconds,
     cts.Token, ok => { if (ok) lastHeartbeatOk = DateTimeOffset.Now; });
+
+// Сторож командного канала: heartbeat живёт отдельным лёгким путём и не замечает, что
+// exec залип, — а снаружи это неотличимо от здорового агента.
+var channelWatchdog = AgentCommandWiring.StartChannelWatchdog(ps, $"szdiag-autostart-{sz}",
+    cts.Token, (plain, markup) => Announce(plain, markup));
 
 // При липкой панели хоткеи живут в ней — в поток их не печатаем, чтобы не дублировать.
 if (sticky is null)
@@ -416,6 +490,8 @@ while (true)
 
 cts.Cancel();
 try { await heartbeat; } catch (OperationCanceledException) { }
+try { await channelWatchdog; } catch (OperationCanceledException) { }
+SleepGuard.Allow();
 Announce("Готово.", "[green]Готово.[/]");
 return 0;
 

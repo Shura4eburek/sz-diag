@@ -9,33 +9,54 @@ namespace SzDiag.Agent;
 /// </summary>
 public static class AgentLog
 {
-    /// <summary>Открывает (дозаписью) лог и пишет заголовок сессии.</summary>
-    public static StreamWriter Init(string path)
+    /// <summary>Открывает (дозаписью) лог и пишет заголовок сессии.
+    ///
+    /// Никогда не бросает: лог — вспомогательная вещь, из-за неё процесс падать не должен.
+    /// На 160306 второй экземпляр агента не смог открыть занятый <c>agent.log</c> и умер
+    /// необработанным <c>IOException</c> — машина осталась без heartbeat на час (бэклог п.52).
+    /// Поэтому: сначала общий доступ на запись, при неудаче — свой файл
+    /// <c>agent-&lt;pid&gt;.log</c>, в крайнем случае — <see cref="TextWriter.Null"/>.</summary>
+    public static TextWriter Init(string path)
     {
         var dir = Path.GetDirectoryName(path);
-        if (!string.IsNullOrEmpty(dir)) Directory.CreateDirectory(dir);
-        var sw = new StreamWriter(path, append: true, new UTF8Encoding(false)) { AutoFlush = true };
-        sw.WriteLine();
-        sw.WriteLine($"===== старт агента {DateTime.Now:yyyy-MM-dd HH:mm:ss} =====");
-        return sw;
+        try
+        {
+            if (!string.IsNullOrEmpty(dir)) Directory.CreateDirectory(dir);
+        }
+        catch { /* нет прав на каталог — уйдём в фоллбэки ниже */ }
+
+        var writer = TryOpen(path) ?? TryOpen(WithPid(path)) ?? TextWriter.Null;
+        try
+        {
+            writer.WriteLine();
+            writer.WriteLine($"===== старт агента {DateTime.Now:yyyy-MM-dd HH:mm:ss} (pid {Environment.ProcessId}) =====");
+        }
+        catch { /* писать некуда — работаем без лога */ }
+        return writer;
     }
-}
 
-/// <summary>Раздваивает поток вывода: в консоль и в лог-файл одновременно.</summary>
-public sealed class TeeTextWriter : TextWriter
-{
-    private readonly TextWriter _console;
-    private readonly TextWriter _file;
-
-    public TeeTextWriter(TextWriter console, TextWriter file)
+    /// <summary>Путь вида <c>agent-1234.log</c> — когда общий файл занят намертво.</summary>
+    public static string WithPid(string path)
     {
-        _console = console;
-        _file = file;
+        var dir = Path.GetDirectoryName(path) ?? "";
+        var name = Path.GetFileNameWithoutExtension(path);
+        var ext = Path.GetExtension(path);
+        return Path.Combine(dir, $"{name}-{Environment.ProcessId}{ext}");
     }
 
-    public override Encoding Encoding => Encoding.UTF8;
-    public override void Write(char value) { _console.Write(value); _file.Write(value); }
-    public override void Write(string? value) { _console.Write(value); _file.Write(value); }
-    public override void WriteLine(string? value) { _console.WriteLine(value); _file.WriteLine(value); }
-    public override void Flush() { _console.Flush(); _file.Flush(); }
+    private static TextWriter? TryOpen(string path)
+    {
+        try
+        {
+            // FileShare.ReadWrite: второй экземпляр агента (и хвост из редактора) должен
+            // спокойно открыть тот же файл, а не ронять процесс.
+            var fs = new FileStream(path, FileMode.Append, FileAccess.Write,
+                FileShare.ReadWrite | FileShare.Delete);
+            return new StreamWriter(fs, new UTF8Encoding(false)) { AutoFlush = true };
+        }
+        catch (IOException) { return null; }
+        catch (UnauthorizedAccessException) { return null; }
+    }
 }
+
+// TeeTextWriter переехал в SzDiag.ConsoleUi — им пользуются и агент, и hub (лог hub в файл).

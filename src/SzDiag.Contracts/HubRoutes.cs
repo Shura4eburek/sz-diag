@@ -27,6 +27,19 @@ public static class HubRoutes
     // Агент -> hub: результат Exec (сопоставляется с запросом по RequestId).
     public const string ExecResult = nameof(ExecResult);
 
+    // Hub -> агент: забрать файл(ы) с клиента на хост.
+    public const string Pull = nameof(Pull);
+
+    // Агент -> hub: кусок файла и итог забора (сопоставляются по RequestId).
+    public const string PullChunk = nameof(PullChunk);
+    public const string PullResult = nameof(PullResult);
+
+    // Hub -> агент: скачать инструмент с hub (агент тянет файлы сам, по HTTP).
+    public const string Push = nameof(Push);
+
+    // Агент -> hub: итог доставки инструмента.
+    public const string PushResult = nameof(PushResult);
+
     // Апдейтер клиента: раздача пакета агента (HTTP, под TokenHeader).
     public const string AgentApiPrefix = "/agent";
     public const string AgentVersionRoute = "/agent/version";

@@ -25,6 +25,9 @@
   <ItemGroup>
     <ProjectReference Include="..\..\src\SzDiag.Hub\SzDiag.Hub.csproj" />
     <ProjectReference Include="..\..\src\SzDiag.Contracts\SzDiag.Contracts.csproj" />
+    <!-- Только ради сквозного теста забора файлов (PullEndToEndTests): в нём участвует
+         НАСТОЯЩИЙ обработчик агента, иначе тест проверял бы копию логики, а не её саму. -->
+    <ProjectReference Include="..\..\src\SzDiag.Agent\SzDiag.Agent.csproj" />
   </ItemGroup>
 
 </Project>

@@ -114,33 +114,44 @@ public sealed class WindowsSystemAccessManager : ISystemAccessManager
         return state;
     }
 
-    public void Revert(RevertState state)
+    public RevertOutcome Revert(RevertState state)
     {
+        var done = new List<string>();
+        var failed = new List<RevertStepFailure>();
+
+        // Каждый шаг изолирован: упавший не должен прекращать откат остальных, иначе одно
+        // исключение оставляет на машине учётку, sshd и правило фаервола навсегда (п.59).
+        void Step(string name, bool applied, Action action)
+        {
+            if (!applied) return;
+            try { action(); done.Add(name); }
+            catch (Exception ex) { failed.Add(new RevertStepFailure(name, ex.ToString())); }
+        }
+
         // Автостарт снимаем ПЕРВЫМ: если откат упадёт на середине, агент не должен
         // воскреснуть при следующем ребуте.
-        if (state.CreatedAutostartTask)
+        Step("автостарт-задача", state.CreatedAutostartTask, () =>
             _ps.Run($"Unregister-ScheduledTask -TaskName '{state.AutostartTaskName}' -Confirm:$false " +
-                    "-ErrorAction SilentlyContinue", throwOnError: false);
+                    "-ErrorAction SilentlyContinue", throwOnError: false));
 
         // Обратный порядок; каждый шаг под флагом → повторный вызов безопасен.
-        if (state.CreatedWatchdogTask)
+        Step("watchdog-задача", state.CreatedWatchdogTask, () =>
             _ps.Run($"Unregister-ScheduledTask -TaskName '{state.WatchdogTaskName}' -Confirm:$false " +
-                    "-ErrorAction SilentlyContinue", throwOnError: false);
+                    "-ErrorAction SilentlyContinue", throwOnError: false));
 
         // Наш sshd живёт под SYSTEM-задачей: снять задачу и добить процессы (идемпотентно,
         // работает и при watchdog-ревёрте, когда агента уже нет). Затем снять ключи/конфиг.
-        if (state.CreatedSshdTask)
-            _sshd.Stop(state.SshdTaskName);
-        if (state.GeneratedHostKeys && Directory.Exists(_sshd.WorkDir))
+        Step("sshd", state.CreatedSshdTask, () => _sshd.Stop(state.SshdTaskName));
+        Step("рабочая папка sshd", state.GeneratedHostKeys && Directory.Exists(_sshd.WorkDir), () =>
         {
             try { Directory.Delete(_sshd.WorkDir, recursive: true); } catch { /* залочен — не критично */ }
-        }
+        });
 
-        if (state.AddedFirewallRule)
+        Step("правило фаервола", state.AddedFirewallRule, () =>
             _ps.Run($"Remove-NetFirewallRule -Name '{state.FirewallRuleName}' -ErrorAction SilentlyContinue",
-                    throwOnError: false);
+                    throwOnError: false));
 
-        if (state.SetTokenPolicy)
+        Step("LocalAccountTokenFilterPolicy", state.SetTokenPolicy, () =>
         {
             if (state.TokenPolicyPreviousValue is null)
                 _ps.Run($"Remove-ItemProperty -Path '{TokenPolicyPath}' -Name LocalAccountTokenFilterPolicy " +
@@ -148,16 +159,22 @@ public sealed class WindowsSystemAccessManager : ISystemAccessManager
             else
                 _ps.Run($"Set-ItemProperty -Path '{TokenPolicyPath}' -Name LocalAccountTokenFilterPolicy " +
                         $"-Value {state.TokenPolicyPreviousValue}", throwOnError: false);
-        }
+        });
 
-        if (state.CreatedUser)
-            _ps.Run($"Remove-LocalUser -Name '{state.ServiceAccount}' -ErrorAction SilentlyContinue", throwOnError: false);
+        Step("учётка svc-diag", state.CreatedUser, () =>
+            _ps.Run($"Remove-LocalUser -Name '{state.ServiceAccount}' -ErrorAction SilentlyContinue",
+                    throwOnError: false));
 
         // Вернуть системный sshd, если гасили его на время сессии.
-        if (state.StoppedSystemSshd)
-            _ps.Run("Start-Service sshd -ErrorAction SilentlyContinue", throwOnError: false);
+        Step("системный sshd", state.StoppedSystemSshd, () =>
+            _ps.Run("Start-Service sshd -ErrorAction SilentlyContinue", throwOnError: false));
 
-        RevertStateStore.Delete(_statePath);
+        // Файл состояния сносим, только если всё откатилось: иначе следующая попытка
+        // (перевзведённый watchdog или ручной --revert) не будет знать, что доделывать.
+        if (failed.Count == 0)
+            Step("файл состояния", true, () => RevertStateStore.Delete(_statePath));
+
+        return new RevertOutcome(done, failed);
     }
 
     public void Resume(RevertState state, AccessSpec spec)
