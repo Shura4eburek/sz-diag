@@ -33,4 +33,25 @@ public sealed class HubOptions
     /// <summary>Липкая панель статуса в верхних строках консоли. false — обычный
     /// линейный вывод (рубильник на случай проблемного терминала).</summary>
     public bool StickyHeader { get; set; } = true;
+
+    /// <summary>Оффсайт-бэкап базы знаний в git-remote.</summary>
+    public KbBackupOptions KbBackup { get; set; } = new();
+}
+
+public sealed class KbBackupOptions
+{
+    /// <summary>Рубильник: false — сервис не стартует (vault не под git).</summary>
+    public bool Enabled { get; set; } = true;
+
+    /// <summary>Период автоматического прогона.</summary>
+    public TimeSpan Interval { get; set; } = TimeSpan.FromMinutes(15);
+
+    /// <summary>Имя remote, куда пушим.</summary>
+    public string Remote { get; set; } = "origin";
+
+    /// <summary>Ветка, куда пушим.</summary>
+    public string Branch { get; set; } = "main";
+
+    /// <summary>Потолок на каждый вызов git: виснет сеть — процесс убивается.</summary>
+    public TimeSpan CommandTimeout { get; set; } = TimeSpan.FromMinutes(2);
 }

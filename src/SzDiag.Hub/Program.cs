@@ -38,6 +38,13 @@ builder.Services.AddSingleton<IReportStore>(sp =>
     var opts = sp.GetRequiredService<IOptions<HubOptions>>().Value;
     return new KbReportStore(opts.KnowledgeBaseRoot);
 });
+builder.Services.AddSingleton<IKbBackup>(sp =>
+{
+    var opts = sp.GetRequiredService<IOptions<HubOptions>>().Value;
+    return new KbGitBackup(
+        opts.KnowledgeBaseRoot, opts.KbBackup.Remote, opts.KbBackup.Branch, opts.KbBackup.CommandTimeout);
+});
+builder.Services.AddHostedService<KbBackupService>();
 builder.Services.AddHostedService<OfflineSweeper>();
 builder.Services.AddHostedService(sp =>
     new HubDiscoveryResponder(sp.GetRequiredService<IOptions<HubOptions>>()));
