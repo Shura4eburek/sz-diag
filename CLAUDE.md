@@ -107,13 +107,24 @@ boot-time в heartbeat, freshness-guard для `build-dist`, валидация 
 
 ```powershell
 dotnet build                       # сборка солюшена
-dotnet test                        # все автотесты (~174), без хоста/клиента
+dotnet test                        # все автотесты (~297), без хоста/клиента
 dotnet test tests/SzDiag.Agent.Tests            # тесты одного проекта
 dotnet test --filter FullyQualifiedName~RevertCoordinator   # один класс/тест
 $env:SZDIAG_LIVE=1; dotnet test    # + live-тест vgabios (реально ходит на TPU; по умолчанию skip)
 .\tools\build-dist.ps1             # публикация готового dist (host + client), см. ниже
 .\tools\build-dist.ps1 -HubIp <HUB_LAN_IP>      # клиент — отдельная ВМ: LAN-IP хоста
+.\tools\prep-winpe-drivers.ps1     # пак NIC-драйверов из SDI (C:\winpe-szdiag-drivers)
+.\tools\build-winpe.ps1 -UsbDrive G:            # загрузочная PE-флешка с агентом
+.\tools\kb-backup.ps1              # ручная выгрузка kb в репо (штатно это делает hub)
 ```
+
+**PE-флешка (машина не грузится / заражена).** Сначала `prep-winpe-drivers.ps1` — он вынимает
+из локального SDI (`C:\Share\SDI`) сетевые драйверы под Win10/11 x64 и раскладывает на два слоя:
+`core` (Intel + Realtek) инжектится в `boot.wim`, `extra` (Others) едет на флешку в `drivers\`.
+`build-winpe.ps1` подхватывает пак сам. В PE `startnet.cmd` зовёт `net-up.ps1`: ждёт DHCP, при
+отсутствии адаптера ищет `.inf` по hardware ID устройства и грузит `drvload`'ом, печатает
+IP и пинг hub; ручной повтор — команда `net-up`. Новую сетевуху добавляют копированием `.inf`
+в `<флешка>\drivers\` — **без пересборки образа**.
 
 `build-dist.ps1` публикует self-contained single-file exe (win-x64), генерит SSH-ключ
 `secrets\svc_diag_key`, пишет конфиги/лаунчеры. Результат: `dist\host\` (hub + cli,
@@ -127,6 +138,14 @@ $env:SZDIAG_LIVE=1; dotnet test    # + live-тест vgabios (реально х�
 Ручной e2e-прогон и траблшутинг — в [docs/TESTING.md](docs/TESTING.md), включая раздел
 про headless-управление по SSH (GUI-тулзы без десктопа падают/висят — обход через
 `schtasks /it /rl highest`, но UAC/Secure Desktop так не обойти).
+
+**Бэкап базы знаний.** Vault (`dist\host\kb`) — git-репозиторий с приватным remote.
+Бэкап делает сам hub (`KbBackupService`): прогон на старте, дальше каждые 15 минут и
+финальный при остановке; настройки — секция `Hub.KbBackup` в `appsettings.json`
+(`Enabled` — рубильник, если vault не под git). Правки, сделанные при выключенном hub,
+уезжают при следующем старте. `tools\kb-backup.ps1` остаётся ручной кнопкой на случай,
+когда hub не поднят. В vault — **только заметки и ссылки**: дампы, CSV с `lhmmon` и
+скрины держать вне vault, иначе история репо раздувается необратимо.
 
 Целевой фреймворк — **net8.0**. Файл сборки должен быть **UTF-8 с BOM** (PowerShell 5.1
 иначе ломает кириллицу — см. коммит 3e60857).

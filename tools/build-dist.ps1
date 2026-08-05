@@ -204,7 +204,14 @@ $hubCfg = @"
     "KnowledgeBaseRoot": "$kb",
     "AgentDistRoot": "$(("$root\dist\host\hub\agent-dist").Replace('\','\\'))",
     "HeartbeatTimeout": "00:01:00",
-    "SweepInterval": "00:00:15"
+    "SweepInterval": "00:00:15",
+    "KbBackup": {
+      "Enabled": true,
+      "Interval": "00:15:00",
+      "Remote": "origin",
+      "Branch": "main",
+      "CommandTimeout": "00:02:00"
+    }
   }
 }
 "@
