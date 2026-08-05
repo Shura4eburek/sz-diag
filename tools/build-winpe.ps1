@@ -22,6 +22,15 @@
 .PARAMETER DriverPath
   Папка с драйверами сетевых карт (.inf) для инжекта в образ. Без драйверов свежие
   2.5G Realtek/Intel в PE не поднимутся, и агент не достучится до hub.
+  По умолчанию берётся core-слой пака от `prep-winpe-drivers.ps1`
+  (`C:\winpe-szdiag-drivers\core` — Intel + Realtek).
+
+.PARAMETER UsbDriverPath
+  Драйверы, которые кладутся НА ФЛЕШКУ (папка `drivers\`), а не в образ. В PE
+  подхватываются автоматически, только если сеть не поднялась (см. net-up.ps1).
+  По умолчанию — extra-слой пака (`C:\winpe-szdiag-drivers\extra`: Broadcom,
+  Killer, Aquantia, USB-донглы). Так boot.wim остаётся лёгким, а редкую сетевуху
+  можно добавить копированием .inf на флешку без пересборки образа.
 
 .PARAMETER ScratchMb
   Размер RAM-диска под запись внутри PE (32/64/128/256/512/1024). По умолчанию 1024:
@@ -41,6 +50,7 @@ param(
     [string]$UsbDrive,
     [string]$Work = "C:\winpe-szdiag",
     [string]$DriverPath = "",
+    [string]$UsbDriverPath = "",
     [ValidateSet(32, 64, 128, 256, 512, 1024)]
     [int]$ScratchMb = 1024,
     [switch]$SkipMedia,
@@ -73,6 +83,21 @@ foreach ($p in @($peRoot, $ocs, $dandi)) {
 $clientDist = Join-Path $root "dist\client"
 if (-not (Test-Path (Join-Path $clientDist "SzDiag.Agent.exe"))) {
     throw "Нет dist\client\SzDiag.Agent.exe — сначала прогони .\tools\build-dist.ps1"
+}
+
+# Пак сетевых драйверов: без него PE на незнакомой машине остаётся без сети.
+# Готовится один раз через prep-winpe-drivers.ps1, дальше подхватывается сам.
+$packRoot = "C:\winpe-szdiag-drivers"
+if (-not $DriverPath -and (Test-Path (Join-Path $packRoot "core"))) {
+    $DriverPath = Join-Path $packRoot "core"
+}
+if (-not $UsbDriverPath -and (Test-Path (Join-Path $packRoot "extra"))) {
+    $UsbDriverPath = Join-Path $packRoot "extra"
+}
+if (-not $DriverPath) {
+    Write-Host "-- [!] пак драйверов не найден ($packRoot). Сначала:" -ForegroundColor Yellow
+    Write-Host "      .\tools\prep-winpe-drivers.ps1" -ForegroundColor Yellow
+    Write-Host "      Иначе PE может остаться без сети на клиентской машине." -ForegroundColor Yellow
 }
 
 $UsbDrive = $UsbDrive.TrimEnd('\')
@@ -165,9 +190,19 @@ try {
     }
 
     # --- 4. Место под запись внутри PE ----------------------------------------
-    Write-Host "-- scratch space = $ScratchMb МБ"
-    & dism.exe /English /Image:"$mount" /Set-ScratchSpace:$ScratchMb
-    if ($LASTEXITCODE -ne 0) { throw "Set-ScratchSpace упал (код $LASTEXITCODE)" }
+    # Потолок зависит от версии ADK: DISM 10.0.22621 берёт 1024, а 10.0.26100
+    # (Win11 24H2 ADK) на 1024 отвечает `Error: 87 Invalid scratch space value`
+    # и принимает максимум 512. Поэтому спускаемся по списку, а не падаем.
+    $scratchTry = @($ScratchMb) + @(512, 256, 128) | Select-Object -Unique |
+                  Where-Object { $_ -le $ScratchMb }
+    $scratchOk = $false
+    foreach ($mb in $scratchTry) {
+        Write-Host "-- scratch space = $mb МБ"
+        & dism.exe /English /Image:"$mount" /Set-ScratchSpace:$mb
+        if ($LASTEXITCODE -eq 0) { $scratchOk = $true; break }
+        Write-Host "   не принял $mb МБ (код $LASTEXITCODE) — пробую меньше" -ForegroundColor Yellow
+    }
+    if (-not $scratchOk) { throw "Set-ScratchSpace упал на всех значениях ($($scratchTry -join ', '))" }
 
     # --- 5. Автозапуск --------------------------------------------------------
     # Флешка в PE получает произвольную букву, поэтому ищем её по маркеру.
@@ -195,15 +230,21 @@ if "%SZUSB%"=="" (
 )
 
 echo Agent found: %SZUSB%\szdiag
-echo Network: initialized via wpeinit.
-echo.
-echo To start the agent, type:  szdiag
-echo.
 
 rem Single-file .NET распаковывается во временную папку. В RAM-диске места мало,
 rem поэтому уводим распаковку на флешку.
 set DOTNET_BUNDLE_EXTRACT_BASE_DIR=%SZUSB%\szdiag\bundle
 doskey szdiag=%SZUSB%\szdiag\szdiag.cmd $*
+doskey net-up=powershell -NoProfile -ExecutionPolicy Bypass -File %SZUSB%\szdiag\net-up.ps1 -DriversPath %SZUSB%\drivers $*
+
+rem Сеть: ждём DHCP, при отсутствии адаптера сами доставляем драйвер с флешки.
+rem Без этого агент падал стектрейсом «network unreachable» (СЗ 159948).
+powershell -NoProfile -ExecutionPolicy Bypass -File %SZUSB%\szdiag\net-up.ps1 -DriversPath %SZUSB%\drivers
+
+echo.
+echo To start the agent, type:  szdiag
+echo If network is down, retry with:  net-up
+echo.
 
 :shell
 '@
@@ -247,6 +288,19 @@ foreach ($opt in @("service_key.pub", "testsuite.json", "version.txt")) {
     if (Test-Path $src) { Copy-Item $src $szdir -Force }
 }
 
+# Подъём сети в PE + авто-доставка драйвера NIC с флешки.
+Copy-Item (Join-Path $PSScriptRoot "winpe\net-up.ps1") $szdir -Force
+
+# Драйверы на флешку: подхватываются только при промахе, зато обновляются
+# копированием .inf — без пересборки boot.wim.
+if ($UsbDriverPath) {
+    if (-not (Test-Path $UsbDriverPath)) { throw "UsbDriverPath не найден: $UsbDriverPath" }
+    $usbDrivers = Join-Path "$UsbDrive\" "drivers"
+    Write-Host "-- копирую резервные драйверы -> $usbDrivers"
+    New-Item -ItemType Directory $usbDrivers -Force | Out-Null
+    Copy-Item (Join-Path $UsbDriverPath "*") $usbDrivers -Recurse -Force
+}
+
 # Лаунчер: спрашивает номер СЗ и поднимает агента в PE-режиме.
 # Текст латиницей — см. комментарий про cp437 у $startnet.
 $launcher = @'
@@ -271,6 +325,8 @@ Write-Host ""
 Write-Host "== Готово =="
 Write-Host "Флешка:  $UsbDrive (загрузочная, UEFI + Legacy)"
 Write-Host "Агент:   $szdir  (обновляется копированием, без пересборки образа)"
+Write-Host "NIC в образе: $(if ($DriverPath) { $DriverPath } else { 'НЕТ — сети на клиенте может не быть' })"
+Write-Host "NIC на флешке: $(if ($UsbDriverPath) { "$UsbDrive\drivers (авто-подхват при промахе)" } else { 'нет' })"
 Write-Host "Hub:     $(if (Test-Path (Join-Path $szdir 'appsettings.json')) { (Get-Content (Join-Path $szdir 'appsettings.json') -Raw | ConvertFrom-Json).HubUrl })"
 Write-Host ""
 Write-Host "В PE: команда 'szdiag' (или szdiag <СЗ>) — поднимет агента."

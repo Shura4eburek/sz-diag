@@ -191,7 +191,63 @@ if (args.Length >= 1 && args[0] == "--pe")
     var peSession = new AgentSession(new WinPeAccessManager(), peLink, peSpec,
         Environment.MachineName, BootTimeReader.Read(ps));
 
-    await peSession.StartAsync();
+    // В PE сеть — самое хрупкое место: драйвер NIC мог подняться позже (net-up
+    // доставляет его с флешки) или DHCP ещё не отдал адрес. Без ретрая агент
+    // просто падал стектрейсом «network unreachable» (живая СЗ 159948).
+    const int peMaxAttempts = 5;
+    for (var attempt = 1; ; attempt++)
+    {
+        try
+        {
+            await peSession.StartAsync();
+            break;
+        }
+        catch (Exception ex) when (attempt < peMaxAttempts)
+        {
+            Announce($"Hub {peHubUrl} не отвечает ({ex.Message}). Попытка {attempt}/{peMaxAttempts}, повтор через 10с…",
+                $"[yellow]Hub[/] {Markup.Escape(peHubUrl)} [yellow]не отвечает[/] " +
+                $"({Markup.Escape(ex.Message)}). Попытка {attempt}/{peMaxAttempts}, повтор через 10с…");
+            await Task.Delay(TimeSpan.FromSeconds(10));
+
+            // Запасной вариант: адрес из конфига мог протухнуть (хост переехал,
+            // другая подсеть) — после пары промахов ищем hub броадкастом.
+            if (attempt == 2 && !string.IsNullOrWhiteSpace(peOpts.HubUrl))
+            {
+                Announce("Ищу hub броадкастом…", "[grey]Ищу hub броадкастом…[/]");
+                try
+                {
+                    var found = await HubDiscovery.FindHubAsync(peOpts.AgentToken);
+                    if (!string.Equals(found, peHubUrl, StringComparison.OrdinalIgnoreCase))
+                    {
+                        Announce($"Hub найден: {found} (вместо {peHubUrl})",
+                            $"Hub найден: [green]{Markup.Escape(found)}[/] (вместо {Markup.Escape(peHubUrl)})");
+                        peHubUrl = found;
+                        peLink = new SignalRHubLink(peHubUrl, peOpts.AgentToken);
+                        peSession = new AgentSession(new WinPeAccessManager(), peLink, peSpec,
+                            Environment.MachineName, BootTimeReader.Read(ps));
+                    }
+                }
+                catch (HubNotFoundException dex)
+                {
+                    Announce($"Броадкаст hub не нашёл: {dex.Message}",
+                        $"[yellow]Броадкаст hub не нашёл:[/] {Markup.Escape(dex.Message)}");
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            // Стектрейс .NET на экране PE ничего не даёт — говорим по делу.
+            Announce($"Не достучались до hub {peHubUrl}: {ex.Message}\n" +
+                     "Проверь сеть в PE: команда net-up (покажет адаптер, IP и пинг hub). " +
+                     "Если адаптера нет — драйвер сетевой карты не поднялся.",
+                $"[red]Не достучались до hub[/] {Markup.Escape(peHubUrl)}: {Markup.Escape(ex.Message)}\n" +
+                "Проверь сеть в PE: [yellow]net-up[/] (адаптер, IP, пинг hub). " +
+                "Если адаптера нет — драйвер сетевой карты не поднялся.");
+            logFile.Flush();
+            return 1;
+        }
+    }
+
     Announce($"СЗ {peSz}: WinPE ● online. Хост {Environment.MachineName}.",
         $"СЗ {peSz}: WinPE [green]● online[/]. Хост {Environment.MachineName}.");
     try { await peLink.ReportActivityAsync(peSz, "— готов (WinPE)", null); } catch { }
