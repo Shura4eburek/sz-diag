@@ -12,7 +12,7 @@ public class DiagnosticProbesTests
         var expected = new[]
         {
             "system", "cpu", "memory", "gpu", "storage",
-            "temps", "drivers", "events", "reboots", "whea", "reliability", "battery"
+            "temps", "drivers", "events", "reboots", "whea", "livekernel", "reliability", "battery"
         };
         Assert.Equal(expected, DiagnosticProbes.Sections);
         // Каталог проб и словарь для валидации в CLI обязаны совпадать: иначе szcli либо
@@ -46,6 +46,104 @@ public class DiagnosticProbesTests
         Assert.Contains("OS installed", run);                // «дефект с первого дня»
         Assert.Contains("Fmt-Bug", run);                     // hex + имя стоп-кода
         Assert.Contains("'190'='ATTEMPTED_WRITE_TO_READONLY_MEMORY'", run);
+    }
+
+    private static string Body(string section)
+        => DiagnosticProbes.Suite.Steps.Single(s => s.Id == section).Run!;
+
+    [Fact]
+    public void WheaProbe_AggregatesByApicBankAndDate()
+    {
+        // Регрессия (п.44): 276 событий печатались 40 строками без APIC ID и без общего
+        // числа — локализация дефекта на одном ядре была невидима.
+        var run = Body("whea");
+
+        Assert.DoesNotContain("-MaxEvents 40", run);
+        Assert.Contains("TOTAL:", run);
+        Assert.Contains("by APIC ID", run);
+        Assert.Contains("odnom fizicheskom yadre", run);   // маркер «все ошибки на одном ядре»
+        Assert.Contains("by MCA bank", run);
+        Assert.Contains("by date", run);
+    }
+
+    [Fact]
+    public void WheaProbe_DecodesMcaFieldsAndFlags()
+    {
+        // Регрессия (п.18): MciStat/ErrorType приходилось доставать отдельным exec из XML.
+        var run = Body("whea");
+
+        Assert.Contains("MciStat", run);
+        Assert.Contains("Cache Hierarchy Error", run);      // ErrorType=9, а не 8 (см. п.18)
+        Assert.Contains("'10'='Bus/Interconnect Error'", run);
+        Assert.Contains("PCC", run);
+        Assert.Contains("UC(neispravimaya)", run);
+    }
+
+    [Fact]
+    public void LiveKernelProbe_LooksWhereTdrDumpsActuallyLand()
+    {
+        // Регрессия (п.37): по заявке «вылетает игра» отчёт говорил «всё чисто», а рядом
+        // лежали 14 WATCHDOG-дампов и LiveKernelEvent 0x141.
+        var run = Body("livekernel");
+
+        Assert.Contains(@"C:\Windows\LiveKernelReports", run);
+        Assert.Contains("LiveKernelEvent", run);
+        Assert.Contains("VIDEO_ENGINE_TIMEOUT_DETECTED", run);   // P1=141
+        Assert.Contains("VIDEO_TDR_TIMEOUT_DETECTED", run);      // P1=117
+        Assert.Contains("SOVPADAET s LiveKernelEvent", run);     // сшивка с крашем приложения
+    }
+
+    [Fact]
+    public void ReliabilityProbe_SaysNoMinidumpsIsNotNoKernelCrashes()
+    {
+        var run = Body("reliability");
+
+        Assert.Contains("!= 'net sboev yadra'", run);
+        Assert.Contains("LiveKernelReports", run);
+        Assert.Contains("volmgr", run);   // дампы могут не писаться в принципе (п.14)
+    }
+
+    [Fact]
+    public void StorageProbe_MapsPagefileToPhysicalDiskAndSplitsUncorrectable()
+    {
+        // Регрессия (п.27): «ReadErrors: 393» выглядело как шум, хотя все 393 неисправимы,
+        // а связь «pagefile на умирающем HDD → 0x154» не собиралась вовсе.
+        var run = Body("storage");
+
+        Assert.Contains("Win32_PageFileUsage", run);
+        Assert.Contains("ReadErrorsUncorrected", run);
+        Assert.Contains("WriteErrorsUncorrected", run);
+        Assert.Contains("VERDICT", run);
+        Assert.Contains("SUSPECT", run);
+        Assert.Contains("Bukva -> fizicheskiy disk", run);
+        Assert.Contains("UNEXPECTED_STORE_EXCEPTION", run);
+        Assert.Contains("NE 'diski zdorovy'", run);   // пустые счётчики ≠ здоровые диски
+    }
+
+    [Fact]
+    public void EventsProbe_CountsPerIdAndReadsRareIdsWithoutLimit()
+    {
+        // Регрессия (п.31): общий MaxEvents на смеси шумных и редких Id съел Kernel-Power 41.
+        var run = Body("events");
+
+        Assert.Contains("Schetchiki po Id", run);
+        Assert.Contains("Redkie kritichnye Id - BEZ limita", run);
+        Assert.Contains("Kernel-Power 41", run);
+        Assert.Contains("yavnyy nol", run);   // отсутствие событий печатается явным нулём
+    }
+
+    [Fact]
+    public void ProbesQueryingOptionalProviders_WrapCallsInTryCatch()
+    {
+        // Живая грабля: незарегистрированный ProviderName валит Get-WinEvent с
+        // 'The parameter is incorrect' ДАЖЕ при -ErrorAction SilentlyContinue.
+        foreach (var section in new[] { "livekernel", "storage" })
+        {
+            var run = Body(section);
+            Assert.DoesNotContain("ProviderName=$p } -ErrorAction SilentlyContinue", run);
+            Assert.DoesNotContain("ProviderName=$prov } -ErrorAction SilentlyContinue", run);
+            Assert.Contains("catch { }", run);
+        }
     }
 
     [Fact]

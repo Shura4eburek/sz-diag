@@ -107,7 +107,7 @@ boot-time в heartbeat, freshness-guard для `build-dist`, валидация 
 
 ```powershell
 dotnet build                       # сборка солюшена
-dotnet test                        # все автотесты (~434), без хоста/клиента
+dotnet test                        # все автотесты (~441), без хоста/клиента
 dotnet test tests/SzDiag.Agent.Tests            # тесты одного проекта
 dotnet test --filter FullyQualifiedName~RevertCoordinator   # один класс/тест
 $env:SZDIAG_LIVE=1; dotnet test    # + live-тест vgabios (реально ходит на TPU; по умолчанию skip)

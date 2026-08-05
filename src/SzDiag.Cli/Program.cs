@@ -319,8 +319,8 @@ static void PrintUsage()
               [yellow]szcli unfreeze[/] [blue]<СЗ>[/]      вернуть Windows Update как было (обязательно!)
               [yellow]szcli test run[/] [blue]<СЗ>[/] [grey][[occt|tm5,furmark|…]][/]  прогон тестов (все или по id)
               [yellow]szcli diag run[/] [blue]<СЗ>[/] [grey][[storage,events|…]][/]  диагностика (снапшот; секции точечно)
-                [grey]секции: system cpu memory gpu storage temps drivers events reboots whea reliability battery[/]
-                [grey]можно через запятую или пробел; all — все; алиасы: hw ram disks video bsod temp[/]
+                [grey]секции: system cpu memory gpu storage temps drivers events reboots whea livekernel reliability battery[/]
+                [grey]можно через запятую или пробел; all — все; алиасы: hw ram disks video bsod tdr temp[/]
               [yellow]szcli exec[/] [blue]<СЗ>[/] [grey]"<powershell>" | -f <файл> [[--timeout <сек>]][/]
                 [grey]выполнить скрипт на агенте и получить вывод (без SSH)[/]
                 [grey]всё сложнее однострочника — через [/][yellow]-f[/][grey]: inline-строку портит твой шелл[/]
