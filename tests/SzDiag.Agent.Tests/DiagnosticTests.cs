@@ -104,6 +104,21 @@ public class DiagnosticProbesTests
     }
 
     [Fact]
+    public void ReliabilityProbe_ReportsCrashControlAndSurvivesMissingSources()
+    {
+        // Регрессия (п.74): секция валилась целиком с `ошибка: код 1:` без подробностей, а
+        // без CrashDumpEnabled ответ «дампов нет» неинтерпретируем — не пишутся вовсе или
+        // BSOD не было.
+        var run = Body("reliability");
+
+        Assert.Contains("CrashDumpEnabled", run);
+        Assert.Contains("AutoReboot", run);
+        Assert.Contains("MEMORY.DMP", run);
+        Assert.Contains("Win32_ReliabilityRecords -ErrorAction Stop", run);   // с обработкой, а не молча
+        Assert.Contains("exit 0", run);                                       // «дампов нет» — не ошибка
+    }
+
+    [Fact]
     public void StorageProbe_MapsPagefileToPhysicalDiskAndSplitsUncorrectable()
     {
         // Регрессия (п.27): «ReadErrors: 393» выглядело как шум, хотя все 393 неисправимы,

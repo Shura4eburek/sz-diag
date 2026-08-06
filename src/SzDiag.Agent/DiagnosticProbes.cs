@@ -439,14 +439,38 @@ public static class DiagnosticProbes
             } else { "none" }
             """),
 
+        // Секция падала целиком с `ошибка: код 1:` и без единой подробности, а именно она
+        // отделяет «хард-офф по питанию» от «краха драйвера» (бэклог п.74). Причины две:
+        // Win32_ReliabilityRecords есть не на всякой машине (нужен работающий RACAgent), и
+        // отсутствие C:\Windows\Minidump уводило шаг в ненулевой код — хотя «дампов нет» это
+        // валидный ответ. Плюс без CrashControl ответ неинтерпретируем: «дампов нет» может
+        // означать и «BSOD не было», и «дампы не пишутся вовсе».
         Probe("reliability", "История сбоев / BSOD / minidump'ы", """
-            Get-CimInstance Win32_ReliabilityRecords -ErrorAction SilentlyContinue |
-                Sort-Object TimeGenerated -Descending | Select-Object -First 20 |
-                Select-Object TimeGenerated, SourceName, @{n='Message';e={($_.Message -split "`r?`n")[0]}} |
-                Format-Table -Auto | Out-String
+            $ErrorActionPreference = 'Continue'
+            "=== CrashControl (pishutsya li dampy voobshe) ==="
+            try {
+                $cc = Get-ItemProperty 'HKLM:\SYSTEM\CurrentControlSet\Control\CrashControl' -ErrorAction Stop
+                $kind = @{0='net dampov';1='complete';2='kernel';3='small (minidump)';7='automatic'}
+                $k = $kind["$($cc.CrashDumpEnabled)"]
+                "CrashDumpEnabled={0} ({1}), AutoReboot={2}, DumpFile={3}, MinidumpDir={4}" -f `
+                    $cc.CrashDumpEnabled, $(if ($k) { $k } else { 'unknown' }), $cc.AutoReboot, $cc.DumpFile, $cc.MinidumpDir
+                if ($cc.CrashDumpEnabled -eq 0) { "!!! Dampy otklyucheny: 'net dampov' zdes NICHEGO ne dokazyvaet." }
+            } catch { "CrashControl nedostupen: $($_.Exception.Message)" }
+
+            "=== Win32_ReliabilityRecords (poslednie 20) ==="
+            try {
+                $rr = @(Get-CimInstance Win32_ReliabilityRecords -ErrorAction Stop)
+                if ($rr.Count -gt 0) {
+                    $rr | Sort-Object TimeGenerated -Descending | Select-Object -First 20 |
+                        Select-Object TimeGenerated, SourceName, @{n='Message';e={($_.Message -split "`r?`n")[0]}} |
+                        Format-Table -Auto | Out-String
+                } else { "Zapisey net (RACAgent mog byt otklyuchen - eto ne 'sboev ne bylo')." }
+            } catch { "Win32_ReliabilityRecords nedostupen: $($_.Exception.Message)" }
+
             "=== Minidumps (C:\Windows\Minidump) ==="
-            $md = Get-ChildItem 'C:\Windows\Minidump\*.dmp' -ErrorAction SilentlyContinue
-            if ($md) {
+            $md = @(Get-ChildItem 'C:\Windows\Minidump\*.dmp' -ErrorAction SilentlyContinue)
+            if (-not (Test-Path 'C:\Windows\Minidump')) { "Papki C:\Windows\Minidump net - eto normalno, esli BSOD ne bylo." }
+            if ($md.Count -gt 0) {
                 $md | Sort-Object LastWriteTime -Descending |
                     Select-Object LastWriteTime, Name, @{n='KB';e={[math]::Round($_.Length/1KB)}} |
                     Format-Table -Auto | Out-String
@@ -461,6 +485,12 @@ public static class DiagnosticProbes
                 try { $volmgr = @(Get-WinEvent -FilterHashtable @{ LogName='System'; ProviderName='volmgr'; Id=46 } -MaxEvents 3 -ErrorAction Stop) } catch { }
                 if ($volmgr.Count -gt 0) { "  -> volmgr 46 'Crash dump initialization failed': dampy ne pishutsya v principe (p.14)" }
             }
+            "=== MEMORY.DMP ==="
+            $mem = Get-Item 'C:\Windows\MEMORY.DMP' -ErrorAction SilentlyContinue
+            if ($mem) { "MEMORY.DMP: {0:yyyy-MM-dd HH:mm}, {1:N1} MB" -f $mem.LastWriteTime, ($mem.Length/1MB) }
+            else { "MEMORY.DMP: net" }
+            # Sekciya obyazana zavershatsya uspehom: 'dampov net' - eto otvet, a ne oshibka.
+            exit 0
             """),
 
         Probe("battery", "Батарея (заряд и износ, ноутбуки)", """

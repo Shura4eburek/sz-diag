@@ -20,7 +20,13 @@ public static class DiagReportBuilder
             sb.AppendLine($"## {s.Name}");
             sb.AppendLine();
             sb.AppendLine("```");
-            sb.AppendLine(s.Error is not null ? $"ошибка: {s.Error}" : (s.Output ?? "").TrimEnd());
+            // Ошибка и вывод печатаются ВМЕСТЕ: раньше `код 1` затирал всё, что секция успела
+            // собрать, и отчёт по «Истории сбоев» состоял из одной строки `ошибка: код 1:`
+            // (бэклог п.74). Ошибка идёт первой строкой, дальше — то, что всё же собралось.
+            if (s.Error is not null) sb.AppendLine($"ошибка: {s.Error}");
+            var body = (s.Output ?? "").TrimEnd();
+            if (body.Length > 0) sb.AppendLine(body);
+            else if (s.Error is null) sb.AppendLine();
             sb.AppendLine("```");
             sb.AppendLine();
         }

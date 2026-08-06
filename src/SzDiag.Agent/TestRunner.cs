@@ -69,9 +69,14 @@ public sealed class TestRunner
             try
             {
                 var r = _exec.Run(step.Run ?? "");
+                // Ненулевой код НЕ повод выбрасывать stdout: на 161312 секция «История сбоев»
+                // вернула `код 1:` с пустым stderr — и весь собранный вывод пропал, хотя ответ
+                // «дампов нет» в нём был (бэклог п.74). Печатаем и то, и другое.
                 steps.Add(r.ExitCode == 0
                     ? new TestStepResult(step.Name, TestStepKind.Command, Command: step.Run, Output: r.StdOut, ExitCode: 0)
-                    : new TestStepResult(step.Name, TestStepKind.Command, Command: step.Run, Error: $"код {r.ExitCode}: {r.StdErr}"));
+                    : new TestStepResult(step.Name, TestStepKind.Command, Command: step.Run,
+                        Output: r.StdOut, ExitCode: r.ExitCode,
+                        Error: $"код {r.ExitCode}: {DescribeStdErr(r.StdErr)}"));
             }
             catch (Exception ex)
             {
@@ -198,6 +203,20 @@ public sealed class TestRunner
 
         steps.Add(new TestStepResult(step.Name, TestStepKind.App, Command: cmdLine,
             Output: output, ScreenshotFile: shotFile, ArtifactFile: artifactName, Error: launchError));
+    }
+
+    /// <summary>Максимум stderr в отчёте: полный текст CLIXML-простыни читать невозможно,
+    /// а первые пара тысяч символов почти всегда содержат сам диагноз.</summary>
+    private const int StdErrLimit = 2000;
+
+    /// <summary>Человеческая расшифровка stderr упавшей секции. Пустой stderr — тоже факт:
+    /// «код 1 и молчание» означает, что упала не команда, а сам PowerShell (бэклог п.74).</summary>
+    public static string DescribeStdErr(string? stderr)
+    {
+        var text = (stderr ?? "").Trim();
+        if (text.Length == 0)
+            return "stderr пуст (PowerShell вернул ненулевой код без сообщения — смотри вывод ниже)";
+        return text.Length <= StdErrLimit ? text : text[..StdErrLimit] + $"… (ещё {text.Length - StdErrLimit} символов)";
     }
 
     /// <summary>Снимок экрана в словарь скриншотов; возвращает имя файла или null.</summary>

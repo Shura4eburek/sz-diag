@@ -59,6 +59,32 @@ public class TestRunnerTests
     }
 
     [Fact]
+    public void Run_FailedCommand_KeepsOutputItManagedToCollect()
+    {
+        // Регрессия (п.74): секция «История сбоев» вернула код 1 с пустым stderr, и весь
+        // собранный вывод пропал — в diag.md осталось `ошибка: код 1:` и больше ничего.
+        var runner = new TestRunner(
+            new FakeExecutor(new() { ["probe"] = new CommandResult(1, "CrashDumpEnabled=3\nMinidump: net", "") }),
+            new FakeCapturer(new ScreenCapture(null, "n/a")));
+        var suite = new TestSuite { Steps = new[] { new TestStep("command", "История сбоев", "probe") } };
+
+        var step = runner.Run(suite, "161312", "PC-1", At).Report.Steps.Single();
+
+        Assert.Contains("CrashDumpEnabled=3", step.Output);
+        Assert.Contains("stderr пуст", step.Error);   // молчаливый код 1 назван своим именем
+        Assert.Equal(1, step.ExitCode);
+    }
+
+    [Fact]
+    public void DescribeStdErr_LongText_IsTrimmedWithCount()
+    {
+        var text = TestRunner.DescribeStdErr(new string('x', 5000));
+
+        Assert.StartsWith("xxx", text);
+        Assert.Contains("ещё 3000 символов", text);
+    }
+
+    [Fact]
     public void Run_ScreenshotStep_StoresPngAndAssignsFileName()
     {
         var png = new byte[] { 1, 2, 3 };
