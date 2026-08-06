@@ -26,7 +26,7 @@ public sealed class PullCommandHandler
         List<string> matches;
         try
         {
-            matches = Resolve(request.Path);
+            matches = Resolve(request.Path, request.Recurse);
         }
         catch (Exception ex)
         {
@@ -53,7 +53,7 @@ public sealed class PullCommandHandler
             if (info.Length > request.MaxBytes)
             {
                 files.Add(new PullFileInfo(info.Name, path, info.Length, "", true,
-                    $"больше лимита ({Mb(info.Length)} МБ > {Mb(request.MaxBytes)} МБ)"));
+                    $"больше лимита ({Mb(info.Length)} МБ > {Mb(request.MaxBytes)} МБ)", OverLimit: true));
                 continue;
             }
 
@@ -106,13 +106,17 @@ public sealed class PullCommandHandler
     }
 
     /// <summary>Разворачивает путь: конкретный файл, маска в последнем сегменте
-    /// (<c>C:\Windows\Minidump\*.dmp</c>) или каталог (всё внутри, без рекурсии).</summary>
-    public static List<string> Resolve(string path)
+    /// (<c>C:\Windows\Minidump\*.dmp</c>) или каталог. При <paramref name="recurse"/> обходит
+    /// подпапки — на 161312 все 11 нужных live-дампов лежали в <c>WATCHDOG*</c>, и `pull` по
+    /// папке видел ровно один трёхгиговый файл в корне (бэклог п.75).</summary>
+    public static List<string> Resolve(string path, bool recurse = false)
     {
         if (string.IsNullOrWhiteSpace(path)) throw new ArgumentException("пустой путь");
 
+        var scope = recurse ? SearchOption.AllDirectories : SearchOption.TopDirectoryOnly;
+
         if (Directory.Exists(path))
-            return Directory.GetFiles(path).OrderBy(p => p, StringComparer.OrdinalIgnoreCase).ToList();
+            return Enumerate(path, "*", scope);
 
         if (File.Exists(path)) return new List<string> { path };
 
@@ -122,7 +126,20 @@ public sealed class PullCommandHandler
         if (!Directory.Exists(dir)) throw new DirectoryNotFoundException($"нет каталога: {dir}");
         if (!mask.Contains('*') && !mask.Contains('?')) return new List<string>();
 
-        return Directory.GetFiles(dir, mask)
+        return Enumerate(dir, mask, scope);
+    }
+
+    /// <summary>Обход с пропуском недоступных подпапок: в <c>C:\Windows</c> хватает мест, куда
+    /// нет прав даже под админом, и падать всем запросом из-за одной такой папки нельзя.</summary>
+    private static List<string> Enumerate(string dir, string mask, SearchOption scope)
+    {
+        var opts = new EnumerationOptions
+        {
+            RecurseSubdirectories = scope == SearchOption.AllDirectories,
+            IgnoreInaccessible = true,
+            AttributesToSkip = FileAttributes.ReparsePoint,
+        };
+        return Directory.GetFiles(dir, mask, opts)
             .OrderBy(p => p, StringComparer.OrdinalIgnoreCase).ToList();
     }
 

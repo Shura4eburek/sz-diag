@@ -88,7 +88,7 @@ public static class ManagementApi
             if (string.IsNullOrWhiteSpace(body.Path)) return Results.BadRequest("пустой путь");
             try
             {
-                var result = await pull.PullAsync(sz, body.Path, body.MaxBytes);
+                var result = await pull.PullAsync(sz, body.Path, body.MaxBytes, body.Recurse);
                 return result is null ? Results.NotFound() : Results.Ok(result);
             }
             catch (TimeoutException ex)

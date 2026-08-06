@@ -106,11 +106,11 @@ public sealed class HubApiClient : IHubApiClient
     /// <summary>Забрать файл(ы) с клиента на хост. null — СЗ не онлайн.</summary>
     /// <exception cref="TimeoutException">Агент не закончил забор (hub вернул 504).</exception>
     public async Task<PullResponse?> PullAsync(string sz, string path, long? maxBytes = null,
-        CancellationToken ct = default)
+        bool recurse = false, CancellationToken ct = default)
     {
         using var req = new HttpRequestMessage(HttpMethod.Post, $"/api/sessions/{sz}/pull")
         {
-            Content = JsonContent.Create(new PullCommandRequest(path, maxBytes)),
+            Content = JsonContent.Create(new PullCommandRequest(path, maxBytes, recurse)),
         };
         // Ждём дольше hub — иначе вместо честного 504 вылезет TaskCanceledException.
         using var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);

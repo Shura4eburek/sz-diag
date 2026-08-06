@@ -202,40 +202,10 @@ switch (command)
         break;
     }
 
-    // pull: забрать файл(ы) с клиента (дампы, CSV, логи). Путь может быть маской или папкой.
+    // pull: забрать файл(ы) с клиента (дампы, CSV, логи). Путь может быть маской или папкой;
+    // путей можно перечислить несколько, -r обходит подпапки (бэклог п.75).
     case "pull" when args.Length >= 3:
-    {
-        var pullSz = args[1];
-        var pullPath = args[2];
-        long? maxBytes = null;
-        var mIdx = Array.FindIndex(args, a => a.Equals("--max-mb", StringComparison.OrdinalIgnoreCase));
-        if (mIdx >= 0 && args.Length > mIdx + 1 && long.TryParse(args[mIdx + 1], out var mb))
-            maxBytes = mb * 1024 * 1024;
-
-        var res = await client.PullAsync(pullSz, pullPath, maxBytes);
-        if (res is null)
-        {
-            AnsiConsole.MarkupLineInterpolated($"[red]СЗ {pullSz} не найдена[/] среди активных.");
-            return 1;
-        }
-        if (!string.IsNullOrEmpty(res.Error))
-        {
-            AnsiConsole.MarkupLineInterpolated($"[red]Забор не удался:[/] {res.Error}");
-            return 1;
-        }
-
-        foreach (var f in res.Files)
-        {
-            var size = $"{f.Size / 1024d / 1024d:N1} МБ";
-            if (f.Skipped)
-                AnsiConsole.MarkupLineInterpolated($"[yellow]✗ {f.Name}[/] ({size}) — {f.SkipReason}");
-            else
-                AnsiConsole.MarkupLineInterpolated($"[green]✓ {f.Name}[/] ({size}) → {f.SavedPath}");
-        }
-        var ok = res.Files.Count(f => !f.Skipped);
-        AnsiConsole.MarkupLineInterpolated($"[grey]Забрано файлов: {ok} из {res.Files.Count}[/]");
-        return ok == 0 ? 1 : 0;
-    }
+        return await PullCommand.RunAsync(client, args);
 
     // exec --result <jobId>: забрать состояние и хвост вывода фоновой задачи. Короткий
     // запрос — проходит даже под полной нагрузкой, когда обычный exec уже не проходит.
@@ -351,8 +321,9 @@ static void PrintUsage()
                 [grey]всё сложнее однострочника — через [/][yellow]-f[/][grey]: inline-строку портит твой шелл[/]
               [yellow]szcli push[/] [blue]<СЗ>[/] [grey]<tool> | --list[/]
                 [grey]доставить инструмент на клиента через hub (клиент качает сам, без SMB)[/]
-              [yellow]szcli pull[/] [blue]<СЗ>[/] [grey]<путь на клиенте> [[--max-mb N]][/]
-                [grey]забрать файлы (маска [/]*.dmp[grey] или папка) в[/] hub\pulled\<СЗ>\<время>\
+              [yellow]szcli pull[/] [blue]<СЗ>[/] [grey]<путь…> [[--max-mb N]] [[-r]][/]
+                [grey]забрать файлы (маска [/]*.dmp[grey], папка или несколько путей) в[/] hub\pulled\<СЗ>\<время>\
+                [grey]-r — с подпапками (LiveKernelReports держит дампы в[/] WATCHDOG*[grey])[/]
               [yellow]szcli kb[/] …               работа с базой знаний ([grey]record/summary/search/rm[/])
               [yellow]szcli hw[/] …               видяха по PCI hardware id
             [grey]Номер СЗ — 6 цифр.[/]

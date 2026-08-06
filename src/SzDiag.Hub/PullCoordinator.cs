@@ -43,7 +43,7 @@ public sealed class PullCoordinator
     /// <summary>Забрать файлы с клиента. null — СЗ не онлайн.</summary>
     /// <exception cref="TimeoutException">Агент не завершил забор в отведённое время.</exception>
     public async Task<PullResponse?> PullAsync(string sz, string path, long? maxBytes = null,
-        CancellationToken ct = default)
+        bool recurse = false, CancellationToken ct = default)
     {
         var connId = _registry.TryGetConnectionId(sz);
         if (connId is null) return null;
@@ -56,7 +56,7 @@ public sealed class PullCoordinator
         {
             Directory.CreateDirectory(dir);
             await _sender.SendPullAsync(connId,
-                new PullRequest(sz, requestId, path, maxBytes ?? PullLimits.DefaultMaxBytes), ct);
+                new PullRequest(sz, requestId, path, maxBytes ?? PullLimits.DefaultMaxBytes, recurse), ct);
 
             var wait = TimeSpan.FromSeconds(_timeoutSeconds);
             var done = await Task.WhenAny(session.Done.Task, Task.Delay(wait, ct));
@@ -106,7 +106,8 @@ public sealed class PullCoordinator
         {
             if (f.Skipped)
             {
-                files.Add(new PullSavedFile(f.Name, f.FullPath, f.Size, f.Sha256, null, true, f.SkipReason));
+                files.Add(new PullSavedFile(f.Name, f.FullPath, f.Size, f.Sha256, null, true, f.SkipReason,
+                    f.OverLimit));
                 continue;
             }
 

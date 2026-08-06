@@ -133,6 +133,49 @@ public class PullCommandHandlerTests : IDisposable
         Assert.Equal(2, found.Count);
     }
 
+    [Fact]
+    public void Resolve_Recurse_FindsFilesInSubfolders()
+    {
+        // Ровно устройство C:\Windows\LiveKernelReports: в корне гигантский файл, всё нужное —
+        // в подпапках WATCHDOG* (бэклог п.75).
+        WriteFile("root.dmp", Bytes(3));
+        Directory.CreateDirectory(Path.Combine(_dir, "WATCHDOG4400"));
+        File.WriteAllBytes(Path.Combine(_dir, "WATCHDOG4400", "a.dmp"), Bytes(3));
+        Directory.CreateDirectory(Path.Combine(_dir, "WATCHDOG4401"));
+        File.WriteAllBytes(Path.Combine(_dir, "WATCHDOG4401", "b.dmp"), Bytes(3));
+
+        var found = PullCommandHandler.Resolve(_dir, recurse: true);
+
+        Assert.Equal(3, found.Count);
+    }
+
+    [Fact]
+    public void Resolve_RecurseWithMask_FiltersByMaskInSubfolders()
+    {
+        Directory.CreateDirectory(Path.Combine(_dir, "WATCHDOG"));
+        File.WriteAllBytes(Path.Combine(_dir, "WATCHDOG", "a.dmp"), Bytes(3));
+        File.WriteAllBytes(Path.Combine(_dir, "WATCHDOG", "notes.txt"), Bytes(3));
+
+        var found = PullCommandHandler.Resolve(Path.Combine(_dir, "*.dmp"), recurse: true);
+
+        Assert.Single(found);
+        Assert.EndsWith("a.dmp", found[0]);
+    }
+
+    [Fact]
+    public async Task Handle_OverLimit_MarksSkipAsLimitNotError()
+    {
+        // Пропуск по лимиту — штатное поведение, ради которого лимит и задавался: CLI не должен
+        // считать это провалом команды (бэклог п.75).
+        var path = WriteFile("huge.dmp", Bytes(2048));
+
+        var result = await Handler().HandleAsync(new PullRequest("161312", "req-lim", path, 1024));
+
+        var file = Assert.Single(result.Files);
+        Assert.True(file.Skipped);
+        Assert.True(file.OverLimit);
+    }
+
     public void Dispose()
     {
         try { if (Directory.Exists(_dir)) Directory.Delete(_dir, recursive: true); } catch { }

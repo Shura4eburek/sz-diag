@@ -9,18 +9,25 @@ namespace SzDiag.Contracts;
 /// <param name="Path">Путь на клиенте; последний сегмент может быть маской (<c>*.dmp</c>).</param>
 /// <param name="MaxBytes">Потолок на файл. Больше — файл пропускается с явной причиной,
 /// а не тянется молча: рядом с минидампами лежат live-дампы на 8.3 ГБ.</param>
-public sealed record PullRequest(string Sz, string RequestId, string Path, long MaxBytes);
+/// <param name="Recurse">Обходить подпапки. <c>C:\Windows\LiveKernelReports</c> держит всё
+/// интересное в подпапках <c>WATCHDOG*</c>, и без рекурсии `pull` по папке видел ровно один
+/// трёхгиговый файл в корне (бэклог п.75).</param>
+public sealed record PullRequest(string Sz, string RequestId, string Path, long MaxBytes,
+    bool Recurse = false);
 
 /// <summary>Метаданные одного найденного файла.</summary>
 /// <param name="Skipped">Файл не передавался (обычно — больше <c>MaxBytes</c>).</param>
 /// <param name="SkipReason">Почему пропущен — печатается пользователю.</param>
+/// <param name="OverLimit">Пропущен именно по лимиту — это штатное поведение, ради которого
+/// лимит и задавался, и на код возврата влиять не должно (бэклог п.75).</param>
 public sealed record PullFileInfo(
     string Name,
     string FullPath,
     long Size,
     string Sha256,
     bool Skipped = false,
-    string? SkipReason = null);
+    string? SkipReason = null,
+    bool OverLimit = false);
 
 /// <summary>Агент → hub: очередной кусок файла. Файл режется на части, потому что
 /// SignalR-сообщение ограничено (10 МБ), а забирать надо и многомегабайтные дампы.</summary>
@@ -35,10 +42,11 @@ public sealed record PullResult(
     string? Error = null);
 
 /// <summary>Тело HTTP-запроса CLI → hub.</summary>
-public sealed record PullCommandRequest(string Path, long? MaxBytes = null);
+public sealed record PullCommandRequest(string Path, long? MaxBytes = null, bool Recurse = false);
 
 /// <summary>Hub → CLI: что и куда реально забрали.</summary>
 /// <param name="SavedPath">Путь на хосте, куда лёг файл (null — файл пропущен).</param>
+/// <param name="OverLimit">Пропущен по лимиту — штатно, не ошибка.</param>
 public sealed record PullSavedFile(
     string Name,
     string SourcePath,
@@ -46,7 +54,8 @@ public sealed record PullSavedFile(
     string Sha256,
     string? SavedPath,
     bool Skipped = false,
-    string? SkipReason = null);
+    string? SkipReason = null,
+    bool OverLimit = false);
 
 /// <summary>Ответ CLI на `szcli pull`.</summary>
 public sealed record PullResponse(IReadOnlyList<PullSavedFile> Files, string? Error = null);
