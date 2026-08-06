@@ -15,11 +15,19 @@
 
 .PARAMETER Token
   Общий токен hub/cli/agent (по умолчанию dev-token).
+
+.PARAMETER WatchdogHours
+  Через сколько часов watchdog-задача откатит доступ на клиенте (по умолчанию 6, как
+  дефолт в AgentOptions). Задача ставится на фиксированное время при открытии доступа и
+  активностью агента НЕ продлевается (бэклог п.81) — на 160306 час съел доступ прямо
+  посреди работы. Для долгих прогонов ставь с запасом:
+    .\tools\build-dist.ps1 -WatchdogHours 12
 #>
 param(
     [string]$HubIp = "",
     [int]$Port = 5099,
-    [string]$Token = "dev-token"
+    [string]$Token = "dev-token",
+    [double]$WatchdogHours = 6
 )
 
 $ErrorActionPreference = "Stop"
@@ -292,6 +300,8 @@ if ((Test-Path dist\host\cli) -and (Should-WriteConfig "dist/host/cli")) {
 }
 
 $hubUrlValue = if ([string]::IsNullOrWhiteSpace($HubIp)) { "" } else { "http://$($HubIp):$($Port)" }
+# Через InvariantCulture: на локали с запятой "1.5" превратилось бы в "1,5" и порвало JSON.
+$watchdogValue = $WatchdogHours.ToString([System.Globalization.CultureInfo]::InvariantCulture)
 
 $agentCfg = @"
 {
@@ -300,7 +310,7 @@ $agentCfg = @"
   "ServiceAccount": "svc-diag",
   "ServicePublicKeyPath": "service_key.pub",
   "SshPort": 22,
-  "WatchdogHours": 1,
+  "WatchdogHours": $watchdogValue,
   "HeartbeatSeconds": 15,
   "StatePath": "C:\\ProgramData\\szdiag\\state.json",
   "TestSuitePath": "testsuite.json"
