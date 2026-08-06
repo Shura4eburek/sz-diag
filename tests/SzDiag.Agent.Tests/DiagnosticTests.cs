@@ -80,6 +80,20 @@ public class DiagnosticProbesTests
     }
 
     [Fact]
+    public void WheaProbe_FallsBackToBinaryCperWhenNamedFieldsAreEmpty()
+    {
+        // Регрессия (п.68): у Id=1 именованных полей нет вовсе, и «by Error Type / by MCA bank /
+        // by APIC ID» выходили пустыми на машине с девятью фатальными ошибками.
+        var run = Body("whea");
+
+        Assert.Contains("Parse-Cper", run);
+        Assert.Contains("Get-CperBytes", run);
+        Assert.Contains("by CPER", run);
+        Assert.Contains("Imenovannyh poley ErrorType net", run);   // пустота объяснена, а не молчит
+        Assert.Contains("kanal", run);                              // MCE / PCIe / CMC
+    }
+
+    [Fact]
     public void LiveKernelProbe_LooksWhereTdrDumpsActuallyLand()
     {
         // Регрессия (п.37): по заявке «вылетает игра» отчёт говорил «всё чисто», а рядом

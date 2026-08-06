@@ -292,7 +292,8 @@ public static class DiagnosticProbes
         // без APIC ID и без общего числа — по такому отчёту это невидимо (бэклог п.44).
         // Поля MCA (банк, MciStat, тип ошибки) раньше приходилось доставать отдельным exec
         // из EventData XML — теперь они в отчёте (п.18).
-        Probe("whea", "Аппаратные ошибки железа (WHEA-Logger, все уровни)", """
+        Probe("whea", "Аппаратные ошибки железа (WHEA-Logger, все уровни)",
+            CperDecoder.PowerShellPrologue() + """
             $whea = @()
             try { $whea = @(Get-WinEvent -FilterHashtable @{ LogName='System'; ProviderName='Microsoft-Windows-WHEA-Logger' } -ErrorAction Stop) } catch { }
             if ($whea.Count -eq 0) {
@@ -302,11 +303,27 @@ public static class DiagnosticProbes
                 $rows = foreach ($e in $whea) {
                     $d = @{}
                     try { $x = [xml]$e.ToXml(); foreach ($p in $x.Event.EventData.Data) { $d[$p.Name] = $p.'#text' } } catch { }
+                    # Id=1 (fatal) has NO named fields at all - everything sits in the binary
+                    # data section, so aggregation used to come out empty exactly where it
+                    # mattered (backlog p.68). Fall back to the CPER record.
+                    $cper = $null
+                    if (-not $d['ErrorType'] -and -not $d['ApicId']) {
+                        try { $cper = Parse-Cper (Get-CperBytes $e) } catch { }
+                    }
+                    if ($cper) {
+                        if ($null -ne $cper.ApicId -and -not $d['ApicId']) { $d['ApicId'] = "$($cper.ApicId)" }
+                        $d['CperSeverity'] = $cper.Severity
+                        $d['CperNotify']   = $cper.Notification
+                        $d['CperSections'] = (($cper.Sections | ForEach-Object { "$($_.Type) [$($_.Severity)]" }) -join ', ')
+                    }
                     [PSCustomObject]@{
                         Time     = $e.TimeCreated
                         Id       = $e.Id
                         Level    = $e.LevelDisplayName
                         ApicId   = $d['ApicId']
+                        CperSev  = $d['CperSeverity']
+                        Channel  = $d['CperNotify']
+                        CperSect = $d['CperSections']
                         Bank     = $d['MciBank']
                         ErrType  = $d['ErrorType']
                         MciStat  = $d['MciStat']
@@ -324,8 +341,26 @@ public static class DiagnosticProbes
                 "--- by Id ---"
                 $rows | Group-Object Id | Sort-Object Count -Descending | ForEach-Object { "Id {0}: {1}" -f $_.Name, $_.Count }
                 "--- by Error Type ---"
-                $rows | Where-Object { $_.ErrType } | Group-Object ErrType | Sort-Object Count -Descending |
-                    ForEach-Object { "{0} ({1}): {2}" -f $_.Name, $(if ($ERRTYPE[$_.Name]) { $ERRTYPE[$_.Name] } else { 'unknown' }), $_.Count }
+                $typed = @($rows | Where-Object { $_.ErrType })
+                if ($typed.Count -gt 0) {
+                    $typed | Group-Object ErrType | Sort-Object Count -Descending |
+                        ForEach-Object { "{0} ({1}): {2}" -f $_.Name, $(if ($ERRTYPE[$_.Name]) { $ERRTYPE[$_.Name] } else { 'unknown' }), $_.Count }
+                } else {
+                    "Imenovannyh poley ErrorType net (tipichno dlya Id=1) - smotri razbor binarnoy zapisi nizhe."
+                }
+
+                "--- by CPER (binarnaya zapis: kanal / sekcii / severity) ---"
+                $cpered = @($rows | Where-Object { $_.Channel })
+                if ($cpered.Count -gt 0) {
+                    $cpered | Group-Object Channel | Sort-Object Count -Descending |
+                        ForEach-Object { "kanal {0}: {1}" -f $_.Name, $_.Count }
+                    $cpered | Group-Object CperSect | Sort-Object Count -Descending |
+                        ForEach-Object { "sekcii {0}: {1}" -f $_.Name, $_.Count }
+                    $cpered | Group-Object CperSev | Sort-Object Count -Descending |
+                        ForEach-Object { "severity {0}: {1}" -f $_.Name, $_.Count }
+                } else {
+                    "Binarnuyu zapis razobrat ne udalos (net baytov CPER v svoystvah sobytiya)."
+                }
                 "--- by MCA bank ---"
                 $rows | Where-Object { $_.Bank } | Group-Object Bank | Sort-Object Count -Descending |
                     ForEach-Object { "Bank {0}: {1}" -f $_.Name, $_.Count }
@@ -349,7 +384,7 @@ public static class DiagnosticProbes
                     ForEach-Object { "{0}: {1}" -f $_.Name, $_.Count }
                 ""
                 "=== LAST 20 EVENTS (details) ==="
-                $rows | Select-Object -First 20 | Format-Table Time, Id, ApicId, Bank, ErrType, MciStat -Auto | Out-String
+                $rows | Select-Object -First 20 | Format-Table Time, Id, ApicId, Bank, ErrType, MciStat, Channel, CperSev -Auto | Out-String
                 if ($rows.Count -gt 20) { "... {0} earlier events not listed (see summary above)" -f ($rows.Count - 20) }
                 "=== MciStat bit flags (last 5) ==="
                 foreach ($r in ($rows | Select-Object -First 5 | Where-Object { $_.MciStat })) {
