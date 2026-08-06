@@ -93,24 +93,18 @@ public static class SensorsCommand
             return 1;
         }
 
-        try
+        // Сетевые сбои не ловим здесь: их разбирает общий обработчик CLI (CliErrors, п.70/78) —
+        // одна строка вместо стектрейса, одинаковая для всех подкоманд.
+        var status = await client.ExecStatusAsync(sz, run.JobId, 20);
+        if (status is null)
         {
-            var status = await client.ExecStatusAsync(sz, run.JobId, 20);
-            if (status is null)
-            {
-                AnsiConsole.MarkupLineInterpolated($"[red]СЗ {sz} не найдена[/] среди активных.");
-                return 1;
-            }
-            var state = status.Running ? "[yellow]идёт[/]" : $"[grey]завершён[/] (exit {status.ExitCode})";
-            AnsiConsole.MarkupLineInterpolated($"Наблюдатель {run.JobId}: {state}, CSV {run.CsvPath}");
-            if (!string.IsNullOrEmpty(status.Error)) AnsiConsole.MarkupLineInterpolated($"[red]{status.Error}[/]");
-            return 0;
-        }
-        catch (TimeoutException ex)
-        {
-            AnsiConsole.MarkupLineInterpolated($"[red]Таймаут:[/] {ex.Message}");
+            AnsiConsole.MarkupLineInterpolated($"[red]СЗ {sz} не найдена[/] среди активных.");
             return 1;
         }
+        var state = status.Running ? "[yellow]идёт[/]" : $"[grey]завершён[/] (exit {status.ExitCode})";
+        AnsiConsole.MarkupLineInterpolated($"Наблюдатель {run.JobId}: {state}, CSV {run.CsvPath}");
+        if (!string.IsNullOrEmpty(status.Error)) AnsiConsole.MarkupLineInterpolated($"[red]{status.Error}[/]");
+        return 0;
     }
 
     private static async Task<int> StopAsync(IHubApiClient client, string sz, string stateDir)

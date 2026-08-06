@@ -44,6 +44,11 @@ if (szArgIndex > 0 && !SzNumber.IsValid(args[szArgIndex]))
     return 2;
 }
 
+// Сетевые сбои разбираются один раз на весь CLI: раньше обработка была точечной, и каждая
+// новая команда приезжала без неё — `sensors status` под нагрузкой выдавал 25 строк
+// TaskCanceledException вместо строки «агент не ответил» (бэклог п.70/78).
+try
+{
 switch (command)
 {
     case "list":
@@ -181,28 +186,20 @@ switch (command)
     {
         var pushSz = args[1];
         var tool = args[2];
-        try
+        var res = await client.PushAsync(pushSz, tool);
+        if (res is null)
         {
-            var res = await client.PushAsync(pushSz, tool);
-            if (res is null)
-            {
-                AnsiConsole.MarkupLineInterpolated($"[red]СЗ {pushSz} не найдена[/] среди активных.");
-                return 1;
-            }
-            if (!string.IsNullOrEmpty(res.Error))
-            {
-                AnsiConsole.MarkupLineInterpolated($"[red]Доставка не удалась:[/] {res.Error}");
-                return 1;
-            }
-            AnsiConsole.MarkupLineInterpolated(
-                $"[green]✓ {tool}[/] → {res.TargetDir} (скачано {res.Downloaded}, уже было {res.Skipped}, {res.Bytes / 1024d / 1024d:N1} МБ)");
-            break;
-        }
-        catch (TimeoutException ex)
-        {
-            AnsiConsole.MarkupLineInterpolated($"[red]Таймаут:[/] {ex.Message}");
+            AnsiConsole.MarkupLineInterpolated($"[red]СЗ {pushSz} не найдена[/] среди активных.");
             return 1;
         }
+        if (!string.IsNullOrEmpty(res.Error))
+        {
+            AnsiConsole.MarkupLineInterpolated($"[red]Доставка не удалась:[/] {res.Error}");
+            return 1;
+        }
+        AnsiConsole.MarkupLineInterpolated(
+            $"[green]✓ {tool}[/] → {res.TargetDir} (скачано {res.Downloaded}, уже было {res.Skipped}, {res.Bytes / 1024d / 1024d:N1} МБ)");
+        break;
     }
 
     // pull: забрать файл(ы) с клиента (дампы, CSV, логи). Путь может быть маской или папкой.
@@ -215,37 +212,29 @@ switch (command)
         if (mIdx >= 0 && args.Length > mIdx + 1 && long.TryParse(args[mIdx + 1], out var mb))
             maxBytes = mb * 1024 * 1024;
 
-        try
+        var res = await client.PullAsync(pullSz, pullPath, maxBytes);
+        if (res is null)
         {
-            var res = await client.PullAsync(pullSz, pullPath, maxBytes);
-            if (res is null)
-            {
-                AnsiConsole.MarkupLineInterpolated($"[red]СЗ {pullSz} не найдена[/] среди активных.");
-                return 1;
-            }
-            if (!string.IsNullOrEmpty(res.Error))
-            {
-                AnsiConsole.MarkupLineInterpolated($"[red]Забор не удался:[/] {res.Error}");
-                return 1;
-            }
-
-            foreach (var f in res.Files)
-            {
-                var size = $"{f.Size / 1024d / 1024d:N1} МБ";
-                if (f.Skipped)
-                    AnsiConsole.MarkupLineInterpolated($"[yellow]✗ {f.Name}[/] ({size}) — {f.SkipReason}");
-                else
-                    AnsiConsole.MarkupLineInterpolated($"[green]✓ {f.Name}[/] ({size}) → {f.SavedPath}");
-            }
-            var ok = res.Files.Count(f => !f.Skipped);
-            AnsiConsole.MarkupLineInterpolated($"[grey]Забрано файлов: {ok} из {res.Files.Count}[/]");
-            return ok == 0 ? 1 : 0;
-        }
-        catch (TimeoutException ex)
-        {
-            AnsiConsole.MarkupLineInterpolated($"[red]Таймаут:[/] {ex.Message}");
+            AnsiConsole.MarkupLineInterpolated($"[red]СЗ {pullSz} не найдена[/] среди активных.");
             return 1;
         }
+        if (!string.IsNullOrEmpty(res.Error))
+        {
+            AnsiConsole.MarkupLineInterpolated($"[red]Забор не удался:[/] {res.Error}");
+            return 1;
+        }
+
+        foreach (var f in res.Files)
+        {
+            var size = $"{f.Size / 1024d / 1024d:N1} МБ";
+            if (f.Skipped)
+                AnsiConsole.MarkupLineInterpolated($"[yellow]✗ {f.Name}[/] ({size}) — {f.SkipReason}");
+            else
+                AnsiConsole.MarkupLineInterpolated($"[green]✓ {f.Name}[/] ({size}) → {f.SavedPath}");
+        }
+        var ok = res.Files.Count(f => !f.Skipped);
+        AnsiConsole.MarkupLineInterpolated($"[grey]Забрано файлов: {ok} из {res.Files.Count}[/]");
+        return ok == 0 ? 1 : 0;
     }
 
     // exec --result <jobId>: забрать состояние и хвост вывода фоновой задачи. Короткий
@@ -255,31 +244,23 @@ switch (command)
         var tailIdx = Array.FindIndex(args, a => a.Equals("--tail", StringComparison.OrdinalIgnoreCase));
         var tailLines = tailIdx >= 0 && args.Length > tailIdx + 1 && int.TryParse(args[tailIdx + 1], out var tl)
             ? tl : ExecLimits.DefaultTailLines;
-        try
+        var status = await client.ExecStatusAsync(args[1], args[3], tailLines);
+        if (status is null)
         {
-            var status = await client.ExecStatusAsync(args[1], args[3], tailLines);
-            if (status is null)
-            {
-                AnsiConsole.MarkupLineInterpolated($"[red]СЗ {args[1]} не найдена[/] среди активных.");
-                return 1;
-            }
-            if (!string.IsNullOrEmpty(status.Error))
-            {
-                AnsiConsole.MarkupLineInterpolated($"[red]{status.Error}[/]");
-                return 1;
-            }
-            var state = status.Running
-                ? $"[yellow]выполняется[/] ({SessionTableRenderer.FormatElapsed(DateTimeOffset.Now - status.StartedAt)})"
-                : $"[green]завершена[/] (exit {status.ExitCode})";
-            AnsiConsole.MarkupLineInterpolated($"Задача {args[3]}: {state}, вывода {status.OutputBytes} б");
-            if (!string.IsNullOrEmpty(status.Tail)) Console.WriteLine(status.Tail);
-            return 0;
-        }
-        catch (TimeoutException ex)
-        {
-            AnsiConsole.MarkupLineInterpolated($"[red]Таймаут:[/] {ex.Message}");
+            AnsiConsole.MarkupLineInterpolated($"[red]СЗ {args[1]} не найдена[/] среди активных.");
             return 1;
         }
+        if (!string.IsNullOrEmpty(status.Error))
+        {
+            AnsiConsole.MarkupLineInterpolated($"[red]{status.Error}[/]");
+            return 1;
+        }
+        var state = status.Running
+            ? $"[yellow]выполняется[/] ({SessionTableRenderer.FormatElapsed(DateTimeOffset.Now - status.StartedAt)})"
+            : $"[green]завершена[/] (exit {status.ExitCode})";
+        AnsiConsole.MarkupLineInterpolated($"Задача {args[3]}: {state}, вывода {status.OutputBytes} б");
+        if (!string.IsNullOrEmpty(status.Tail)) Console.WriteLine(status.Tail);
+        return 0;
     }
 
     // exec: ad-hoc PowerShell на агенте (без SSH). Скрипт строкой или -f <файл>.
@@ -313,34 +294,35 @@ switch (command)
 
         var detach = args.Any(a => a.Equals("--detach", StringComparison.OrdinalIgnoreCase));
 
-        try
+        var execRes = await client.ExecAsync(execSz, script, execTimeout, default, detach);
+        if (execRes is null)
         {
-            var res = await client.ExecAsync(execSz, script, execTimeout, default, detach);
-            if (res is null)
-            {
-                AnsiConsole.MarkupLineInterpolated($"[red]СЗ {execSz} не найдена[/] среди активных.");
-                break;
-            }
-            // CLIXML разворачиваем на своей стороне: ошибка PowerShell должна читаться как
-            // ошибка, а не как XML-дамп с _x000D__x000A_ вместо переносов (бэклог п.28).
-            if (!string.IsNullOrEmpty(res.StdOut)) Console.WriteLine(CliXml.Decode(res.StdOut).TrimEnd());
-            if (!string.IsNullOrEmpty(res.StdErr))
-                AnsiConsole.MarkupLineInterpolated($"[yellow]stderr:[/] {CliXml.Decode(res.StdErr).TrimEnd()}");
-            if (res.Truncated) AnsiConsole.MarkupLine("[yellow]⚠ вывод обрезан по лимиту[/]");
-            if (res.TimedOut) AnsiConsole.MarkupLine("[red]⚠ скрипт остановлен по таймауту[/]");
-            if (res.ExitCode != 0)
-                AnsiConsole.MarkupLineInterpolated($"[yellow]exit code: {res.ExitCode}[/]");
+            AnsiConsole.MarkupLineInterpolated($"[red]СЗ {execSz} не найдена[/] среди активных.");
+            return 1;
         }
-        catch (TimeoutException ex)
-        {
-            AnsiConsole.MarkupLineInterpolated($"[red]Таймаут:[/] {ex.Message}");
-        }
+        // CLIXML разворачиваем на своей стороне: ошибка PowerShell должна читаться как
+        // ошибка, а не как XML-дамп с _x000D__x000A_ вместо переносов (бэклог п.28).
+        if (!string.IsNullOrEmpty(execRes.StdOut)) Console.WriteLine(CliXml.Decode(execRes.StdOut).TrimEnd());
+        if (!string.IsNullOrEmpty(execRes.StdErr))
+            AnsiConsole.MarkupLineInterpolated($"[yellow]stderr:[/] {CliXml.Decode(execRes.StdErr).TrimEnd()}");
+        if (execRes.JobId is not null)
+            AnsiConsole.MarkupLineInterpolated($"[grey]Фоновая задача:[/] szcli exec {execSz} --result {execRes.JobId}");
+        if (execRes.Truncated) AnsiConsole.MarkupLine("[yellow]⚠ вывод обрезан по лимиту[/]");
+        if (execRes.TimedOut) AnsiConsole.MarkupLine("[red]⚠ скрипт остановлен по таймауту[/]");
+        if (execRes.ExitCode != 0)
+            AnsiConsole.MarkupLineInterpolated($"[yellow]exit code: {execRes.ExitCode}[/]");
         break;
     }
 
     default:
         PrintUsage();
         break;
+}
+}
+catch (Exception ex) when (CliErrors.IsExpected(ex))
+{
+    AnsiConsole.MarkupLineInterpolated($"[red]{CliErrors.Describe(ex, options.HubBaseUrl)}[/]");
+    return CliErrors.ExitCode(ex);
 }
 
 return 0;
