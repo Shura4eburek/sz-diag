@@ -27,7 +27,7 @@
 | `check-load.ps1` | хвост CSV: нагрузка реально идёт или это часы простоя | часть `szcli sensors status` |
 | `check-voltages.ps1` | какие линии питания на этой машине реально мерятся (+ защита от заглушки-константы) | секция в `szcli sensors report` |
 | `idle-check.ps1` | машина реально СТОИТ: аптайм, стресс-процессы, задачи, сон/гибернация, последние 41/6008 | `szcli list` должен различать «простаивает» и «под нагрузкой» |
-| `kp41-detail.ps1` | разбор `Kernel-Power 41` по полям: кнопка / BSOD / hard-off + WHEA за период | `szcli reboots` должен сверяться с журналом клиента (бэклог п.92) |
+| `kp41-detail.ps1` | разбор `Kernel-Power 41` по полям: кнопка / BSOD / hard-off + WHEA за период | `szcli reboots` должен сверяться с журналом клиента (бэклог п.97) |
 | `cleanup-stress.ps1` | снятие задач, процессов, **драйвера `R0lhmmon`**, исключения Defender, `C:\OCCT` | шаг `szcli close` (бэклог п.88) |
 
 Порядок для стресс-прогона: `inventory` → `prep-stress` → `make-gpu-schedule` → `start-sensors`
