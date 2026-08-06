@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<assembly manifestVersion="1.0" xmlns="urn:schemas-microsoft-com:asm.v1">
+  <trustInfo xmlns="urn:schemas-microsoft-com:asm.v2">
+    <security>
+      <requestedPrivileges xmlns="urn:schemas-microsoft-com:asm.v3">
+        <!-- Апдейтер — точка входа на клиенте, он запускает агента с requireAdministrator.
+             Без этого манифеста двойной клик из проводника даёт процесс без прав, и
+             Process.Start(agent.exe) падает с ERROR_ELEVATION_REQUIRED (740): окно
+             закрывается быстрее, чем видно сообщение (бэклог п.74). -->
+        <requestedExecutionLevel level="requireAdministrator" uiAccess="false" />
+      </requestedPrivileges>
+    </security>
+  </trustInfo>
+</assembly>

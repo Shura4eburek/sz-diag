@@ -21,6 +21,9 @@
     <Nullable>enable</Nullable>
     <RuntimeIdentifiers>win-x64</RuntimeIdentifiers>
     <AssemblyName>SzDiag.Updater</AssemblyName>
+    <!-- Точка входа на клиенте запускает агента, которому нужен админ: без манифеста
+         двойной клик даёт молчаливый выход с кодом 4 (см. app.manifest). -->
+    <ApplicationManifest>app.manifest</ApplicationManifest>
   </PropertyGroup>
 
 </Project>
