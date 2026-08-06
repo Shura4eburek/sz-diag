@@ -375,10 +375,18 @@ public static class DiagnosticProbes
         // Minidump ничего не ложится. На 160521 из-за этого отчёт по заявке «вылетает игра»
         // показал «всё чисто», хотя рядом лежали 14 WATCHDOG-дампов и LiveKernelEvent 0x141
         // в ту же секунду, что и краш игры (бэклог п.37/п.21).
-        Probe("livekernel", "Живые дампы ядра (TDR / watchdog, без BSOD)", """
-            $P1 = @{'117'='VIDEO_TDR_TIMEOUT_DETECTED';'141'='VIDEO_ENGINE_TIMEOUT_DETECTED';
-                    '116'='VIDEO_TDR_ERROR';'119'='VIDEO_SCHEDULER_INTERNAL_ERROR';
-                    '424'='0x1a8 watchdog';'440'='0x1b8 watchdog';'193'='VIDEO_DXGKRNL_LIVEDUMP'}
+        Probe("livekernel", "Живые дампы ядра (TDR / watchdog, без BSOD)",
+            BugcheckCodes.PowerShellPrologue() + """
+            # Windows writes LiveKernelEvent P1 in HEX without a prefix: '124' here means
+            # 0x124 WHEA_UNCORRECTABLE_ERROR. The section used to print it raw, so 148 proofs
+            # of a hardware error read as noise (backlog p.69).
+            function Fmt-P1($p1) {
+                if (-not $p1) { return '' }
+                $h = ($p1 -replace '^0x','')
+                $n = 0
+                if (-not [int]::TryParse($h, [System.Globalization.NumberStyles]::HexNumber, $null, [ref]$n)) { return "$p1" }
+                Fmt-Bug $n
+            }
             "=== C:\Windows\LiveKernelReports ==="
             $lk = @(Get-ChildItem 'C:\Windows\LiveKernelReports' -Recurse -Filter *.dmp -ErrorAction SilentlyContinue)
             if ($lk.Count -gt 0) {
@@ -395,17 +403,47 @@ public static class DiagnosticProbes
             $wer = @(Get-WinEvent -FilterHashtable @{ LogName='Application'; Id=1001 } -ErrorAction SilentlyContinue |
                 Where-Object { $_.Message -match 'LiveKernelEvent' })
             if ($wer.Count -gt 0) {
-                "TOTAL: {0}" -f $wer.Count
-                $wer | Select-Object -First 20 | ForEach-Object {
+                $evts = foreach ($e in $wer) {
                     $p1 = ''
-                    if ($_.Message -match 'P1:\s*([0-9a-fA-Fx]+)') { $p1 = $matches[1] }
-                    $name = ''
-                    if ($p1) {
-                        $dec = $p1
-                        if ($p1 -match '^0x') { $dec = [Convert]::ToInt64($p1, 16) }
-                        if ($P1["$dec"]) { $name = $P1["$dec"] }
+                    if ($e.Message -match 'P1:\s*([0-9a-fA-Fx]+)') { $p1 = $matches[1] }
+                    [PSCustomObject]@{ Time = $e.TimeCreated; P1 = $p1; Code = (Fmt-P1 $p1) }
+                }
+                $evts = @($evts | Sort-Object Time -Descending)
+                "TOTAL: {0}, first {1:yyyy-MM-dd HH:mm:ss}, last {2:yyyy-MM-dd HH:mm:ss}" -f `
+                    $evts.Count, $evts[-1].Time, $evts[0].Time
+
+                "--- by code (hex + imya, ne syroy P1) ---"
+                $evts | Group-Object Code | Sort-Object Count -Descending | ForEach-Object {
+                    $g = $_.Group | Sort-Object Time
+                    "{0} - {1} sobytiy ({2:dd.MM}-{3:dd.MM})" -f $_.Name, $_.Count, $g[0].Time, $g[-1].Time
+                }
+
+                # Timeline, not just counters: on 161312 '298 events, every day' turned out to be
+                # bursts of 8 within ONE second - DWM takes diagnostic snapshots when a 3D window
+                # closes, i.e. traces of a stress test stopping, not a defect (backlog p.94).
+                # Discriminator: a dump file written around the same time.
+                "--- gruppy po vremeni (pachka = >=3 sobytiy v odnu sekundu) ---"
+                $groups = $evts | Group-Object { $_.Time.ToString('yyyy-MM-dd HH:mm:ss') } | Sort-Object Name -Descending
+                $withDump = 0; $artifacts = 0
+                $shown = 0
+                foreach ($g in $groups) {
+                    $t = [datetime]::ParseExact($g.Name, 'yyyy-MM-dd HH:mm:ss', $null)
+                    # A dump written within +-2 minutes marks a REAL event.
+                    $near = @($lk | Where-Object { [math]::Abs(($_.LastWriteTime - $t).TotalSeconds) -le 120 })
+                    $real = $near.Count -gt 0
+                    if ($real) { $withDump += $g.Count } else { $artifacts += $g.Count }
+                    if ($shown -lt 25) {
+                        $mark = if ($real) { "NASTOYASHEE (ryadom damp: {0})" -f $near[0].Name }
+                                elseif ($g.Count -ge 3) { 'pachka bez dampa - veroyatno artefakt zakrytiya 3D-prilozheniya (stress-test)' }
+                                else { 'bez dampa' }
+                        "{0} x{1} [{2}] {3}" -f $g.Name, $g.Count, (($g.Group | Select-Object -First 1).Code), $mark
+                        $shown++
                     }
-                    "[{0}] P1={1} {2}" -f $_.TimeCreated, $p1, $name
+                }
+                if ($groups.Count -gt 25) { "... esche {0} grupp ne pokazano" -f ($groups.Count - 25) }
+                "ITOGO: sobytiy s dampom {0}, veroyatnyh artefaktov {1} (iz {2})" -f $withDump, $artifacts, $evts.Count
+                if ($withDump -eq 0 -and $evts.Count -gt 0) {
+                    "VNIMANIE: ni odno sobytie ne podtverzhdeno dampom - schitat 'videopodsistema sypetsya' po etim cifram NELZYA (p.94)."
                 }
             } else { "none" }
 

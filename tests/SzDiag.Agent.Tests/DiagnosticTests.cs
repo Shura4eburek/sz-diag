@@ -94,6 +94,33 @@ public class DiagnosticProbesTests
     }
 
     [Fact]
+    public void LiveKernelProbe_DecodesP1AsHexThroughSharedTable()
+    {
+        // Регрессия (п.69): 148 событий печатались как `P1=124`, хотя это
+        // 0x124 WHEA_UNCORRECTABLE_ERROR — перевод уже был сделан, но только для reboots.
+        var run = Body("livekernel");
+
+        Assert.Contains("Fmt-Bug", run);                          // общая таблица, а не своя копия
+        Assert.Contains("Fmt-P1", run);
+        Assert.Contains("NumberStyles]::HexNumber", run);         // P1 читается как hex
+        Assert.Contains("'292'='WHEA_UNCORRECTABLE_ERROR'", run); // 0x124 в прологе
+        Assert.Contains("by code", run);                          // свод по кодам с периодом
+    }
+
+    [Fact]
+    public void LiveKernelProbe_SeparatesRealEventsFromBurstArtifacts()
+    {
+        // Регрессия (п.94): «298 событий, сыпется каждый день» оказалось пачками по 8 в одну
+        // секунду — следами закрытия 3D-окна после стресс-теста, на исправном железе.
+        var run = Body("livekernel");
+
+        Assert.Contains("pachka", run);
+        Assert.Contains("artefakt zakrytiya 3D-prilozheniya", run);
+        Assert.Contains("ITOGO: sobytiy s dampom", run);
+        Assert.Contains("ryadom damp", run);   // дискриминатор — свежий файл дампа
+    }
+
+    [Fact]
     public void ReliabilityProbe_SaysNoMinidumpsIsNotNoKernelCrashes()
     {
         var run = Body("reliability");
