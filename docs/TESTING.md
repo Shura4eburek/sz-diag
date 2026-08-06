@@ -152,6 +152,12 @@ Station/Desktop**. Любой GUI-процесс, запущенный напр�
   ```
   Рабочая директория у `schtasks /tr` не резолвится сама — оборачивай в `.bat`
   с `cd /d <путь>` или указывай в самом `.ps1`.
+  **`.bat` в `/tr` напрямую не запускается** — Task Scheduler зовёт `CreateProcess`,
+  а `.bat` не исполняемый файл, поэтому задача мгновенно возвращает
+  `LastTaskResult: 1` («Incorrect function») и **ни строчки** не пишет ни в лог bat'а,
+  ни в `TaskScheduler/Operational`. Снаружи выглядит как «тула молча не стартует».
+  Всегда оборачивай: `/tr "cmd.exe /c <путь к .bat>"` (или `-Execute 'cmd.exe'
+  -Argument '/c <bat>'` у `New-ScheduledTaskAction`). Проверено на 161312.
 - **UAC / кастомные admin-диалоги** — даже с рабочим десктопом настоящий UAC
   consent рисуется на **Secure Desktop**, отдельном от обычного: ни
   `EnumWindows`, ни `SendKeys`/`PostMessage` туда не достают в принципе, это
