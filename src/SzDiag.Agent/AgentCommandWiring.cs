@@ -85,6 +85,14 @@ public static class AgentCommandWiring
         // Обработчик сам НЕ бросает: любая ошибка уходит ответом, иначе вызывающий на хосте
         // просто ждал бы таймаута, не понимая, что случилось.
         var execHandler = new ExecCommandHandler(ps);
+        // Сколько синхронных exec выполняется прямо сейчас и с какого времени. SignalR
+        // обрабатывает входящие вызовы ПОСЛЕДОВАТЕЛЬНО: пока обработчик не вернулся, все
+        // следующие команды (включая `--detach`, смысл которого — проходить всегда) стоят в
+        // очереди. На 161312 после серии синхронных exec агент перестал принимать что-либо
+        // при живом heartbeat и живом SSH (бэклог п.79).
+        var syncRunning = 0;
+        DateTimeOffset? syncStartedAt = null;
+
         link.OnExec(async req =>
         {
             // Ack уходит ДО запуска: иначе «команда не дошла» и «скрипт долго идёт»
@@ -93,9 +101,44 @@ public static class AgentCommandWiring
 
             var mode = req.Detached ? "фоном" : $"таймаут {req.TimeoutSeconds}с";
             announce($"Exec на СЗ {req.Sz} ({req.Script.Length} символов, {mode})…", null);
-            var result = execHandler.Handle(req);
-            try { await link.SendExecResultAsync(result); }
-            catch (Exception ex) { announce($"Не смог вернуть результат exec: {ex.Message}", null); }
+
+            // Фоновая задача стартует мгновенно — её обрабатываем прямо здесь.
+            if (req.Detached)
+            {
+                var detached = execHandler.Handle(req);
+                try { await link.SendExecResultAsync(detached); }
+                catch (Exception ex) { announce($"Не смог вернуть результат exec: {ex.Message}", null); }
+                return;
+            }
+
+            // Второй синхронный exec поверх идущего — отвечаем сразу и внятно: «занят».
+            // Молчание здесь и есть та самая залипшая очередь.
+            if (Interlocked.CompareExchange(ref syncRunning, 1, 0) != 0)
+            {
+                var busyFor = syncStartedAt is { } at ? (DateTimeOffset.UtcNow - at).TotalSeconds : 0;
+                var busy = new ExecResult(req.RequestId, -1, "",
+                    $"агент уже выполняет команду ({busyFor:N0} с). Дождись её или запусти новую с --detach.");
+                try { await link.SendExecResultAsync(busy); } catch { }
+                return;
+            }
+
+            // Выполняем ВНЕ обработчика: иначе длинный скрипт держит весь канал команд —
+            // ни pull, ни push, ни detach через него не пройдут.
+            syncStartedAt = DateTimeOffset.UtcNow;
+            _ = Task.Run(async () =>
+            {
+                try
+                {
+                    var result = execHandler.Handle(req);
+                    try { await link.SendExecResultAsync(result); }
+                    catch (Exception ex) { announce($"Не смог вернуть результат exec: {ex.Message}", null); }
+                }
+                finally
+                {
+                    syncStartedAt = null;
+                    Interlocked.Exchange(ref syncRunning, 0);
+                }
+            });
         });
 
         link.OnExecStatus(async req =>

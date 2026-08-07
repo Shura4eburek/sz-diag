@@ -237,6 +237,12 @@ if (args.Length >= 2 && args[0] == "--resume")
     using var rCts = new CancellationTokenSource();
     // Активность по живым процессам — и после ребута тоже: иначе в колонке навсегда
     // останется «готов (после ребута)», под каким бы прогоном машина ни стояла (п.73).
+    // Тот же сторож sshd после ребута: headless-агент тем более не может рассчитывать на
+    // человека у машины (бэклог п.95).
+    var rSshdWatchdog = SshdWatchdog.Start(rSshd, rOpts.SshPort,
+        $"{rPubKey.Trim()} {state.AuthorizedKeyComment}", state.SshdTaskName,
+        rCts.Token, (plain, _) => { logFile.WriteLine(plain); logFile.Flush(); });
+
     var rActivity = AgentCommandWiring.StartActivityReporter(rLink, state.Sz,
         () => ActivityProbe.Describe(ActivityProbe.RunningStress(), rExec.RunningJobs(),
             "— готов (после ребута)"),
@@ -249,6 +255,7 @@ if (args.Length >= 2 && args[0] == "--resume")
     rCts.Cancel();
     try { await rHeartbeat; } catch { }
     try { await rActivity; } catch { }
+    try { await rSshdWatchdog; } catch { }
     logFile.WriteLine($"[resume] СЗ {state.Sz}: сессия закрыта, откат выполнен.");
     logFile.Flush();
     return 0;
@@ -555,6 +562,12 @@ var activityReporter = AgentCommandWiring.StartActivityReporter(link, sz,
 var channelWatchdog = AgentCommandWiring.StartChannelWatchdog(ps, $"szdiag-autostart-{sz}",
     cts.Token, (plain, markup) => Announce(plain, markup));
 
+// Сторож sshd: под стресс-прогоном он не только виснет, но и умирает совсем — и сам не
+// возвращается, а hub при этом показывает online, потому что heartbeat идёт (бэклог п.95).
+var sshdWatchdog = SshdWatchdog.Start(sshd, opts.SshPort,
+    $"{pubKey.Trim()} szdiag-{sz}", $"szdiag-sshd-{sz}",
+    cts.Token, (plain, markup) => Announce(plain, markup));
+
 // При липкой панели хоткеи живут в ней — в поток их не печатаем, чтобы не дублировать.
 if (sticky is null)
     term.MarkupLine("\n[green][[C]][/] Закрыть СЗ и откатить    [grey][[Q]][/] Выход без отката (не рекомендуется)");
@@ -575,6 +588,7 @@ cts.Cancel();
 try { await heartbeat; } catch (OperationCanceledException) { }
 try { await activityReporter; } catch (OperationCanceledException) { }
 try { await channelWatchdog; } catch (OperationCanceledException) { }
+try { await sshdWatchdog; } catch (OperationCanceledException) { }
 SleepGuard.Allow();
 Announce("Готово.", "[green]Готово.[/]");
 return 0;
