@@ -67,6 +67,34 @@ public class DiagnosticProbesTests
         => DiagnosticProbes.Suite.Steps.Single(s => s.Id == section).Run!;
 
     [Fact]
+    public void HistorySections_SeparateEventsFromOtherHardware()
+    {
+        // Регрессия (п.92): машину гоняли под переносной сервисной Windows, и diag выдал 79
+        // Kernel-Power 41 и 12 MCE «на одном ядре» — историю ЧУЖИХ машин, из которой чуть не
+        // выросла замена процессора.
+        foreach (var section in new[] { "reboots", "whea" })
+        {
+            var run = Body(section);
+            Assert.Contains("Write-HwWindow", run);
+            Assert.Contains("Split-ByHwWindow", run);
+            Assert.Contains("DRUGOGO zheleza", run);
+        }
+    }
+
+    [Fact]
+    public void HardwareWindow_Prologue_IsAsciiAndFailsSafe()
+    {
+        var ps = HardwareWindow.PowerShellPrologue();
+
+        Assert.All(ps, c => Assert.True(c < 128, $"не-ASCII в прологе окна железа: {c}"));
+        Assert.Contains("DEVPKEY_Device_InstallDate", ps);
+        // Без надёжного признака ничего не отсекаем и говорим об этом прямо: выдуманная
+        // граница хуже, чем её отсутствие.
+        Assert.Contains("return $null", ps);
+        Assert.Contains("schitat vsyu istoriyu svoey NELZYA", ps);
+    }
+
+    [Fact]
     public void WheaProbe_AggregatesByApicBankAndDate()
     {
         // Регрессия (п.44): 276 событий печатались 40 строками без APIC ID и без общего

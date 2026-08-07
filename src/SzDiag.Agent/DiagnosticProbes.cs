@@ -242,9 +242,20 @@ public static class DiagnosticProbes
         // установки ОС) читался как «сломалось в процессе эксплуатации». Событий этого типа
         // единицы-десятки, читать их все дёшево.
         Probe("reboots", "Перезагрузки: Kernel-Power 41 + dirty shutdown + BSOD-коды",
-            BugcheckCodes.PowerShellPrologue() + """
+            BugcheckCodes.PowerShellPrologue() + HardwareWindow.PowerShellPrologue() + """
+            "=== Okno etogo zheleza ==="
+            Write-HwWindow
+
             "=== Kernel-Power 41 (unexpected reboot) - FULL HISTORY ==="
-            $kp = @(Get-WinEvent -FilterHashtable @{ LogName='System'; ProviderName='Microsoft-Windows-Kernel-Power'; Id=41 } -ErrorAction SilentlyContinue)
+            $kpAll = @(Get-WinEvent -FilterHashtable @{ LogName='System'; ProviderName='Microsoft-Windows-Kernel-Power'; Id=41 } -ErrorAction SilentlyContinue)
+            # History from a portable service image belongs to OTHER machines: on 161432 it gave
+            # 79 hard-offs and 12 MCE 'on one core' that had nothing to do with the request (p.92).
+            $split = Split-ByHwWindow $kpAll
+            $kp = @($split.Ours)
+            if ($split.Foreign.Count -gt 0) {
+                "VNIMANIE: {0} sobytiy 41 otbrosheno kak istoriya DRUGOGO zheleza (do {1:yyyy-MM-dd HH:mm})." -f $split.Foreign.Count, $SZ_HW_SINCE
+                "  Ih daty: " + (($split.Foreign | Select-Object -First 5 | ForEach-Object { "{0:dd.MM.yyyy}" -f $_.TimeCreated }) -join ', ')
+            }
             if ($kp.Count -gt 0) {
                 $first = $kp[-1].TimeCreated; $last = $kp[0].TimeCreated
                 "TOTAL: {0} events, first {1:yyyy-MM-dd HH:mm:ss}, last {2:yyyy-MM-dd HH:mm:ss}" -f $kp.Count, $first, $last
@@ -306,7 +317,7 @@ public static class DiagnosticProbes
                 }
                 if ($kp.Count -gt 20) { "... {0} earlier events not listed (see totals and histogram above)" -f ($kp.Count - 20) }
                 "Podskazka: BugcheckCode=0, PowerButtonTs=0 i net BSOD/WHEA => zhestkiy obryv (pitanie/peregrev), a ne soft."
-            } else { "Kernel-Power 41: 0 events (net avariynyh vyrubonov v zhurnale)" }
+            } else { "Kernel-Power 41: 0 events na etom zheleze (net avariynyh vyrubonov v zhurnale)" }
             "=== Dirty shutdown / EventLog 6008/6005/6006 (last 20) ==="
             $ds = @(Get-WinEvent -FilterHashtable @{ LogName='System'; ProviderName='EventLog'; Id=6008,6005,6006 } -ErrorAction SilentlyContinue)
             "TOTAL 6008 (dirty shutdown): {0}" -f @($ds | Where-Object { $_.Id -eq 6008 }).Count
@@ -331,9 +342,18 @@ public static class DiagnosticProbes
         // Поля MCA (банк, MciStat, тип ошибки) раньше приходилось доставать отдельным exec
         // из EventData XML — теперь они в отчёте (п.18).
         Probe("whea", "Аппаратные ошибки железа (WHEA-Logger, все уровни)",
-            CperDecoder.PowerShellPrologue() + """
+            CperDecoder.PowerShellPrologue() + HardwareWindow.PowerShellPrologue() + """
+            "=== Okno etogo zheleza ==="
+            Write-HwWindow
             $whea = @()
             try { $whea = @(Get-WinEvent -FilterHashtable @{ LogName='System'; ProviderName='Microsoft-Windows-WHEA-Logger' } -ErrorAction Stop) } catch { }
+            # 12 'Cache Hierarchy Error' on APIC 6/7 from a portable image are a signature of
+            # SOMEONE ELSE's CPU - they must not reach the summary (backlog p.92).
+            $wheaSplit = Split-ByHwWindow $whea
+            $whea = @($wheaSplit.Ours)
+            if ($wheaSplit.Foreign.Count -gt 0) {
+                "VNIMANIE: {0} sobytiy WHEA otbrosheno kak istoriya DRUGOGO zheleza (do {1:yyyy-MM-dd HH:mm})." -f $wheaSplit.Foreign.Count, $SZ_HW_SINCE
+            }
             if ($whea.Count -eq 0) {
                 "none (apparatnyh oshibok ne logirovalos - vazhno: proverili VSE urovni, ne tolko Error)"
             } else {
