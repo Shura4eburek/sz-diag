@@ -141,6 +141,44 @@ public class RebootJournalTests : IDisposable
     }
 
     [Fact]
+    public async Task Store_MaintenanceWindow_TurnsEventIntoServiceWork()
+    {
+        // Регрессия (п.100): hard-off в простое переворачивал тактику, хотя питание в этот
+        // момент снимали руками — и нигде это не было записано.
+        var store = new SqliteSessionStore(Conn);
+        await store.InitializeAsync();
+        await store.RecordRebootAsync(new RebootEvent("160636", Boot2, Boot1, Boot2, 100, null,
+            ShutdownKind.HardOff));
+
+        await store.AddMaintenanceAsync(new MaintenanceWindow("160636",
+            Boot2.AddMinutes(-30), Boot2.AddMinutes(30), "гасили стенд на ночь"));
+
+        var timeline = await store.GetRebootsAsync("160636");
+
+        var evt = Assert.Single(timeline.Events);
+        Assert.Equal(ShutdownKind.Maintenance, evt.Kind);
+        Assert.False(evt.IsFailure);
+        Assert.Contains("гасили стенд", evt.ActivityBefore);
+    }
+
+    [Fact]
+    public async Task Store_MaintenanceWindow_DoesNotTouchEventsOutsideIt()
+    {
+        var store = new SqliteSessionStore(Conn);
+        await store.InitializeAsync();
+        await store.RecordRebootAsync(new RebootEvent("160636", Boot2, Boot1, Boot2, 100, null,
+            ShutdownKind.HardOff));
+
+        await store.AddMaintenanceAsync(new MaintenanceWindow("160636",
+            Boot2.AddHours(5), Boot2.AddHours(6), "перетыкали кабели"));
+
+        var evt = Assert.Single((await store.GetRebootsAsync("160636")).Events);
+
+        Assert.Equal(ShutdownKind.HardOff, evt.Kind);
+        Assert.True(evt.IsFailure);
+    }
+
+    [Fact]
     public void Register_Reconnect_DoesNotInventReboot()
     {
         // Под нагрузкой heartbeat опаздывает и SignalR переподключается — это не вырубон.

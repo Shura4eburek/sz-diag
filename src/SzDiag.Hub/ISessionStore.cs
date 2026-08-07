@@ -20,4 +20,11 @@ public interface ISessionStore
     /// записей добавилось: те, что hub уже видел сам (по времени ±5 минут), не дублируются
     /// (бэклог п.97).</summary>
     Task<int> MergeJournalEventsAsync(PowerEventsReport report, CancellationToken ct = default);
+
+    /// <summary>Отметить окно ручных работ с машиной: события питания внутри него — не дефект
+    /// (бэклог п.100).</summary>
+    Task AddMaintenanceAsync(MaintenanceWindow window, CancellationToken ct = default);
+
+    /// <summary>Окна ручных работ по СЗ.</summary>
+    Task<IReadOnlyList<MaintenanceWindow>> GetMaintenanceAsync(string sz, CancellationToken ct = default);
 }

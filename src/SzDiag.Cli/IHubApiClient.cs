@@ -17,4 +17,6 @@ public interface IHubApiClient
     Task<PushResult?> PushAsync(string sz, string tool, CancellationToken ct = default);
     Task<ToolCatalogInfo?> GetToolsAsync(CancellationToken ct = default);
     Task<RebootTimeline?> GetRebootsAsync(string sz, CancellationToken ct = default);
+    Task<bool> AddMaintenanceAsync(MaintenanceWindow window, CancellationToken ct = default);
+    Task<IReadOnlyList<MaintenanceWindow>> GetMaintenanceAsync(string sz, CancellationToken ct = default);
 }

@@ -52,6 +52,24 @@ public static class RebootSource
     public const string Journal = "journal";
 }
 
+/// <summary>Окно, в котором с машиной работали руками: гасили рубильником, перетыкали стенд,
+/// выключали на ночь. Событие питания внутри такого окна — не дефект.
+///
+/// Боль (бэклог п.100, СЗ 160636): hard-off 05.08 16:00:58 в простое переворачивал тактику
+/// («машина падает без нагрузки»), но в той же заявке питание дважды снимали руками, и было
+/// ли это третьим разом — нигде не записано. Событие так и осталось неопределённым: либо
+/// ключевая улика, либо шум.</summary>
+public sealed record MaintenanceWindow(
+    string Sz,
+    DateTimeOffset From,
+    DateTimeOffset Until,
+    string Reason)
+{
+    public bool Covers(DateTimeOffset at) => at >= From && at <= Until;
+
+    public bool IsActive(DateTimeOffset now) => Covers(now);
+}
+
 /// <summary>Событие питания из журнала клиента — то, что агент приносит hub при регистрации.</summary>
 /// <param name="Kind">Классификация по полям события (<see cref="ShutdownKind"/>).</param>
 public sealed record PowerEvent(DateTimeOffset At, string Kind);

@@ -104,6 +104,20 @@ public static class ManagementApi
         group.MapGet("/sessions/{sz}/reboots", async (string sz, ISessionStore store) =>
             Results.Ok(await store.GetRebootsAsync(sz)));
 
+        // Окна ручных работ: событие питания внутри окна — не дефект, а «гасили руками»
+        // (бэклог п.100). Ставится в том числе задним числом.
+        group.MapPost("/sessions/{sz}/maintenance", async (string sz, MaintenanceWindow body,
+            ISessionStore store) =>
+        {
+            if (string.IsNullOrWhiteSpace(body.Reason)) return Results.BadRequest("нужна причина");
+            if (body.Until < body.From) return Results.BadRequest("конец окна раньше начала");
+            await store.AddMaintenanceAsync(body with { Sz = sz });
+            return Results.Ok();
+        });
+
+        group.MapGet("/sessions/{sz}/maintenance", async (string sz, ISessionStore store) =>
+            Results.Ok(await store.GetMaintenanceAsync(sz)));
+
         group.MapGet("/sessions/{sz}/target", (string sz, SessionRegistry reg, IOptions<HubOptions> opts) =>
         {
             var s = reg.GetActive().FirstOrDefault(x => x.Sz == sz);

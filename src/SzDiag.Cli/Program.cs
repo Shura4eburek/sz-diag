@@ -74,6 +74,8 @@ switch (command)
             // клиента он не тронет — проверять надо ДО закрытия (бэклог п.56/99).
             AnsiConsole.MarkupLineInterpolated(
                 $"[grey]Проверить остатки на клиенте (пока агент жив):[/] szcli client info {args[1]}");
+            // Забытая метка обслуживания скроет реальный дефект — та же ловушка, что с unfreeze.
+            await MaintenanceCommand.WarnIfActiveAsync(client, args[1]);
         }
         else
             AnsiConsole.MarkupLineInterpolated($"[red]СЗ {args[1]} не найдена[/] среди активных.");
@@ -107,6 +109,11 @@ switch (command)
             $"[green]СЗ {restartSz}: перезапуск поставлен.[/] Через минуту СЗ должна вернуться в [green]online[/] — следи в szcli watch.");
         break;
     }
+
+    // maintenance: метка «с машиной работают руками» — событие питания в этом окне не
+    // дефект, а вечернее выключение стенда (бэклог п.100).
+    case "maintenance" when args.Length >= 2:
+        return await MaintenanceCommand.RunAsync(client, args);
 
     // client info|cleanup: следы прогонов на клиентской машине (задачи szdiag*, драйверы
     // инструментов, наши временные каталоги) — бэклог п.56/88/99.
@@ -405,6 +412,8 @@ static void PrintUsage()
                 [grey]-r — с подпапками (LiveKernelReports держит дампы в[/] WATCHDOG*[grey])[/]
               [yellow]szcli agent restart[/] [blue]<СЗ>[/]  поднять агента заново (задачей под SYSTEM, без похода к машине)
               [yellow]szcli client[/] [grey]info|cleanup <СЗ>[/]  следы прогонов на клиенте и их уборка
+              [yellow]szcli maintenance[/] [blue]<СЗ>[/] [grey]"причина" [[--from 18:30]] [[--until 19:15]] | --list[/]
+                [grey]метка «работали руками»: события питания в окне — не вырубон[/]
               [yellow]szcli kb[/] …               работа с базой знаний ([grey]record/summary/search/rm[/])
               [yellow]szcli hw[/] …               видяха по PCI hardware id
             [grey]Номер СЗ — 6 цифр.[/]

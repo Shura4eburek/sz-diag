@@ -158,6 +158,22 @@ public sealed class HubApiClient : IHubApiClient
         return await _http.GetFromJsonAsync<RebootTimeline>($"/api/sessions/{sz}/reboots", cts.Token);
     }
 
+    /// <summary>Отметить окно ручных работ с машиной (бэклог п.100).</summary>
+    public async Task<bool> AddMaintenanceAsync(MaintenanceWindow window, CancellationToken ct = default)
+    {
+        using var cts = Short(ct);
+        var resp = await _http.PostAsJsonAsync($"/api/sessions/{window.Sz}/maintenance", window, cts.Token);
+        return resp.StatusCode == HttpStatusCode.OK;
+    }
+
+    public async Task<IReadOnlyList<MaintenanceWindow>> GetMaintenanceAsync(string sz,
+        CancellationToken ct = default)
+    {
+        using var cts = Short(ct);
+        return await _http.GetFromJsonAsync<List<MaintenanceWindow>>(
+            $"/api/sessions/{sz}/maintenance", cts.Token) ?? new();
+    }
+
     public async Task<bool> TriggerDiagAsync(string sz, string? sections = null, CancellationToken ct = default)
     {
         var url = string.IsNullOrWhiteSpace(sections)

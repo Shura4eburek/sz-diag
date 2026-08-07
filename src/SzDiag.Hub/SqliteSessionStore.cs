@@ -43,6 +43,17 @@ public sealed class SqliteSessionStore : ISessionStore
                 source        TEXT    NULL
             );
             CREATE INDEX IF NOT EXISTS ix_reboots_sz ON reboots(sz);
+
+            -- Окна ручных работ: вечернее выключение стенда, рубильник, перетык кабелей.
+            -- Событие питания внутри окна — не дефект (бэклог п.100).
+            CREATE TABLE IF NOT EXISTS maintenance (
+                id        INTEGER PRIMARY KEY AUTOINCREMENT,
+                sz        TEXT    NOT NULL,
+                from_at   INTEGER NOT NULL,
+                until_at  INTEGER NOT NULL,
+                reason    TEXT    NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS ix_maintenance_sz ON maintenance(sz);
             """;
         await cmd.ExecuteNonQueryAsync(ct);
 
@@ -151,7 +162,68 @@ public sealed class SqliteSessionStore : ISessionStore
             ? null
             : DateTimeOffset.FromUnixTimeSeconds(Convert.ToInt64(raw));
 
+        // Окна ручных работ применяем на чтении, а не на записи: метку часто ставят задним
+        // числом («вчера вечером гасили стенд»), и таймлайн должен переосмыслиться сразу.
+        var windows = await ReadMaintenanceAsync(conn, sz, ct);
+        if (windows.Count > 0)
+        {
+            for (var i = 0; i < events.Count; i++)
+            {
+                var w = windows.FirstOrDefault(x => x.Covers(events[i].At));
+                if (w is null) continue;
+                events[i] = events[i] with
+                {
+                    Kind = ShutdownKind.Maintenance,
+                    ActivityBefore = string.IsNullOrWhiteSpace(events[i].ActivityBefore)
+                        ? w.Reason
+                        : $"{events[i].ActivityBefore} · {w.Reason}",
+                };
+            }
+        }
+
         return new RebootTimeline(sz, events, maxUptime, watchingSince);
+    }
+
+    public async Task AddMaintenanceAsync(MaintenanceWindow window, CancellationToken ct = default)
+    {
+        await using var conn = new SqliteConnection(_connectionString);
+        await conn.OpenAsync(ct);
+        await using var cmd = conn.CreateCommand();
+        cmd.CommandText = """
+            INSERT INTO maintenance (sz, from_at, until_at, reason)
+            VALUES ($sz, $from, $until, $reason);
+            """;
+        cmd.Parameters.AddWithValue("$sz", window.Sz);
+        cmd.Parameters.AddWithValue("$from", window.From.ToUnixTimeSeconds());
+        cmd.Parameters.AddWithValue("$until", window.Until.ToUnixTimeSeconds());
+        cmd.Parameters.AddWithValue("$reason", window.Reason);
+        await cmd.ExecuteNonQueryAsync(ct);
+    }
+
+    public async Task<IReadOnlyList<MaintenanceWindow>> GetMaintenanceAsync(string sz,
+        CancellationToken ct = default)
+    {
+        await using var conn = new SqliteConnection(_connectionString);
+        await conn.OpenAsync(ct);
+        return await ReadMaintenanceAsync(conn, sz, ct);
+    }
+
+    private static async Task<IReadOnlyList<MaintenanceWindow>> ReadMaintenanceAsync(
+        SqliteConnection conn, string sz, CancellationToken ct)
+    {
+        await using var cmd = conn.CreateCommand();
+        cmd.CommandText = "SELECT from_at, until_at, reason FROM maintenance WHERE sz = $sz ORDER BY from_at;";
+        cmd.Parameters.AddWithValue("$sz", sz);
+        var result = new List<MaintenanceWindow>();
+        await using var reader = await cmd.ExecuteReaderAsync(ct);
+        while (await reader.ReadAsync(ct))
+        {
+            result.Add(new MaintenanceWindow(sz,
+                DateTimeOffset.FromUnixTimeSeconds(reader.GetInt64(0)),
+                DateTimeOffset.FromUnixTimeSeconds(reader.GetInt64(1)),
+                reader.GetString(2)));
+        }
+        return result;
     }
 
     /// <summary>Слияние событий из журнала клиента: hub видит только смены boot-time при живом

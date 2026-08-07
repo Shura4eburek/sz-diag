@@ -30,10 +30,14 @@ public static class ShutdownKind
     /// <summary>Определить не удалось (нет прав, журнал недоступен, агент старой сборки).</summary>
     public const string Unknown = "unknown";
 
+    /// <summary>Событие попало в окно обслуживания: с машиной в этот момент работали руками
+    /// (бэклог п.100). Дефектом не считается.</summary>
+    public const string Maintenance = "maintenance";
+
     /// <summary>Считать ли событие вырубоном для счётчика `⚡N`. Кнопка и штатное выключение —
     /// не считаются; неизвестное считается (лучше лишний вопрос, чем пропущенный дефект).</summary>
     public static bool CountsAsFailure(string? kind)
-        => kind is not (PowerButton or Clean);
+        => kind is not (PowerButton or Clean or Maintenance);
 
     /// <summary>Человеческая подпись для CLI.</summary>
     public static string Describe(string? kind) => kind switch
@@ -42,6 +46,7 @@ public static class ShutdownKind
         PowerButton => "кнопка питания",
         Bsod => "BSOD",
         Clean => "штатно",
+        Maintenance => "обслуживание",
         _ => "неизвестно",
     };
 }
