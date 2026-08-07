@@ -114,6 +114,12 @@ public sealed class WindowsSystemAccessManager : ISystemAccessManager
         state.CreatedAutostartTask = true;
         Persist();
 
+        // 9. Ярлык «Закрыть доступ» на общем рабочем столе: после ребута агент живёт
+        // headless, и человек за клиентской машиной снять доступ локально не может
+        // (бэклог п.87). Неудача здесь доступ не срывает — путь остаётся через хост.
+        state.CreatedDesktopShortcut = LocalRevertShortcut.Create(_ps, spec.Sz, exe, _statePath);
+        Persist();
+
         return state;
     }
 
@@ -130,6 +136,11 @@ public sealed class WindowsSystemAccessManager : ISystemAccessManager
             try { action(); done.Add(name); }
             catch (Exception ex) { failed.Add(new RevertStepFailure(name, ex.ToString())); }
         }
+
+        // Ярлык «закрыть доступ» снимаем в самом начале: он ведёт на этот же откат, и
+        // оставшийся на рабочем столе клиента ярлык — такой же след, как задача или учётка.
+        Step("ярлык на рабочем столе", state.CreatedDesktopShortcut, () =>
+            LocalRevertShortcut.Remove(state.Sz, _statePath));
 
         // Автостарт снимаем ПЕРВЫМ: если откат упадёт на середине, агент не должен
         // воскреснуть при следующем ребуте.

@@ -15,6 +15,11 @@ public sealed class RevertState
     /// должен висеть на клиентской машине бесконечно (бэклог п.85).</summary>
     public DateTimeOffset? OpenedAt { get; set; }
 
+    /// <summary>Положен ли на общий рабочий стол ярлык «закрыть доступ». Нужен, потому что
+    /// после ребута агент живёт headless (сессия 0, окна нет) и локально снять доступ было
+    /// нечем (бэклог п.87).</summary>
+    public bool CreatedDesktopShortcut { get; set; }
+
     public bool CreatedUser { get; set; }
     public bool StoppedSystemSshd { get; set; }
     public bool CreatedSshdTask { get; set; }
