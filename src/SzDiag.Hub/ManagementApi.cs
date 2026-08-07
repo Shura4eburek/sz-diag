@@ -66,7 +66,10 @@ public static class ManagementApi
         });
 
         // push: доставить инструмент на клиента (агент качает его с hub сам).
-        group.MapGet("/tools", (ToolCatalog catalog) => Results.Ok(catalog.List()));
+        // Отдаём и каталог раздачи: без него пустой список выглядит как «инструментов нет»,
+        // хотя на деле hub смотрит не туда (бэклог п.67).
+        group.MapGet("/tools", (ToolCatalog catalog) => Results.Ok(
+            new ToolCatalogInfo(catalog.Root, Directory.Exists(catalog.Root), catalog.List())));
 
         group.MapPost("/sessions/{sz}/push", async (string sz, PushCommandRequest body, PushCoordinator push) =>
         {

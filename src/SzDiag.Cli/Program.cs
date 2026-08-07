@@ -180,10 +180,22 @@ switch (command)
     // push: доставить инструмент на клиента через hub (вместо SMB, который не поднимается).
     case "push" when args.Length >= 2 && (args[1] == "--list" || args[1] == "-l"):
     {
-        var tools = await client.GetToolsAsync();
+        var catalog = await client.GetToolsAsync();
+        if (catalog is null)
+        {
+            AnsiConsole.MarkupLine("[red]Hub не ответил на запрос каталога инструментов.[/]");
+            return 1;
+        }
+
+        // Путь печатаем всегда: пустой список без него читается как «инструментов нет»,
+        // хотя на деле hub смотрит не в тот каталог (бэклог п.67).
+        AnsiConsole.MarkupLineInterpolated($"[grey]Каталог раздачи (Hub.ToolsRoot):[/] {catalog.Root}");
+        var tools = catalog.Tools;
         if (tools.Count == 0)
         {
-            AnsiConsole.MarkupLine("[yellow]Hub ничего не раздаёт[/] — проверь Hub.ToolsRoot.");
+            AnsiConsole.MarkupLine(catalog.Exists
+                ? "[yellow]Каталог существует, но инструментов в нём нет[/] — положи их подпапками (occt, tm5, furmark…)."
+                : "[red]Каталога нет[/] — задай его при сборке: .\\tools\\build-dist.ps1 -ToolsRoot <путь>");
             return 1;
         }
         foreach (var tool in tools)

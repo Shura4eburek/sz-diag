@@ -16,6 +16,14 @@
 .PARAMETER Token
   Общий токен hub/cli/agent (по умолчанию dev-token).
 
+.PARAMETER ToolsRoot
+  Каталог, из которого hub раздаёт инструменты клиенту (`szcli push`). По умолчанию — общий
+  каталог сервиса `C:\Share\Tests\client\client-tools`, если он существует, иначе
+  `<репо>\client-tools`. Последний лежит в .gitignore и на свежем клоне почти пуст (только
+  портативный ssh) — из-за этого `push --list` показывал один инструмент, и приходилось руками
+  делать junction (бэклог п.67):
+    .\tools\build-dist.ps1 -ToolsRoot D:\tools\client-tools
+
 .PARAMETER WatchdogHours
   Через сколько часов watchdog-задача откатит доступ на клиенте (по умолчанию 6, как
   дефолт в AgentOptions). Задача ставится на фиксированное время при открытии доступа и
@@ -27,12 +35,24 @@ param(
     [string]$HubIp = "",
     [int]$Port = 5099,
     [string]$Token = "dev-token",
+    [string]$ToolsRoot = "",
     [double]$WatchdogHours = 6
 )
 
 $ErrorActionPreference = "Stop"
 $root = Split-Path $PSScriptRoot -Parent
 Set-Location $root
+
+# Каталог раздачи инструментов: явный параметр → общий каталог сервиса → папка в репо.
+# Дефолт «репо» и приводил к пустому `szcli push --list` на свежем боксе (бэклог п.67).
+if ([string]::IsNullOrWhiteSpace($ToolsRoot)) {
+    $shareTools = "C:\Share\Tests\client\client-tools"
+    $ToolsRoot = if (Test-Path $shareTools) { $shareTools } else { "$root\client-tools" }
+}
+Write-Host "-- каталог инструментов (ToolsRoot): $ToolsRoot"
+if (-not (Test-Path $ToolsRoot)) {
+    Write-Host "   ВНИМАНИЕ: каталога нет — szcli push раздавать будет нечего." -ForegroundColor Yellow
+}
 
 $hubIpLabel = if ([string]::IsNullOrWhiteSpace($HubIp)) { "авто (UDP-обнаружение)" } else { $HubIp }
 Write-Host "== sz-diag: сборка dist (HubIp=$hubIpLabel Port=$Port) =="
@@ -269,7 +289,7 @@ $hubCfg = @"
     "SqliteConnectionString": "Data Source=$db",
     "KnowledgeBaseRoot": "$kb",
     "AgentDistRoot": "$(("$root\dist\host\hub\agent-dist").Replace('\','\\'))",
-    "ToolsRoot": "$(("$root\client-tools").Replace('\','\\'))",
+    "ToolsRoot": "$($ToolsRoot.Replace('\','\\'))",
     "HeartbeatTimeout": "00:01:00",
     "SweepInterval": "00:00:15",
     "KbBackup": {

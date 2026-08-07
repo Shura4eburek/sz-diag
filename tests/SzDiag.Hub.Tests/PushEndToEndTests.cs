@@ -145,11 +145,15 @@ public class PushEndToEndTests : IClassFixture<WebApplicationFactory<Program>>, 
     }
 
     [Fact]
-    public async Task ToolsList_ThroughManagementApi_ShowsCatalog()
+    public async Task ToolsList_ThroughManagementApi_ShowsCatalogAndItsRoot()
     {
-        var tools = await Cli().GetFromJsonAsync<List<ToolInfo>>("/api/tools");
+        var catalog = await Cli().GetFromJsonAsync<ToolCatalogInfo>("/api/tools");
 
-        var occt = Assert.Single(tools!);
+        // Путь каталога — часть ответа: пустой список без него читается как «инструментов
+        // нет», хотя hub может смотреть не туда (бэклог п.67).
+        Assert.True(catalog!.Exists);
+        Assert.Equal(_toolsRoot, catalog.Root);
+        var occt = Assert.Single(catalog.Tools);
         Assert.Equal("occt", occt.Name);
         Assert.Equal(2, occt.Files);
     }

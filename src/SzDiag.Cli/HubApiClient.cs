@@ -145,10 +145,10 @@ public sealed class HubApiClient : IHubApiClient
     }
 
     /// <summary>Что hub может раздать (`szcli push --list`).</summary>
-    public async Task<IReadOnlyList<ToolInfo>> GetToolsAsync(CancellationToken ct = default)
+    public async Task<ToolCatalogInfo?> GetToolsAsync(CancellationToken ct = default)
     {
         using var cts = Short(ct);
-        return await _http.GetFromJsonAsync<List<ToolInfo>>("/api/tools", cts.Token) ?? new();
+        return await _http.GetFromJsonAsync<ToolCatalogInfo>("/api/tools", cts.Token);
     }
 
     /// <summary>Таймлайн вырубонов по СЗ (смены boot-time, зафиксированные hub).</summary>

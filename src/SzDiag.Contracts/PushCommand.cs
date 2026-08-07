@@ -37,6 +37,12 @@ public sealed record ToolManifest(string Tool, IReadOnlyList<ToolFile> Files)
 /// <summary>Краткая карточка инструмента для `szcli push --list`.</summary>
 public sealed record ToolInfo(string Name, int Files, long Bytes);
 
+/// <summary>Ответ `szcli push --list`: что раздаётся И откуда. Путь обязателен: на свежем
+/// боксе список выходил почти пустым, и понять, из какого каталога hub читает, можно было
+/// только влезая в его `appsettings.json` (бэклог п.67).</summary>
+/// <param name="Exists">Существует ли каталог раздачи вообще.</param>
+public sealed record ToolCatalogInfo(string Root, bool Exists, IReadOnlyList<ToolInfo> Tools);
+
 /// <summary>Тело HTTP-запроса CLI → hub.</summary>
 public sealed record PushCommandRequest(string Tool);
 

@@ -15,6 +15,6 @@ public interface IHubApiClient
     Task<PullResponse?> PullAsync(string sz, string path, long? maxBytes = null, bool recurse = false,
         CancellationToken ct = default);
     Task<PushResult?> PushAsync(string sz, string tool, CancellationToken ct = default);
-    Task<IReadOnlyList<ToolInfo>> GetToolsAsync(CancellationToken ct = default);
+    Task<ToolCatalogInfo?> GetToolsAsync(CancellationToken ct = default);
     Task<RebootTimeline?> GetRebootsAsync(string sz, CancellationToken ct = default);
 }
