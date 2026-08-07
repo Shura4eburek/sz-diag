@@ -225,11 +225,17 @@ if (args.Length >= 2 && args[0] == "--resume")
     logFile.Flush();
     try { await rLink.ReportActivityAsync(state.Sz, "— готов (после ребута)", null); } catch { }
 
-    AgentCommandWiring.RegisterHandlers(rLink, Environment.MachineName, ps,
+    var rExec = AgentCommandWiring.RegisterHandlers(rLink, Environment.MachineName, ps,
         R(rOpts.TestSuitePath), (plain, _) => { logFile.WriteLine(plain); logFile.Flush(); },
         rHubUrl, rOpts.AgentToken);
 
     using var rCts = new CancellationTokenSource();
+    // Активность по живым процессам — и после ребута тоже: иначе в колонке навсегда
+    // останется «готов (после ребута)», под каким бы прогоном машина ни стояла (п.73).
+    var rActivity = AgentCommandWiring.StartActivityReporter(rLink, state.Sz,
+        () => ActivityProbe.Describe(ActivityProbe.RunningStress(), rExec.RunningJobs(),
+            "— готов (после ребута)"),
+        30, rCts.Token);
     var rHeartbeat = AgentCommandWiring.StartHeartbeatLoop(rSession, (int)rOpts.HeartbeatSeconds,
         rCts.Token, null, args[1],
         () => logFile.WriteLine("[resume] доступ снят снаружи — агент завершается."));
@@ -237,6 +243,7 @@ if (args.Length >= 2 && args[0] == "--resume")
     await rSession.Completion; // ждём отката от hub (close) или watchdog
     rCts.Cancel();
     try { await rHeartbeat; } catch { }
+    try { await rActivity; } catch { }
     logFile.WriteLine($"[resume] СЗ {state.Sz}: сессия закрыта, откат выполнен.");
     logFile.Flush();
     return 0;
@@ -473,7 +480,7 @@ Announce($"СЗ {sz}: доступ открыт ● online. Хост {Environmen
 try { await link.ReportActivityAsync(sz, "— готов", null); } catch { /* статус не критичен */ }
 
 // Обработчики RunTests/RunDiag от hub (общие с resume-веткой — см. AgentCommandWiring).
-AgentCommandWiring.RegisterHandlers(link, Environment.MachineName, ps,
+var execHandler = AgentCommandWiring.RegisterHandlers(link, Environment.MachineName, ps,
     ResolvePath(opts.TestSuitePath), (plain, markup) => Announce(plain, markup),
     hubUrl, opts.AgentToken);
 
@@ -528,6 +535,12 @@ var heartbeat = AgentCommandWiring.StartHeartbeatLoop(session, (int)opts.Heartbe
         cts.Cancel();
     });
 
+// Доклад об активности по живым процессам: раньше строка залипала после diag и двадцать
+// минут показывала «диагностика: …» вместо идущего стресс-прогона (бэклог п.73).
+var activityReporter = AgentCommandWiring.StartActivityReporter(link, sz,
+    () => ActivityProbe.Describe(ActivityProbe.RunningStress(), execHandler.RunningJobs()),
+    30, cts.Token);
+
 // Сторож командного канала: heartbeat живёт отдельным лёгким путём и не замечает, что
 // exec залип, — а снаружи это неотличимо от здорового агента.
 var channelWatchdog = AgentCommandWiring.StartChannelWatchdog(ps, $"szdiag-autostart-{sz}",
@@ -551,6 +564,7 @@ while (true)
 
 cts.Cancel();
 try { await heartbeat; } catch (OperationCanceledException) { }
+try { await activityReporter; } catch (OperationCanceledException) { }
 try { await channelWatchdog; } catch (OperationCanceledException) { }
 SleepGuard.Allow();
 Announce("Готово.", "[green]Готово.[/]");

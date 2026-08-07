@@ -19,6 +19,9 @@ public sealed class ExecCommandHandler
     /// <summary>Где лежат выводы фоновых задач (для сообщений оператору).</summary>
     public string JobsRoot => _jobs.Root;
 
+    /// <summary>Сколько фоновых задач сейчас выполняется — для колонки активности (п.73).</summary>
+    public int RunningJobs() => _jobs.RunningCount();
+
     /// <summary>Состояние фоновой задачи + хвост вывода.</summary>
     public ExecJobStatus Status(ExecStatusRequest request)
     {

@@ -133,6 +133,56 @@ public class HeartbeatLoopCallbackTests
     }
 
     [Fact]
+    public async Task ActivityReporter_SendsOnlyWhenTextChanges()
+    {
+        // Heartbeat под нагрузкой и так на пределе — спамить активностью каждые 30 с нельзя.
+        var link = new RecordingActivityLink();
+        var text = "— готов";
+        using var cts = new CancellationTokenSource();
+
+        var loop = AgentCommandWiring.StartActivityReporter(link, "160306", () => text, 1, cts.Token);
+        while (link.Activities.Count == 0) await Task.Delay(5);
+        text = "стресс: OCCTCmd";
+        while (link.Activities.Count < 2) await Task.Delay(5);
+        cts.Cancel();
+        try { await loop; } catch (OperationCanceledException) { }
+
+        Assert.Equal("— готов", link.Activities[0]);
+        Assert.Equal("стресс: OCCTCmd", link.Activities[1]);
+        Assert.True(link.Activities.Count <= 3, $"лишние отправки: {link.Activities.Count}");
+    }
+
+    private sealed class RecordingActivityLink : IHubLink
+    {
+        public List<string> Activities { get; } = new();
+        public Task ConnectAsync(CancellationToken ct = default) => Task.CompletedTask;
+        public Task RegisterAsync(string sz, string hostname, DateTimeOffset? bootTime = null,
+            string? lastShutdown = null, CancellationToken ct = default) => Task.CompletedTask;
+        public Task HeartbeatAsync(string sz, CancellationToken ct = default) => Task.CompletedTask;
+        public void OnRevert(Func<string, Task> handler) { }
+        public void OnRunTests(Func<string, string?, Task> handler) { }
+        public void OnRunDiag(Func<string, string?, Task> handler) { }
+        public void OnExec(Func<SzDiag.Contracts.ExecRequest, Task> handler) { }
+        public Task SendExecResultAsync(SzDiag.Contracts.ExecResult result, CancellationToken ct = default) => Task.CompletedTask;
+        public Task SendExecAckAsync(SzDiag.Contracts.ExecAck ack, CancellationToken ct = default) => Task.CompletedTask;
+        public void OnExecStatus(Func<SzDiag.Contracts.ExecStatusRequest, Task> handler) { }
+        public Task SendExecJobStatusAsync(SzDiag.Contracts.ExecJobStatus status, CancellationToken ct = default) => Task.CompletedTask;
+        public void OnPush(Func<SzDiag.Contracts.PushRequest, Task> handler) { }
+        public Task SendPushResultAsync(SzDiag.Contracts.PushResult result, CancellationToken ct = default) => Task.CompletedTask;
+        public void OnPull(Func<SzDiag.Contracts.PullRequest, Task> handler) { }
+        public Task SendPullChunkAsync(SzDiag.Contracts.PullChunk chunk, CancellationToken ct = default) => Task.CompletedTask;
+        public Task SendPullResultAsync(SzDiag.Contracts.PullResult result, CancellationToken ct = default) => Task.CompletedTask;
+        public Task UploadReportFileAsync(SzDiag.Contracts.UploadReportPart part, CancellationToken ct = default) => Task.CompletedTask;
+        public Task ReportActivityAsync(string sz, string activity, DateTimeOffset? since,
+            CancellationToken ct = default)
+        {
+            lock (Activities) Activities.Add(activity);
+            return Task.CompletedTask;
+        }
+        public ValueTask DisposeAsync() => ValueTask.CompletedTask;
+    }
+
+    [Fact]
     public async Task NoCallback_StillWorks()
     {
         var link = new CountingLink(shouldThrow: false);

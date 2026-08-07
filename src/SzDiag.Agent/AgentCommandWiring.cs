@@ -9,7 +9,9 @@ public static class AgentCommandWiring
     /// <param name="hubUrl">Адрес hub, с которого агент качает инструменты (`szcli push`).
     /// Пусто — доставка не регистрируется (нечем качать).</param>
     /// <param name="agentToken">Токен для HTTP-раздачи инструментов (тот же, что у SignalR).</param>
-    public static void RegisterHandlers(
+    /// <returns>Обработчик exec — из него берётся число живых фоновых задач для колонки
+    /// активности (бэклог п.73).</returns>
+    public static ExecCommandHandler RegisterHandlers(
         IHubLink link, string hostname, PowerShellRunner ps,
         string testSuitePath, Action<string, string?> announce,
         string? hubUrl = null, string? agentToken = null)
@@ -153,6 +155,8 @@ public static class AgentCommandWiring
             try { await link.SendPullResultAsync(result); }
             catch (Exception ex) { announce($"Не смог вернуть итог забора: {ex.Message}", null); }
         });
+
+        return execHandler;
     }
 
     /// <summary>Фоновый сторож командного канала: раз в <paramref name="intervalSeconds"/>
@@ -206,6 +210,36 @@ public static class AgentCommandWiring
     /// <summary>Фоновый heartbeat-цикл до отмены. Ошибки глотаются (SignalR переподключается).</summary>
     /// <param name="onResult">Необязательный колбэк с исходом каждой попытки — панель
     /// статуса по нему отличает живой канал от переподключения.</param>
+    /// <summary>Фоновый доклад об активности: раз в `seconds` смотрит, что реально идёт на
+    /// машине (стресс-тулы, фоновые exec-задачи), и шлёт hub изменения.
+    ///
+    /// Раньше активность выставлялась только по факту команды и залипала: после `diag` в
+    /// колонке двадцать минут висело «диагностика: storage, reboots…», включая весь прогон
+    /// OCCT — а колонка отвечает на вопрос «под чем машина вырубилась» (бэклог п.73).
+    /// Шлём только при изменении строки: heartbeat под нагрузкой и так на пределе.</summary>
+    public static Task StartActivityReporter(IHubLink link, string sz, Func<string> describe,
+        int seconds, CancellationToken ct) =>
+        Task.Run(async () =>
+        {
+            string? last = null;
+            while (!ct.IsCancellationRequested)
+            {
+                try
+                {
+                    var text = describe();
+                    if (text != last)
+                    {
+                        await link.ReportActivityAsync(sz, text, DateTimeOffset.UtcNow, ct);
+                        last = text;
+                    }
+                }
+                catch { /* канал переподключается — активность не критична */ }
+
+                try { await Task.Delay(TimeSpan.FromSeconds(seconds), ct); }
+                catch (OperationCanceledException) { break; }
+            }
+        });
+
     /// <param name="statePath">Путь к `state.json`. Если задан, цикл (а) отмечает живость
     /// агента рядом с ним, чтобы watchdog не срезал доступ под работающей сессией (п.85), и
     /// (б) замечает, что доступ уже откачен — файл исчез, — и зовёт

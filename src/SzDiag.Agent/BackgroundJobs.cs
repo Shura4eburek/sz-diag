@@ -108,6 +108,19 @@ public sealed class BackgroundJobs
             started, size);
     }
 
+    /// <summary>Сколько задач сейчас реально выполняется. Нужно колонке активности: «была
+    /// занята» должна отвечать по текущему состоянию, а не по последней команде (бэклог п.73).</summary>
+    public int RunningCount()
+    {
+        var n = 0;
+        foreach (var job in _jobs.Values)
+        {
+            try { if (!job.Process.HasExited) n++; }
+            catch { /* процесс умер между проверками */ }
+        }
+        return n;
+    }
+
     /// <summary>Убить фоновую задачу (и её дерево процессов).</summary>
     public bool Stop(string jobId)
     {
