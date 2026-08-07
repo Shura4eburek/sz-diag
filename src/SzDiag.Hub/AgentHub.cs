@@ -32,7 +32,7 @@ public sealed class AgentHub : Microsoft.AspNetCore.SignalR.Hub
     {
         var ip = Context.GetHttpContext()?.Connection.RemoteIpAddress?.ToString() ?? "unknown";
         var outcome = _registry.Register(request.Sz, ip, request.Hostname, Context.ConnectionId,
-            request.BootTime);
+            request.BootTime, request.LastShutdown);
         if (outcome.Rebooted)
         {
             // Пишем в SQLite сразу: in-memory реестр не переживает рестарт hub, а вырубон,
@@ -40,11 +40,17 @@ public sealed class AgentHub : Microsoft.AspNetCore.SignalR.Hub
             // (так на 160306 вырубон на нашем же стенде нашли лишь через неделю — п.55).
             var held = outcome.UptimeBefore is { } u ? $", продержалась {u:d\\.hh\\:mm\\:ss}" : "";
             var busy = outcome.ActivityBefore is { } a ? $", активность: {a}" : "";
-            Console.WriteLine($"[hub] СЗ {request.Sz}: ВЫРУБОН — клиент перезагрузился " +
-                              $"(boot-time {request.BootTime:yyyy-MM-dd HH:mm:ss}){held}{busy}");
+            // Смена boot-time сама по себе вырубоном не является: агент присылает разбор
+            // Kernel-Power 41, и выключение кнопкой в счётчик отказов не идёт (бэклог п.93).
+            var failure = ShutdownKind.CountsAsFailure(request.LastShutdown);
+            var label = failure ? "ВЫРУБОН" : "перезагрузка";
+            Console.WriteLine($"[hub] СЗ {request.Sz}: {label} — клиент перезагрузился " +
+                              $"({ShutdownKind.Describe(request.LastShutdown)}, " +
+                              $"boot-time {request.BootTime:yyyy-MM-dd HH:mm:ss}){held}{busy}");
             await _store.RecordRebootAsync(new RebootEvent(
                 request.Sz, DateTimeOffset.UtcNow, outcome.PreviousBootTime, request.BootTime,
-                (long?)outcome.UptimeBefore?.TotalSeconds, outcome.ActivityBefore));
+                (long?)outcome.UptimeBefore?.TotalSeconds, outcome.ActivityBefore,
+                request.LastShutdown));
         }
         _kb.EnsureSkeleton(request.Sz);
         await _store.RecordOpenAsync(

@@ -13,7 +13,7 @@ public class HeartbeatLoopCallbackTests
         public CountingLink(bool shouldThrow) => _throw = shouldThrow;
 
         public Task ConnectAsync(CancellationToken ct = default) => Task.CompletedTask;
-        public Task RegisterAsync(string sz, string hostname, DateTimeOffset? bootTime = null,
+        public Task RegisterAsync(string sz, string hostname, DateTimeOffset? bootTime = null, string? lastShutdown = null,
             CancellationToken ct = default) => Task.CompletedTask;
         public Task HeartbeatAsync(string sz, CancellationToken ct = default)
         {

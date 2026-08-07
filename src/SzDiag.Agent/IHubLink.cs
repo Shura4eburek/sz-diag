@@ -4,7 +4,7 @@
 public interface IHubLink
 {
     Task ConnectAsync(CancellationToken ct = default);
-    Task RegisterAsync(string sz, string hostname, DateTimeOffset? bootTime = null,
+    Task RegisterAsync(string sz, string hostname, DateTimeOffset? bootTime = null, string? lastShutdown = null,
         CancellationToken ct = default);
     Task HeartbeatAsync(string sz, CancellationToken ct = default);
 

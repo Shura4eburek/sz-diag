@@ -16,16 +16,24 @@ namespace SzDiag.Contracts;
 /// <param name="UptimeBeforeSeconds">Сколько машина продержалась до вырубона.</param>
 /// <param name="ActivityBefore">Чем была занята (шёл ли стресс-прогон) — важнее всего,
 /// потому что «продержалась N минут под тестом» и есть измерение времени до отказа.</param>
+/// <param name="Kind">Чем оказался ребут по журналу клиента (<see cref="ShutdownKind"/>):
+/// обрыв питания, кнопка, BSOD или штатное выключение. Смена boot-time сама по себе
+/// вырубоном не является — на 161312 два «аварийных выключения» из пяти были кнопкой
+/// (бэклог п.93).</param>
 public sealed record RebootEvent(
     string Sz,
     DateTimeOffset At,
     DateTimeOffset? PreviousBootTime,
     DateTimeOffset? NewBootTime,
     long? UptimeBeforeSeconds,
-    string? ActivityBefore)
+    string? ActivityBefore,
+    string? Kind = null)
 {
     public TimeSpan? UptimeBefore =>
         UptimeBeforeSeconds is { } s ? TimeSpan.FromSeconds(s) : null;
+
+    /// <summary>Считается ли этот ребут отказом (для счётчика и сводки).</summary>
+    public bool IsFailure => ShutdownKind.CountsAsFailure(Kind);
 }
 
 /// <summary>Таймлайн вырубонов по СЗ + сводка, которую нельзя не заметить при закрытии.</summary>

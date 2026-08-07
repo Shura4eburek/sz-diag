@@ -44,6 +44,49 @@ public class RebootJournalTests : IDisposable
     }
 
     [Fact]
+    public void Register_PowerButtonShutdown_DoesNotCountAsFailure()
+    {
+        // Регрессия (п.93): выключение кнопкой меняет boot-time так же, как обрыв питания, и
+        // раньше попадало в счётчик ⚡ наравне с дефектом — «5 вырубонов» вместо трёх.
+        var reg = new SessionRegistry();
+        reg.Register("161312", "10.0.0.42", "PC-1", "conn-1", Boot1, ShutdownKind.HardOff);
+
+        var outcome = reg.Register("161312", "10.0.0.42", "PC-1", "conn-2", Boot2, ShutdownKind.PowerButton);
+
+        Assert.True(outcome.Rebooted);                                    // ребут был
+        Assert.Equal(0, Assert.Single(reg.GetActive()).RebootCount);      // но это не отказ
+    }
+
+    [Fact]
+    public void Register_HardOff_CountsAsFailure()
+    {
+        var reg = new SessionRegistry();
+        reg.Register("161312", "10.0.0.42", "PC-1", "conn-1", Boot1);
+        reg.Register("161312", "10.0.0.42", "PC-1", "conn-2", Boot2, ShutdownKind.HardOff);
+
+        Assert.Equal(1, Assert.Single(reg.GetActive()).RebootCount);
+    }
+
+    [Fact]
+    public async Task Store_KeepsShutdownKind()
+    {
+        var store = new SqliteSessionStore(Conn);
+        await store.InitializeAsync();
+
+        await store.RecordRebootAsync(new RebootEvent("161312", Boot2, Boot1, Boot2, 100, null,
+            ShutdownKind.PowerButton));
+        await store.RecordRebootAsync(new RebootEvent("161312", Boot2.AddHours(1), Boot2,
+            Boot2.AddHours(1), 3600, null, ShutdownKind.HardOff));
+
+        var timeline = await store.GetRebootsAsync("161312");
+
+        Assert.Equal(2, timeline.Count);
+        Assert.Equal(ShutdownKind.PowerButton, timeline.Events[0].Kind);
+        Assert.False(timeline.Events[0].IsFailure);
+        Assert.True(timeline.Events[1].IsFailure);
+    }
+
+    [Fact]
     public void Register_Reconnect_DoesNotInventReboot()
     {
         // Под нагрузкой heartbeat опаздывает и SignalR переподключается — это не вырубон.

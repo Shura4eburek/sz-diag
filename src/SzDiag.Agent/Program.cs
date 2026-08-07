@@ -160,8 +160,11 @@ if (args.Length >= 2 && args[0] == "--resume")
     }
 
     var rLink = new SignalRHubLink(rHubUrl, rOpts.AgentToken);
+    // Разбор прошлого выключения уезжает на hub вместе с boot-time: без него нажатие
+    // кнопки питания попадало в счётчик вырубонов наравне с обрывом (бэклог п.93).
+    var rBoot = BootTimeReader.Read(ps);
     var rSession = new AgentSession(rManager, rLink, rSpec, Environment.MachineName,
-        BootTimeReader.Read(ps));
+        rBoot, ShutdownClassifier.Read(ps, rBoot));
 
     // Ребут мог случиться быстрее, чем поднялась сеть — bounded-ретрай подъёма.
     const int maxAttempts = 10;
@@ -250,8 +253,9 @@ if (args.Length >= 1 && args[0] == "--pe")
     }
 
     var peLink = new SignalRHubLink(peHubUrl, peOpts.AgentToken);
+    var peBoot = BootTimeReader.Read(ps);
     var peSession = new AgentSession(new WinPeAccessManager(), peLink, peSpec,
-        Environment.MachineName, BootTimeReader.Read(ps));
+        Environment.MachineName, peBoot, ShutdownClassifier.Read(ps, peBoot));
 
     // В PE сеть — самое хрупкое место: драйвер NIC мог подняться позже (net-up
     // доставляет его с флешки) или DHCP ещё не отдал адрес. Без ретрая агент
@@ -286,7 +290,7 @@ if (args.Length >= 1 && args[0] == "--pe")
                         peHubUrl = found;
                         peLink = new SignalRHubLink(peHubUrl, peOpts.AgentToken);
                         peSession = new AgentSession(new WinPeAccessManager(), peLink, peSpec,
-                            Environment.MachineName, BootTimeReader.Read(ps));
+                            Environment.MachineName, peBoot, ShutdownClassifier.Read(ps, peBoot));
                     }
                 }
                 catch (HubNotFoundException dex)
@@ -408,8 +412,9 @@ if (string.IsNullOrWhiteSpace(hubUrl))
 }
 
 var link = new SignalRHubLink(hubUrl, opts.AgentToken);
+var sessionBoot = BootTimeReader.Read(ps);
 var session = new AgentSession(manager, link, spec, Environment.MachineName,
-    BootTimeReader.Read(ps));
+    sessionBoot, ShutdownClassifier.Read(ps, sessionBoot));
 
 Announce($"Открываю доступ для СЗ {sz}…", $"[grey]Открываю доступ для СЗ {sz}…[/]");
 try

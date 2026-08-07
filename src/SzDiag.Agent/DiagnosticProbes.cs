@@ -251,23 +251,61 @@ public static class DiagnosticProbes
                 $os = Get-CimInstance Win32_OperatingSystem -ErrorAction SilentlyContinue
                 if ($os -and $os.InstallDate) {
                     "OS installed: {0:yyyy-MM-dd HH:mm:ss}" -f $os.InstallDate
-                    $age = $first - $os.InstallDate
-                    "First unexpected shutdown: {0:N1} h after OS install" -f $age.TotalHours
-                    if ($age.TotalHours -lt 24) {
-                        "!!! First hard-off within 24h of OS install => defect came with the machine, not caused by usage/software."
-                    }
                 }
                 "--- per-day histogram ---"
                 $kp | Group-Object { $_.TimeCreated.ToString('yyyy-MM-dd') } | Sort-Object Name |
                     ForEach-Object { "{0}: {1}" -f $_.Name, $_.Count }
-                "--- last 20 events (details) ---"
-                foreach ($e in ($kp | Select-Object -First 20)) {
+
+                # PowerButtonTimestamp != 0 means the machine was switched off by the power
+                # button - a normal shutdown, not a defect. On 161312 two of five 'unexpected
+                # shutdowns' were exactly that, and the verdict changed with them (backlog p.93).
+                $parsed = foreach ($e in $kp) {
                     $x = [xml]$e.ToXml(); $d = @{}; foreach ($p in $x.Event.EventData.Data) { $d[$p.Name] = $p.'#text' }
-                    "[{0}] Bugcheck={1} Param1={2} PowerButtonTs={3} SleepInProgress={4}" -f `
-                        $e.TimeCreated, (Fmt-Bug $d['BugcheckCode']), $d['BugcheckParameter1'], $d['PowerButtonTimestamp'], $d['SleepInProgress']
+                    $pbt = 0
+                    [void][UInt64]::TryParse("$($d['PowerButtonTimestamp'])", [ref]$pbt)
+                    $bug = 0
+                    [void][int]::TryParse("$($d['BugcheckCode'])", [ref]$bug)
+                    [PSCustomObject]@{
+                        Time  = $e.TimeCreated
+                        Bug   = (Fmt-Bug $d['BugcheckCode'])
+                        BugN  = $bug
+                        Pbt   = $pbt
+                        Sleep = $d['SleepInProgress']
+                        Kind  = $(if ($bug -ne 0) { 'BSOD' } elseif ($pbt -ne 0) { 'knopka pitaniya' } else { 'hard-off' })
+                    }
+                }
+                $parsed = @($parsed)
+                $hard = @($parsed | Where-Object Kind -eq 'hard-off')
+                $btn  = @($parsed | Where-Object Kind -eq 'knopka pitaniya')
+                $bsod = @($parsed | Where-Object Kind -eq 'BSOD')
+                "--- klassifikaciya (glavnoe) ---"
+                "hard-off (nastoyashchiy obryv pitaniya): {0}" -f $hard.Count
+                "knopka pitaniya (PowerButtonTimestamp != 0, NE defekt): {0}" -f $btn.Count
+                "BSOD (BugcheckCode != 0): {0}" -f $bsod.Count
+                if ($hard.Count -gt 0) {
+                    "hard-off kogda: " + (($hard | Select-Object -First 10 | ForEach-Object { "{0:dd.MM HH:mm}" -f $_.Time }) -join ', ')
+                    # 'Defect came with the machine' is counted by REAL hard-offs only: a power
+                    # button press right after OS install proves nothing (p.93).
+                    if ($os -and $os.InstallDate) {
+                        $firstHard = ($hard | Sort-Object Time | Select-Object -First 1).Time
+                        $age = $firstHard - $os.InstallDate
+                        "First hard-off: {0:N1} h after OS install" -f $age.TotalHours
+                        if ($age.TotalHours -lt 24) {
+                            "!!! First hard-off within 24h of OS install => defect came with the machine, not caused by usage/software."
+                        }
+                    }
+                }
+                if ($btn.Count -gt 0 -and $hard.Count -eq 0) {
+                    "VAZHNO: vse sobytiya 41 - vyklyucheniya knopkoy. Schitat ih vyrubonami NELZYA."
+                }
+
+                "--- last 20 events (details) ---"
+                $parsed | Select-Object -First 20 | ForEach-Object {
+                    "[{0}] {1} Bugcheck={2} PowerButtonTs={3} SleepInProgress={4}" -f `
+                        $_.Time, $_.Kind, $_.Bug, $_.Pbt, $_.Sleep
                 }
                 if ($kp.Count -gt 20) { "... {0} earlier events not listed (see totals and histogram above)" -f ($kp.Count - 20) }
-                "Podskazka: BugcheckCode=0 i net BSOD/WHEA => zhestkiy obryv (pitanie/peregrev), a ne soft."
+                "Podskazka: BugcheckCode=0, PowerButtonTs=0 i net BSOD/WHEA => zhestkiy obryv (pitanie/peregrev), a ne soft."
             } else { "Kernel-Power 41: 0 events (net avariynyh vyrubonov v zhurnale)" }
             "=== Dirty shutdown / EventLog 6008/6005/6006 (last 20) ==="
             $ds = @(Get-WinEvent -FilterHashtable @{ LogName='System'; ProviderName='EventLog'; Id=6008,6005,6006 } -ErrorAction SilentlyContinue)

@@ -29,8 +29,11 @@ public sealed class SessionRegistry
     /// <see cref="SessionInfo.LastRebootAt"/>, считаем ребуты и отдаём подробности вызывающему.
     /// Это единственный надёжный признак ребута: пропажа heartbeat под нагрузкой ребутом не
     /// является, а ICMP у типовой клиентской винды закрыт из коробки.</summary>
+    /// <param name="lastShutdown">Чем закончилась прошлая сессия ОС по журналу клиента
+    /// (<see cref="ShutdownKind"/>). Выключение кнопкой в счётчик отказов не идёт: на 161312
+    /// два «аварийных выключения» из пяти были нажатием кнопки (бэклог п.93).</param>
     public RegisterOutcome Register(string sz, string ip, string hostname, string connectionId,
-        DateTimeOffset? bootTime = null)
+        DateTimeOffset? bootTime = null, string? lastShutdown = null)
     {
         var now = _time.GetUtcNow();
         _bySz.TryGetValue(sz, out var prev);
@@ -41,7 +44,8 @@ public sealed class SessionRegistry
                        && was != isNow;
 
         var lastReboot = rebooted ? now : prev?.Info.LastRebootAt;
-        var rebootCount = (prev?.Info.RebootCount ?? 0) + (rebooted ? 1 : 0);
+        var countsAsFailure = rebooted && ShutdownKind.CountsAsFailure(lastShutdown);
+        var rebootCount = (prev?.Info.RebootCount ?? 0) + (countsAsFailure ? 1 : 0);
         var info = new SessionInfo(sz, ip, hostname, SessionStatus.Online, now, now,
             BootTime: bootTime, LastRebootAt: lastReboot, RebootCount: rebootCount);
         _bySz[sz] = new Entry(info, connectionId);

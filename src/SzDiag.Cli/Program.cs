@@ -100,13 +100,18 @@ switch (command)
 
         var rebootTable = new Table().Border(TableBorder.Rounded).BorderColor(Color.Grey);
         rebootTable.AddColumn("Когда");
+        rebootTable.AddColumn("Как");
         rebootTable.AddColumn("Продержалась");
         rebootTable.AddColumn("Была занята");
         foreach (var e in timeline.Events)
         {
             var held = e.UptimeBefore is { } u ? SessionTableRenderer.FormatElapsed(u) : "[dim]—[/]";
             var busy = string.IsNullOrWhiteSpace(e.ActivityBefore) ? "[dim]простой[/]" : Markup.Escape(e.ActivityBefore!);
-            rebootTable.AddRow($"{e.At.ToLocalTime():dd.MM HH:mm:ss}", held, busy);
+            // Смена boot-time — ещё не дефект: выключение кнопкой выглядит так же (бэклог п.93).
+            var kind = e.IsFailure
+                ? $"[red]{ShutdownKind.Describe(e.Kind)}[/]"
+                : $"[dim]{ShutdownKind.Describe(e.Kind)}[/]";
+            rebootTable.AddRow($"{e.At.ToLocalTime():dd.MM HH:mm:ss}", kind, held, busy);
         }
         AnsiConsole.Write(rebootTable);
         PrintRebootTotals(timeline);
@@ -335,8 +340,13 @@ static void PrintUsage()
 static void PrintRebootTotals(RebootTimeline timeline)
 {
     var max = timeline.MaxUptime is { } m ? SessionTableRenderer.FormatElapsed(m) : "неизвестно";
+    // Считаем отдельно: «5 вырубонов, машина сыпется» на 161312 на деле означало три обрыва
+    // и два выключения кнопкой — и вердикт по заявке менялся вместе с этим (бэклог п.93).
+    var failures = timeline.Events.Count(e => e.IsFailure);
+    var benign = timeline.Count - failures;
+    var tail = benign > 0 ? $" (плюс {benign} штатных: кнопка/перезагрузка)" : "";
     AnsiConsole.MarkupLineInterpolated(
-        $"[yellow]Вырубонов: {timeline.Count}[/]. Максимальный аптайм между ними: {max}.");
+        $"[yellow]Вырубонов: {failures}[/]{tail}. Максимальный аптайм между ними: {max}.");
 }
 
 static async Task PrintRebootSummaryAsync(IHubApiClient client, string sz)

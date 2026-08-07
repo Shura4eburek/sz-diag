@@ -38,11 +38,19 @@ public sealed class SqliteSessionStore : ISessionStore
                 prev_boot     INTEGER NULL,
                 new_boot      INTEGER NULL,
                 uptime_before INTEGER NULL,
-                activity      TEXT    NULL
+                activity      TEXT    NULL,
+                kind          TEXT    NULL
             );
             CREATE INDEX IF NOT EXISTS ix_reboots_sz ON reboots(sz);
             """;
         await cmd.ExecuteNonQueryAsync(ct);
+
+        // Миграция для баз, заведённых до появления классификации (бэклог п.93): у старых
+        // записей kind останется NULL и будет читаться как «неизвестно», а не как «кнопка».
+        await using var alter = conn.CreateCommand();
+        alter.CommandText = "ALTER TABLE reboots ADD COLUMN kind TEXT NULL;";
+        try { await alter.ExecuteNonQueryAsync(ct); }
+        catch (SqliteException) { /* колонка уже есть — штатный случай */ }
     }
 
     public async Task RecordOpenAsync(SessionRecord record, CancellationToken ct = default)
@@ -85,9 +93,10 @@ public sealed class SqliteSessionStore : ISessionStore
         await conn.OpenAsync(ct);
         await using var cmd = conn.CreateCommand();
         cmd.CommandText = """
-            INSERT INTO reboots (sz, at, prev_boot, new_boot, uptime_before, activity)
-            VALUES ($sz, $at, $prev, $new, $uptime, $activity);
+            INSERT INTO reboots (sz, at, prev_boot, new_boot, uptime_before, activity, kind)
+            VALUES ($sz, $at, $prev, $new, $uptime, $activity, $kind);
             """;
+        cmd.Parameters.AddWithValue("$kind", (object?)evt.Kind ?? DBNull.Value);
         cmd.Parameters.AddWithValue("$sz", evt.Sz);
         cmd.Parameters.AddWithValue("$at", evt.At.ToUnixTimeSeconds());
         cmd.Parameters.AddWithValue("$prev", (object?)evt.PreviousBootTime?.ToUnixTimeSeconds() ?? DBNull.Value);
@@ -103,7 +112,7 @@ public sealed class SqliteSessionStore : ISessionStore
         await conn.OpenAsync(ct);
         await using var cmd = conn.CreateCommand();
         cmd.CommandText = """
-            SELECT at, prev_boot, new_boot, uptime_before, activity
+            SELECT at, prev_boot, new_boot, uptime_before, activity, kind
             FROM reboots WHERE sz = $sz ORDER BY at, id;
             """;
         cmd.Parameters.AddWithValue("$sz", sz);
@@ -121,7 +130,8 @@ public sealed class SqliteSessionStore : ISessionStore
                 reader.IsDBNull(1) ? null : DateTimeOffset.FromUnixTimeSeconds(reader.GetInt64(1)),
                 reader.IsDBNull(2) ? null : DateTimeOffset.FromUnixTimeSeconds(reader.GetInt64(2)),
                 uptime,
-                reader.IsDBNull(4) ? null : reader.GetString(4)));
+                reader.IsDBNull(4) ? null : reader.GetString(4),
+                reader.IsDBNull(5) ? null : reader.GetString(5)));
         }
         return new RebootTimeline(sz, events, maxUptime);
     }

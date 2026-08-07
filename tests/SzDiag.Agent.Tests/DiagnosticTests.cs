@@ -48,6 +48,21 @@ public class DiagnosticProbesTests
         Assert.Contains("'190'='ATTEMPTED_WRITE_TO_READONLY_MEMORY'", run);
     }
 
+    [Fact]
+    public void RebootsProbe_SeparatesPowerButtonFromRealHardOff()
+    {
+        // Регрессия (п.93): на 161312 два из пяти «аварийных выключений» оказались нажатием
+        // кнопки питания (PowerButtonTimestamp != 0) — вердикт по заявке менялся вместе с ними.
+        var run = DiagnosticProbes.Suite.Steps.Single(s => s.Id == "reboots").Run!;
+
+        Assert.Contains("PowerButtonTimestamp", run);
+        Assert.Contains("knopka pitaniya", run);
+        Assert.Contains("hard-off (nastoyashchiy obryv pitaniya)", run);
+        // «Дефект приехал с завода» считается только по настоящим обрывам.
+        Assert.Contains("First hard-off: {0:N1} h after OS install", run);
+        Assert.DoesNotContain("First unexpected shutdown", run);
+    }
+
     private static string Body(string section)
         => DiagnosticProbes.Suite.Steps.Single(s => s.Id == section).Run!;
 
@@ -232,7 +247,7 @@ public class DiagReportRunnerTests
     {
         public List<UploadReportPart> Uploaded { get; } = new();
         public Task ConnectAsync(CancellationToken ct = default) => Task.CompletedTask;
-        public Task RegisterAsync(string sz, string hostname, DateTimeOffset? bootTime = null, CancellationToken ct = default) => Task.CompletedTask;
+        public Task RegisterAsync(string sz, string hostname, DateTimeOffset? bootTime = null, string? lastShutdown = null, CancellationToken ct = default) => Task.CompletedTask;
         public Task HeartbeatAsync(string sz, CancellationToken ct = default) => Task.CompletedTask;
         public void OnRevert(Func<string, Task> handler) { }
         public void OnRunTests(Func<string, string?, Task> handler) { }

@@ -9,6 +9,7 @@ public sealed class AgentSession
     private readonly AccessSpec _spec;
     private readonly string _hostname;
     private readonly DateTimeOffset? _bootTime;
+    private readonly string? _lastShutdown;
     private readonly RevertCoordinator _coordinator;
     private RevertState? _state;
     private readonly TaskCompletionSource _completed = new(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -18,14 +19,18 @@ public sealed class AgentSession
 
     /// <param name="bootTime">Время загрузки ОС (см. <see cref="BootTimeReader"/>): уезжает на
     /// hub при регистрации, чтобы тот отличал реальный ребут от лага heartbeat.</param>
+    /// <param name="lastShutdown">Чем закончилась прошлая сессия ОС (см.
+    /// <see cref="ShutdownClassifier"/>): hub по нему отличает обрыв питания от выключения
+    /// кнопкой и не считает второе вырубоном (бэклог п.93).</param>
     public AgentSession(ISystemAccessManager manager, IHubLink link, AccessSpec spec, string hostname,
-        DateTimeOffset? bootTime = null)
+        DateTimeOffset? bootTime = null, string? lastShutdown = null)
     {
         _manager = manager;
         _link = link;
         _spec = spec;
         _hostname = hostname;
         _bootTime = bootTime;
+        _lastShutdown = lastShutdown;
         _coordinator = new RevertCoordinator(DoRevertAsync);
     }
 
@@ -34,7 +39,7 @@ public sealed class AgentSession
         _state = _manager.Open(_spec);
         _link.OnRevert(async _ => await _coordinator.TriggerAsync());
         await _link.ConnectAsync(ct);
-        await _link.RegisterAsync(_spec.Sz, _hostname, _bootTime, ct);
+        await _link.RegisterAsync(_spec.Sz, _hostname, _bootTime, _lastShutdown, ct);
     }
 
     /// <summary>Возобновление после ребута: state загружен с диска, доступ переподнимается
@@ -45,7 +50,7 @@ public sealed class AgentSession
         _manager.Resume(loaded, _spec);
         _link.OnRevert(async _ => await _coordinator.TriggerAsync());
         await _link.ConnectAsync(ct);
-        await _link.RegisterAsync(_spec.Sz, _hostname, _bootTime, ct);
+        await _link.RegisterAsync(_spec.Sz, _hostname, _bootTime, _lastShutdown, ct);
     }
 
     public Task HeartbeatOnceAsync(CancellationToken ct = default) => _link.HeartbeatAsync(_spec.Sz, ct);
