@@ -306,6 +306,11 @@ switch (command)
                 break;
             }
             script = await File.ReadAllTextAsync(args[3]);
+            // Скрипт из файла шелл не портит, но сам PowerShell может понять его не так:
+            // запятая связывает сильнее «+», и конкатенация внутри массива разваливается
+            // на отдельные строки (бэклог п.77).
+            foreach (var w in ScriptLint.Check(script))
+                AnsiConsole.MarkupLineInterpolated($"[yellow]⚠ {w}[/]");
         }
         else
         {
@@ -315,6 +320,8 @@ switch (command)
             // Предупреждаем ДО запуска — иначе диагноз ищется в CLIXML-простыне.
             var warn = CliXml.WarnAboutInline(script);
             if (warn is not null) AnsiConsole.MarkupLineInterpolated($"[yellow]⚠ {warn}[/]");
+            foreach (var w in ScriptLint.Check(script))
+                AnsiConsole.MarkupLineInterpolated($"[yellow]⚠ {w}[/]");
         }
 
         int? execTimeout = null;
