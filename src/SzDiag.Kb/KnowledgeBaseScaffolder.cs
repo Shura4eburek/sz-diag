@@ -30,6 +30,17 @@ public sealed class KnowledgeBaseScaffolder : IKnowledgeBaseScaffolder
         // разрешает короткие ссылки по всему vault — без локального файла в заметку СЗ
         // подтягивается чужой висновок из другой СЗ (ловили на 160467 → показывался 159794).
         WriteIfMissing(_paths.Summary(sz), SummaryNote(sz));
+        EnsureTemplates();
+        return dir;
+    }
+
+    /// <summary>Шаблоны в vault: ответ на жалобу собирался с нуля каждый раз, и половина
+    /// времени уходила на формат, а не на факты (бэклог п.84).</summary>
+    public string EnsureTemplates()
+    {
+        var dir = Path.Combine(_paths.Root, KbTemplates.FolderName);
+        Directory.CreateDirectory(dir);
+        WriteIfMissing(Path.Combine(dir, KbTemplates.ComplaintReplyFile), KbTemplates.ComplaintReply);
         return dir;
     }
 
