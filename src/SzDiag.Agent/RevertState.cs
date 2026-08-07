@@ -11,6 +11,10 @@ public sealed class RevertState
     public string AuthorizedKeyComment { get; set; } = "";
     public string AutostartTaskName { get; set; } = "";
 
+    /// <summary>Когда доступ был открыт. Нужен watchdog'у: даже при живом агенте доступ не
+    /// должен висеть на клиентской машине бесконечно (бэклог п.85).</summary>
+    public DateTimeOffset? OpenedAt { get; set; }
+
     public bool CreatedUser { get; set; }
     public bool StoppedSystemSshd { get; set; }
     public bool CreatedSshdTask { get; set; }

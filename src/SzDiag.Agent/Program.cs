@@ -74,6 +74,42 @@ if (args.Length >= 2 && args[0] == "--revert")
 
         var revertOpts = new AgentOptions();
         config.Bind(revertOpts);
+
+        // Watchdog не должен резать доступ под работающей сессией: на 160306 он снёс sshd,
+        // учётку и state.json ровно через час, пока шли exec/pull и heartbeat, и никто этого
+        // не заметил — CLI продолжал показывать «online · готов» (бэклог п.85/п.81).
+        // Ручной откат от hub идёт с --force: там метка живости роли не играет, доступ
+        // снимают намеренно.
+        var forced = args.Any(a => a.Equals("--force", StringComparison.OrdinalIgnoreCase));
+        var lastSeen = AccessLiveness.LastSeen(args[1]);
+        var now = DateTimeOffset.Now;
+        revertLog.Write($"СЗ {st.Sz}: {AccessLiveness.Explain(lastSeen, st.OpenedAt, now)}");
+        if (!forced && !AccessLiveness.ShouldRevert(lastSeen, st.OpenedAt, now))
+        {
+            // Агент на связи — переносим срок и уходим, ничего не трогая. Если перевзвести
+            // задачу не удалось, откатываем сейчас: доступ без сторожа опаснее прерванной работы.
+            var rescheduled = false;
+            try
+            {
+                ps.Run(WindowsSystemAccessManager.BuildWatchdogTaskCommand(
+                    st.WatchdogTaskName, Environment.ProcessPath!, args[1],
+                    DateTime.Now.AddHours(revertOpts.WatchdogHours)), throwOnError: false);
+                rescheduled = true;
+            }
+            catch (Exception ex)
+            {
+                revertLog.Write($"не удалось перевзвести watchdog ({ex.Message}) — откатываю сейчас.");
+            }
+
+            if (rescheduled)
+            {
+                logFile.WriteLine($"[watchdog] СЗ {st.Sz}: агент жив — откат отложен, watchdog перевзведён " +
+                                  $"на +{revertOpts.WatchdogHours} ч.");
+                logFile.Flush();
+                return 0;
+            }
+        }
+
         var revertSshd = new PortableSshServer(
             Path.IsPathRooted(revertOpts.SshBinDir)
                 ? revertOpts.SshBinDir
@@ -81,6 +117,7 @@ if (args.Length >= 2 && args[0] == "--revert")
             revertOpts.SshWorkDir, ps);
 
         var outcome = new WindowsSystemAccessManager(ps, revertSshd, args[1]).Revert(st);
+        AccessLiveness.Delete(args[1]);
         revertLog.Write($"СЗ {st.Sz}: {outcome.Summary()}");
         logFile.WriteLine($"[revert] СЗ {st.Sz}: {outcome.Summary()}");
         logFile.Flush();
@@ -193,7 +230,9 @@ if (args.Length >= 2 && args[0] == "--resume")
         rHubUrl, rOpts.AgentToken);
 
     using var rCts = new CancellationTokenSource();
-    var rHeartbeat = AgentCommandWiring.StartHeartbeatLoop(rSession, (int)rOpts.HeartbeatSeconds, rCts.Token);
+    var rHeartbeat = AgentCommandWiring.StartHeartbeatLoop(rSession, (int)rOpts.HeartbeatSeconds,
+        rCts.Token, null, args[1],
+        () => logFile.WriteLine("[resume] доступ снят снаружи — агент завершается."));
 
     await rSession.Completion; // ждём отката от hub (close) или watchdog
     rCts.Cancel();
@@ -475,8 +514,19 @@ else
 
 // Heartbeat в фоне.
 using var cts = new CancellationTokenSource();
+// statePath отдаём циклу: он отмечает живость агента (watchdog по ней не режет доступ под
+// работающей сессией) и замечает уже выполненный откат — тогда врать hub «online» нельзя.
+var accessRevoked = false;
 var heartbeat = AgentCommandWiring.StartHeartbeatLoop(session, (int)opts.HeartbeatSeconds,
-    cts.Token, ok => { if (ok) lastHeartbeatOk = DateTimeOffset.Now; });
+    cts.Token, ok => { if (ok) lastHeartbeatOk = DateTimeOffset.Now; },
+    opts.StatePath,
+    () =>
+    {
+        accessRevoked = true;
+        Announce("Доступ снят (watchdog или ручной откат) — агент завершается, сессия закрыта.",
+            "[yellow]Доступ снят (watchdog или ручной откат)[/] — агент завершается.");
+        cts.Cancel();
+    });
 
 // Сторож командного канала: heartbeat живёт отдельным лёгким путём и не замечает, что
 // exec залип, — а снаружи это неотличимо от здорового агента.

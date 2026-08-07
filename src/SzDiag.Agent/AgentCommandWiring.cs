@@ -206,8 +206,14 @@ public static class AgentCommandWiring
     /// <summary>Фоновый heartbeat-цикл до отмены. Ошибки глотаются (SignalR переподключается).</summary>
     /// <param name="onResult">Необязательный колбэк с исходом каждой попытки — панель
     /// статуса по нему отличает живой канал от переподключения.</param>
+    /// <param name="statePath">Путь к `state.json`. Если задан, цикл (а) отмечает живость
+    /// агента рядом с ним, чтобы watchdog не срезал доступ под работающей сессией (п.85), и
+    /// (б) замечает, что доступ уже откачен — файл исчез, — и зовёт
+    /// <paramref name="onAccessRevoked"/>: сессия без доступа не должна выглядеть в CLI как
+    /// полноценная (п.81).</param>
     public static Task StartHeartbeatLoop(AgentSession session, int heartbeatSeconds,
-        CancellationToken ct, Action<bool>? onResult = null) =>
+        CancellationToken ct, Action<bool>? onResult = null,
+        string? statePath = null, Action? onAccessRevoked = null) =>
         Task.Run(async () =>
         {
             while (!ct.IsCancellationRequested)
@@ -216,6 +222,19 @@ public static class AgentCommandWiring
                 try { await session.HeartbeatOnceAsync(ct); ok = true; }
                 catch { /* переподключение SignalR */ }
                 try { onResult?.Invoke(ok); } catch { /* панель не должна ронять цикл */ }
+
+                if (statePath is not null)
+                {
+                    if (!File.Exists(statePath))
+                    {
+                        // Доступ снят watchdog'ом или вручную: продолжать слать heartbeat
+                        // значит врать hub — там сессия так и останется «online · готов».
+                        try { onAccessRevoked?.Invoke(); } catch { /* уведомление не критично */ }
+                        break;
+                    }
+                    AccessLiveness.Touch(statePath);
+                }
+
                 try { await Task.Delay(TimeSpan.FromSeconds(heartbeatSeconds), ct); }
                 catch (OperationCanceledException) { break; }
             }

@@ -91,6 +91,48 @@ public class HeartbeatLoopCallbackTests
     }
 
     [Fact]
+    public async Task Loop_TouchesLivenessMark_SoWatchdogSeesLiveAgent()
+    {
+        // Регрессия (п.85): watchdog не знал про агента и срезал доступ под живой сессией.
+        var dir = Path.Combine(Path.GetTempPath(), $"szhb-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(dir);
+        var statePath = Path.Combine(dir, "state.json");
+        File.WriteAllText(statePath, "{}");
+        try
+        {
+            var link = new CountingLink(shouldThrow: false);
+            using var cts = new CancellationTokenSource();
+            var loop = AgentCommandWiring.StartHeartbeatLoop(MakeSession(link), 60, cts.Token,
+                statePath: statePath);
+
+            while (AccessLiveness.LastSeen(statePath) is null) await Task.Delay(5);
+            cts.Cancel();
+            try { await loop; } catch (OperationCanceledException) { }
+
+            Assert.NotNull(AccessLiveness.LastSeen(statePath));
+        }
+        finally { try { Directory.Delete(dir, recursive: true); } catch { } }
+    }
+
+    [Fact]
+    public async Task Loop_StopsAndReports_WhenAccessWasRevertedOutside()
+    {
+        // Регрессия (п.81): после отката watchdog'ом агент продолжал слать heartbeat, и в CLI
+        // висело «online · готов» при снятом доступе.
+        var statePath = Path.Combine(Path.GetTempPath(), $"szgone-{Guid.NewGuid():N}.json");
+        var link = new CountingLink(shouldThrow: false);
+        var revoked = false;
+        using var cts = new CancellationTokenSource();
+
+        var loop = AgentCommandWiring.StartHeartbeatLoop(MakeSession(link), 60, cts.Token,
+            statePath: statePath, onAccessRevoked: () => revoked = true);
+        await loop;   // цикл выходит сам: файла состояния нет
+
+        Assert.True(revoked);
+        Assert.False(cts.IsCancellationRequested);   // выход по своей причине, а не по отмене
+    }
+
+    [Fact]
     public async Task NoCallback_StillWorks()
     {
         var link = new CountingLink(shouldThrow: false);

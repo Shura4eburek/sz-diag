@@ -37,7 +37,10 @@ public sealed class WindowsSystemAccessManager : ISystemAccessManager
             WatchdogTaskName = $"szdiag-watchdog-{spec.Sz}",
             SshdTaskName = $"szdiag-sshd-{spec.Sz}",
             AuthorizedKeyComment = $"szdiag-{spec.Sz}",
-            AutostartTaskName = $"szdiag-autostart-{spec.Sz}"
+            AutostartTaskName = $"szdiag-autostart-{spec.Sz}",
+            // Момент открытия нужен watchdog'у: он не должен резать доступ под живой сессией,
+            // но и держать его сутками тоже нельзя (бэклог п.85).
+            OpenedAt = DateTimeOffset.Now,
         };
         void Persist() => RevertStateStore.Save(_statePath, state);
         Persist();
@@ -172,7 +175,11 @@ public sealed class WindowsSystemAccessManager : ISystemAccessManager
         // Файл состояния сносим, только если всё откатилось: иначе следующая попытка
         // (перевзведённый watchdog или ручной --revert) не будет знать, что доделывать.
         if (failed.Count == 0)
-            Step("файл состояния", true, () => RevertStateStore.Delete(_statePath));
+            Step("файл состояния", true, () =>
+            {
+                RevertStateStore.Delete(_statePath);
+                AccessLiveness.Delete(_statePath);   // метка живости без состояния бессмысленна
+            });
 
         return new RevertOutcome(done, failed);
     }
