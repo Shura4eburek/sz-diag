@@ -120,6 +120,48 @@ switch (command)
     case "client" when args.Length >= 2:
         return await ClientCommand.RunAsync(client, args);
 
+    // agent set <СЗ> Ключ=значение: правка конфига агента с хоста. WatchdogHours применяется
+    // сразу (перевзвод задачи), остальное — при следующем открытии доступа (бэклог п.86).
+    case "agent" when args.Length >= 4 && args[1].Equals("set", StringComparison.OrdinalIgnoreCase):
+    {
+        var setSz = args[2];
+        if (!SzNumber.IsValid(setSz))
+        {
+            AnsiConsole.MarkupLineInterpolated($"[red]Неверный номер СЗ:[/] {SzNumber.Explain(setSz)}.");
+            return 2;
+        }
+        var assignment = AgentConfigEdit.ParseAssignment(args[3]);
+        if (assignment is null)
+        {
+            AnsiConsole.MarkupLine("[red]Формат:[/] szcli agent set <СЗ> WatchdogHours=12");
+            return 2;
+        }
+        if (!AgentConfigEdit.IsKnownKey(assignment.Value.Key))
+        {
+            AnsiConsole.MarkupLineInterpolated($"[red]Неизвестный ключ:[/] {assignment.Value.Key}");
+            AnsiConsole.MarkupLineInterpolated(
+                $"[grey]Применяются сразу:[/] {string.Join(", ", AgentConfigEdit.HotKeys)}");
+            AnsiConsole.MarkupLineInterpolated(
+                $"[grey]При следующем открытии:[/] {string.Join(", ", AgentConfigEdit.RestartKeys)}");
+            return 2;
+        }
+
+        var setRes = await client.ExecAsync(setSz,
+            AgentConfigEdit.BuildScript(setSz, assignment.Value.Key, assignment.Value.Value), 120);
+        if (setRes is null)
+        {
+            AnsiConsole.MarkupLineInterpolated($"[red]СЗ {setSz} не найдена[/] среди активных.");
+            return 1;
+        }
+        if (!string.IsNullOrEmpty(setRes.StdOut)) Console.WriteLine(CliXml.Decode(setRes.StdOut).TrimEnd());
+        if (setRes.ExitCode != 0)
+        {
+            AnsiConsole.MarkupLineInterpolated($"[red]Не удалось:[/] {CliXml.Decode(setRes.StdErr).TrimEnd()}");
+            return 1;
+        }
+        break;
+    }
+
     // sensors: наблюдатель нагрузки на время стресс-прогона + разбор его CSV.
     case "sensors" when args.Length >= 2:
         return await SensorsCommand.RunAsync(client, args[1..], AppContext.BaseDirectory);
@@ -411,6 +453,7 @@ static void PrintUsage()
                 [grey]забрать файлы (маска [/]*.dmp[grey], папка или несколько путей) в[/] hub\pulled\<СЗ>\<время>\
                 [grey]-r — с подпапками (LiveKernelReports держит дампы в[/] WATCHDOG*[grey])[/]
               [yellow]szcli agent restart[/] [blue]<СЗ>[/]  поднять агента заново (задачей под SYSTEM, без похода к машине)
+              [yellow]szcli agent set[/] [blue]<СЗ>[/] [grey]WatchdogHours=12[/]  правка конфига агента с хоста
               [yellow]szcli client[/] [grey]info|cleanup <СЗ>[/]  следы прогонов на клиенте и их уборка
               [yellow]szcli maintenance[/] [blue]<СЗ>[/] [grey]"причина" [[--from 18:30]] [[--until 19:15]] | --list[/]
                 [grey]метка «работали руками»: события питания в окне — не вырубон[/]
