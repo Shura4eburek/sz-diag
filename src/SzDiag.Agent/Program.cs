@@ -222,6 +222,11 @@ if (args.Length >= 2 && args[0] == "--resume")
     }
 
     logFile.WriteLine($"[resume] СЗ {state.Sz}: online (после ребута).");
+    // Заморозка WU перезагрузку не переживает — службы поднимает оркестратор. Если маркер
+    // на месте, применяем её заново, иначе посреди диагностики прилетит обновление и ещё
+    // один ребут, который потом читается как вырубон (бэклог п.72).
+    var rFreeze = WindowsUpdateFreezeGuard.ReapplyIfMarked(ps);
+    if (rFreeze is not null) logFile.WriteLine($"[resume] {rFreeze}");
     logFile.Flush();
     try { await rLink.ReportActivityAsync(state.Sz, "— готов (после ребута)", null); } catch { }
 
@@ -475,6 +480,10 @@ catch (SshdStartException ex)
 }
 Announce($"СЗ {sz}: доступ открыт ● online. Хост {Environment.MachineName}.",
     $"СЗ {sz}: доступ открыт [green]● online[/]. Хост {Environment.MachineName}.");
+
+// Та же проверка для обычного старта: агент мог быть перезапущен после ребута руками.
+var freezeNote = WindowsUpdateFreezeGuard.ReapplyIfMarked(ps);
+if (freezeNote is not null) Announce(freezeNote, $"[yellow]{Markup.Escape(freezeNote)}[/]");
 
 // Стартовая активность в таблице CLI: простаиваем, готовы к прогону.
 try { await link.ReportActivityAsync(sz, "— готов", null); } catch { /* статус не критичен */ }

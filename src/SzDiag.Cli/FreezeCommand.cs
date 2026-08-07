@@ -57,11 +57,76 @@ public static class FreezeCommand
             return 1;
         }
 
+        // Не рапортуем об успехе по факту записи в реестр: на 160306 всё «применилось», а
+        // после ребута wuauserv оказался живым (бэклог п.72). Перечитываем фактическое
+        // состояние и говорим правду.
+        var problems = await VerifyAsync(client, sz);
+        if (problems is null)
+        {
+            AnsiConsole.MarkupLine("[yellow]Заморозка применена, но проверить состояние не удалось (агент не ответил).[/]");
+            return 1;
+        }
+
+        var services = string.Join(", ", WindowsUpdateFreeze.Services);
         AnsiConsole.MarkupLineInterpolated(
-            $"[green]СЗ {sz}: Windows Update заморожен[/] (службы {string.Join(", ", WindowsUpdateFreeze.Services)} + политика WSUS).");
+            $"[green]СЗ {sz}: Windows Update заморожен[/] (службы {services}, политика WSUS, задачи оркестратора выключены).");
         AnsiConsole.MarkupLineInterpolated($"[grey]Прежние значения:[/] {path}");
+        if (problems.Count > 0)
+        {
+            AnsiConsole.MarkupLine("[red]⚠ Проверка показала, что применилось НЕ всё:[/]");
+            foreach (var p in problems) AnsiConsole.MarkupLineInterpolated($"  [red]•[/] {p}");
+            AnsiConsole.MarkupLine("[yellow]Проверь права и повтори; после ребута состояние сверяется само (агент).[/]");
+        }
+        else
+        {
+            AnsiConsole.MarkupLine("[grey]Проверено фактическое состояние: службы и политика на месте.[/]");
+        }
         AnsiConsole.MarkupLine("[yellow]Не забудь szcli unfreeze перед отдачей машины клиенту.[/]");
-        return 0;
+        return problems.Count == 0 ? 0 : 1;
+    }
+
+    /// <summary>`szcli freeze --status <СЗ>` — что на машине на самом деле, без ручного
+    /// `exec` в реестр. Главный вопрос после ребута: заморозка ещё держится?</summary>
+    public static async Task<int> StatusAsync(IHubApiClient client, string sz, string stateDir)
+    {
+        var verify = await client.ExecAsync(sz, WindowsUpdateFreeze.BuildVerifyScript(), TimeoutSeconds);
+        if (verify is null)
+        {
+            AnsiConsole.MarkupLineInterpolated($"[red]СЗ {sz} не найдена[/] среди активных.");
+            return 1;
+        }
+
+        var values = WindowsUpdateFreeze.ParseCapture(verify.StdOut);
+        foreach (var svc in WindowsUpdateFreeze.Services)
+        {
+            values.TryGetValue($"svc:{svc}", out var start);
+            values.TryGetValue($"state:{svc}", out var state);
+            AnsiConsole.MarkupLineInterpolated($"  {svc,-14} Start={start,-3} {state}");
+        }
+        AnsiConsole.MarkupLineInterpolated(
+            $"  WUServer={values.GetValueOrDefault("pol:WUServer")}  NoAutoUpdate={values.GetValueOrDefault("pol:NoAutoUpdate")}");
+
+        var problems = WindowsUpdateFreeze.CheckApplied(verify.StdOut);
+        var hasState = IsFrozen(stateDir, sz);
+        if (problems.Count == 0)
+        {
+            AnsiConsole.MarkupLineInterpolated($"[green]СЗ {sz}: заморозка держится.[/]");
+            if (!hasState)
+                AnsiConsole.MarkupLine("[yellow]Но файла с прежними значениями на хосте нет — unfreeze вернёт службы в Manual.[/]");
+            return 0;
+        }
+
+        AnsiConsole.MarkupLineInterpolated($"[red]СЗ {sz}: заморозка НЕ полная:[/]");
+        foreach (var p in problems) AnsiConsole.MarkupLineInterpolated($"  [red]•[/] {p}");
+        AnsiConsole.MarkupLineInterpolated($"[grey]Починить:[/] szcli freeze {sz}");
+        return 1;
+    }
+
+    /// <summary>Фактическое состояние после применения. null — агент не ответил.</summary>
+    private static async Task<IReadOnlyList<string>?> VerifyAsync(IHubApiClient client, string sz)
+    {
+        var verify = await client.ExecAsync(sz, WindowsUpdateFreeze.BuildVerifyScript(), TimeoutSeconds);
+        return verify is null ? null : WindowsUpdateFreeze.CheckApplied(verify.StdOut);
     }
 
     public static async Task<int> UnfreezeAsync(IHubApiClient client, string sz, string stateDir)

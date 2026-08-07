@@ -81,6 +81,11 @@ switch (command)
 
     // freeze/unfreeze: заморозка Windows Update на время сессии. Прежние значения хранятся
     // на хосте рядом с szcli — клиент их потерять не может.
+    // freeze --status <СЗ>: держится ли заморозка (после ребута она сама не переживает —
+    // бэклог п.72), без ручного exec в реестр.
+    case "freeze" when args.Length >= 3 && args[2].Equals("--status", StringComparison.OrdinalIgnoreCase):
+        return await FreezeCommand.StatusAsync(client, args[1], AppContext.BaseDirectory);
+
     case "freeze" when args.Length >= 2:
         return await FreezeCommand.FreezeAsync(client, args[1], AppContext.BaseDirectory);
 
@@ -314,7 +319,7 @@ static void PrintUsage()
               [yellow]szcli reboots[/] [blue]<СЗ>[/]       таймлайн вырубонов (по смене boot-time)
               [yellow]szcli sensors[/] [grey]start|status|stop <СЗ> | report <csv>[/]
                 [grey]наблюдатель нагрузки (CSV построчно, переживает вырубон) и его разбор[/]
-              [yellow]szcli freeze[/] [blue]<СЗ>[/]        заморозить Windows Update на время сессии
+              [yellow]szcli freeze[/] [blue]<СЗ>[/] [grey][[--status]][/]  заморозить Windows Update (или проверить, держится ли)
               [yellow]szcli unfreeze[/] [blue]<СЗ>[/]      вернуть Windows Update как было (обязательно!)
               [yellow]szcli test run[/] [blue]<СЗ>[/] [grey][[occt|tm5,furmark|…]][/]  прогон тестов (все или по id)
               [yellow]szcli diag run[/] [blue]<СЗ>[/] [grey][[storage,events|…]][/]  диагностика (снапшот; секции точечно)

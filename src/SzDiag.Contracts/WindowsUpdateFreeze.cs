@@ -27,6 +27,17 @@ public static class WindowsUpdateFreeze
     /// <summary>Службы, которые надо погасить именно через реестр.</summary>
     public static readonly string[] Services = { "wuauserv", "UsoSvc", "WaaSMedicSvc" };
 
+    /// <summary>Ветки планировщика, откуда WU воскресает после ребута. На 160306 заморозка
+    /// служб не пережила перезагрузку: `wuauserv` поднялся в `Start=3 Running` — `Start`
+    /// восстанавливает не Medic, а именно оркестратор своими задачами (бэклог п.72).</summary>
+    public static readonly string[] TaskFolders =
+        { @"\Microsoft\Windows\UpdateOrchestrator\", @"\Microsoft\Windows\WindowsUpdate\" };
+
+    /// <summary>Маркер заморозки на клиенте. Нужен, чтобы агент после ребута переприменил её
+    /// сам: ребут — штатная часть долгой диагностики, а размороженный WU в этот момент
+    /// приносит обновление и ещё один ребут, который потом читается как вырубон.</summary>
+    public const string MarkerPath = @"C:\ProgramData\szdiag\wu-freeze.json";
+
     private const string PolicyKey = @"HKLM:\SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate";
     private const string AuKey = @"HKLM:\SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate\AU";
 
@@ -44,10 +55,68 @@ public static class WindowsUpdateFreeze
             lines.Add($"'svc:{svc}=' + (Val 'HKLM:\\SYSTEM\\CurrentControlSet\\Services\\{svc}' 'Start')");
         foreach (var (key, name) in PolicyValues())
             lines.Add($"'pol:{name}=' + (Val '{key}' '{name}')");
+        // Задачи оркестратора: их состояние тоже надо вернуть как было (п.72).
+        foreach (var folder in TaskFolders)
+            lines.Add($"Get-ScheduledTask -TaskPath '{folder}' -ErrorAction SilentlyContinue | " +
+                      "ForEach-Object { 'task:' + $_.TaskPath + $_.TaskName + '=' + $_.State }");
         // Незавершённая транзакция — отдельный сигнал: замораживать машину, которая уже
         // в середине применения пакета, опасно (бэклог п.35b).
         lines.Add("'pending:' + (Test-Path 'C:\\Windows\\WinSxS\\pending.xml')");
         return string.Join("\n", lines);
+    }
+
+    /// <summary>Скрипт проверки: что на машине НА САМОМ ДЕЛЕ. `freeze` рапортовал успех по
+    /// факту записи в реестр, а после ребута выяснялось, что службы живы (бэклог п.72).
+    /// Печатает те же строки, что и capture, — читается тем же <see cref="ParseCapture"/>,
+    /// плюс фактический статус служб (`state:wuauserv=Running`).</summary>
+    public static string BuildVerifyScript()
+    {
+        var lines = new List<string> { "$ErrorActionPreference='SilentlyContinue'" };
+        lines.Add("function Val($path,$name){ $v=(Get-ItemProperty -Path $path -Name $name -ErrorAction SilentlyContinue).$name; if ($null -eq $v) { '' } else { $v } }");
+        foreach (var svc in Services)
+        {
+            lines.Add($"'svc:{svc}=' + (Val 'HKLM:\\SYSTEM\\CurrentControlSet\\Services\\{svc}' 'Start')");
+            lines.Add($"'state:{svc}=' + (Get-Service {svc} -ErrorAction SilentlyContinue).Status");
+        }
+        foreach (var (key, name) in PolicyValues())
+            lines.Add($"'pol:{name}=' + (Val '{key}' '{name}')");
+        foreach (var folder in TaskFolders)
+            lines.Add($"Get-ScheduledTask -TaskPath '{folder}' -ErrorAction SilentlyContinue | " +
+                      "ForEach-Object { 'task:' + $_.TaskPath + $_.TaskName + '=' + $_.State }");
+        lines.Add($"'marker:' + (Test-Path '{MarkerPath}')");
+        return string.Join("\n", lines);
+    }
+
+    /// <summary>Что из заморозки НЕ применилось. Пустой список — всё на месте.</summary>
+    public static IReadOnlyList<string> CheckApplied(string verifyStdout)
+    {
+        var values = ParseCapture(verifyStdout);
+        var problems = new List<string>();
+
+        foreach (var svc in Services)
+        {
+            if (values.TryGetValue($"svc:{svc}", out var start) && start.Trim() != "4")
+                problems.Add($"{svc}: Start={(string.IsNullOrWhiteSpace(start) ? "нет значения" : start)} (ожидалось 4)");
+            if (values.TryGetValue($"state:{svc}", out var state)
+                && state.Trim().Equals("Running", StringComparison.OrdinalIgnoreCase))
+                problems.Add($"{svc}: служба ЗАПУЩЕНА");
+        }
+
+        if (!values.TryGetValue("pol:NoAutoUpdate", out var noAuto) || noAuto.Trim() != "1")
+            problems.Add("политика NoAutoUpdate не выставлена");
+        if (!values.TryGetValue("pol:WUServer", out var wu) || !wu.Contains("127.0.0.1"))
+            problems.Add("политика WUServer не указывает на несуществующий WSUS");
+
+        var enabledTasks = values
+            .Where(kv => kv.Key.StartsWith("task:", StringComparison.OrdinalIgnoreCase)
+                         && kv.Value.Trim().Equals("Ready", StringComparison.OrdinalIgnoreCase))
+            .Select(kv => kv.Key["task:".Length..])
+            .ToList();
+        if (enabledTasks.Count > 0)
+            problems.Add($"задачи оркестратора включены ({enabledTasks.Count}): "
+                         + string.Join(", ", enabledTasks.Take(5)));
+
+        return problems;
     }
 
     /// <summary>Скрипт заморозки.</summary>
@@ -68,6 +137,17 @@ public static class WindowsUpdateFreeze
         lines.Add($"Set-ItemProperty -Path '{AuKey}' -Name UseWUServer -Value 1 -Type DWord -Force");
         lines.Add($"Set-ItemProperty -Path '{AuKey}' -Name NoAutoUpdate -Value 1 -Type DWord -Force");
         lines.Add($"Set-ItemProperty -Path '{AuKey}' -Name AUOptions -Value 1 -Type DWord -Force");
+
+        // Второй эшелон, переживающий ребут: задачи оркестратора. Именно они поднимают
+        // `wuauserv` обратно в `Start=3 Running` после перезагрузки (бэклог п.72).
+        foreach (var folder in TaskFolders)
+            lines.Add($"Get-ScheduledTask -TaskPath '{folder}' -ErrorAction SilentlyContinue | " +
+                      "Disable-ScheduledTask -ErrorAction SilentlyContinue | Out-Null");
+
+        // Маркер для агента: после ребута он переприменит заморозку сам, не дожидаясь оператора.
+        lines.Add($"New-Item -ItemType Directory -Force -Path (Split-Path '{MarkerPath}') | Out-Null");
+        lines.Add($"@{{ frozenAt = (Get-Date).ToString('o') }} | ConvertTo-Json | " +
+                  $"Set-Content -Path '{MarkerPath}' -Encoding utf8");
         lines.Add("'frozen'");
         return string.Join("\n", lines);
     }
@@ -102,8 +182,30 @@ public static class WindowsUpdateFreeze
                 lines.Add($"Remove-ItemProperty -Path '{key}' -Name {name} -ErrorAction SilentlyContinue");
             }
         }
+        // Задачи оркестратора: включаем обратно те, что были готовы к запуску до нас.
+        // Машина обязана уехать к клиенту с работающими обновлениями безопасности.
+        foreach (var kv in previous.Where(p => p.Key.StartsWith("task:", StringComparison.OrdinalIgnoreCase)))
+        {
+            if (!kv.Value.Trim().Equals("Ready", StringComparison.OrdinalIgnoreCase)) continue;
+            var full = kv.Key["task:".Length..];
+            var slash = full.LastIndexOf('\\');
+            if (slash < 0) continue;
+            var path = full[..(slash + 1)].Replace("'", "''");
+            var name = full[(slash + 1)..].Replace("'", "''");
+            lines.Add($"Enable-ScheduledTask -TaskPath '{path}' -TaskName '{name}' -ErrorAction SilentlyContinue | Out-Null");
+        }
+        // Прежних значений не знаем (замораживали с другой машины) — включаем всё, что нашли:
+        // оставленная выключенной задача WU опаснее лишнего включения.
+        if (!previous.Keys.Any(k => k.StartsWith("task:", StringComparison.OrdinalIgnoreCase)))
+        {
+            foreach (var folder in TaskFolders)
+                lines.Add($"Get-ScheduledTask -TaskPath '{folder}' -ErrorAction SilentlyContinue | " +
+                          "Enable-ScheduledTask -ErrorAction SilentlyContinue | Out-Null");
+        }
+
         foreach (var svc in Services)
             lines.Add($"Start-Service {svc} -ErrorAction SilentlyContinue");
+        lines.Add($"Remove-Item -Path '{MarkerPath}' -Force -ErrorAction SilentlyContinue");
         lines.Add("'unfrozen'");
         return string.Join("\n", lines);
     }
