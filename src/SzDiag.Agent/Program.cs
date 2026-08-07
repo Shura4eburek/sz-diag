@@ -221,6 +221,13 @@ if (args.Length >= 2 && args[0] == "--resume")
         }
     }
 
+    try
+    {
+        var rJournal = PowerEventsReader.Read(ps);
+        if (rJournal.Count > 0) await rLink.ReportPowerEventsAsync(new PowerEventsReport(state.Sz, rJournal));
+    }
+    catch (Exception ex) { logFile.WriteLine($"[power] журнал не отправлен: {ex.Message}"); }
+
     logFile.WriteLine($"[resume] СЗ {state.Sz}: online (после ребута).");
     // Заморозка WU перезагрузку не переживает — службы поднимает оркестратор. Если маркер
     // на месте, применяем её заново, иначе посреди диагностики прилетит обновление и ещё
@@ -512,6 +519,19 @@ if (freezeNote is not null) Announce(freezeNote, $"[yellow]{Markup.Escape(freeze
 
 // Стартовая активность в таблице CLI: простаиваем, готовы к прогону.
 try { await link.ReportActivityAsync(sz, "— готов", null); } catch { /* статус не критичен */ }
+
+// События питания из журнала клиента: hub видит только смены boot-time при живом heartbeat,
+// поэтому всё, что случилось до подключения агента, в таймлайне отсутствовало (бэклог п.97).
+try
+{
+    var journal = PowerEventsReader.Read(ps);
+    if (journal.Count > 0)
+    {
+        await link.ReportPowerEventsAsync(new PowerEventsReport(sz, journal));
+        Announce($"Из журнала клиента отправлено событий питания: {journal.Count}.", null);
+    }
+}
+catch (Exception ex) { logFile.WriteLine($"[power] журнал не отправлен: {ex.Message}"); }
 
 // Обработчики RunTests/RunDiag от hub (общие с resume-веткой — см. AgentCommandWiring).
 var execHandler = AgentCommandWiring.RegisterHandlers(link, Environment.MachineName, ps,

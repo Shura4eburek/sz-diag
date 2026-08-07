@@ -276,6 +276,7 @@ public class DiagReportRunnerTests
         public List<UploadReportPart> Uploaded { get; } = new();
         public Task ConnectAsync(CancellationToken ct = default) => Task.CompletedTask;
         public Task RegisterAsync(string sz, string hostname, DateTimeOffset? bootTime = null, string? lastShutdown = null, CancellationToken ct = default) => Task.CompletedTask;
+        public Task ReportPowerEventsAsync(SzDiag.Contracts.PowerEventsReport report, CancellationToken ct = default) => Task.CompletedTask;
         public Task HeartbeatAsync(string sz, CancellationToken ct = default) => Task.CompletedTask;
         public void OnRevert(Func<string, Task> handler) { }
         public void OnRunTests(Func<string, string?, Task> handler) { }

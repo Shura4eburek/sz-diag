@@ -57,6 +57,17 @@ public sealed class AgentHub : Microsoft.AspNetCore.SignalR.Hub
             new SessionRecord(request.Sz, ip, request.Hostname, DateTimeOffset.UtcNow, null));
     }
 
+    /// <summary>Агент принёс события питания из журнала клиента. Hub сливает их со своими:
+    /// всё, что случилось до подключения агента, он увидеть не мог, и `reboots` печатал
+    /// «вырубонов не зафиксировано» там, где они были (бэклог п.97).</summary>
+    public async Task PowerEvents(PowerEventsReport report)
+    {
+        if (report.Events.Count == 0) return;
+        var added = await _store.MergeJournalEventsAsync(report);
+        if (added > 0)
+            Console.WriteLine($"[hub] СЗ {report.Sz}: из журнала клиента добавлено событий питания: {added}");
+    }
+
     public Task Heartbeat(string sz)
     {
         _registry.Heartbeat(sz);

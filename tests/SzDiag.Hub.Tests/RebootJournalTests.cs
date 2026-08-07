@@ -113,6 +113,34 @@ public class RebootJournalTests : IDisposable
     }
 
     [Fact]
+    public async Task Store_MergesJournalEvents_WithoutDuplicatingWhatHubSawItself()
+    {
+        // Регрессия (п.97): всё, что случилось до подключения агента, в таймлайн не попадало,
+        // и «вырубонов не зафиксировано» читалось как «их не было».
+        var store = new SqliteSessionStore(Conn);
+        await store.InitializeAsync();
+        await store.RecordOpenAsync(new SessionRecord("160636", "10.0.0.1", "PC-1", Boot1, null));
+        await store.RecordRebootAsync(new RebootEvent("160636", Boot2, Boot1, Boot2, 100, null,
+            ShutdownKind.HardOff));
+
+        var added = await store.MergeJournalEventsAsync(new PowerEventsReport("160636", new[]
+        {
+            new PowerEvent(Boot2.AddSeconds(60), ShutdownKind.HardOff),   // то же событие ±5 мин
+            new PowerEvent(Boot1.AddDays(-3), ShutdownKind.HardOff),      // до наблюдения — новое
+            new PowerEvent(Boot1.AddDays(-2), ShutdownKind.PowerButton),  // кнопка, не дефект
+        }));
+
+        var timeline = await store.GetRebootsAsync("160636");
+
+        Assert.Equal(2, added);
+        Assert.Equal(3, timeline.Count);
+        Assert.Equal(2, timeline.Events.Count(e => e.Source == RebootSource.Journal));
+        Assert.Equal(Boot1, timeline.WatchingSince);   // с какого момента вообще смотрели
+        // Кнопка из журнала в отказы не идёт (п.93).
+        Assert.Equal(2, timeline.Events.Count(e => e.IsFailure));
+    }
+
+    [Fact]
     public void Register_Reconnect_DoesNotInventReboot()
     {
         // Под нагрузкой heartbeat опаздывает и SignalR переподключается — это не вырубон.

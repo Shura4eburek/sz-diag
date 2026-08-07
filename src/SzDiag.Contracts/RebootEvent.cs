@@ -20,6 +20,10 @@ namespace SzDiag.Contracts;
 /// обрыв питания, кнопка, BSOD или штатное выключение. Смена boot-time сама по себе
 /// вырубоном не является — на 161312 два «аварийных выключения» из пяти были кнопкой
 /// (бэклог п.93).</param>
+/// <param name="Source">Откуда узнали: <see cref="RebootSource.Heartbeat"/> — hub сам увидел
+/// смену boot-time; <see cref="RebootSource.Journal"/> — агент принёс запись из журнала
+/// клиента. Всё, что случилось до подключения агента, hub не видел вовсе, и `reboots` уверенно
+/// печатал «вырубонов не зафиксировано» там, где они были (бэклог п.97).</param>
 public sealed record RebootEvent(
     string Sz,
     DateTimeOffset At,
@@ -27,7 +31,8 @@ public sealed record RebootEvent(
     DateTimeOffset? NewBootTime,
     long? UptimeBeforeSeconds,
     string? ActivityBefore,
-    string? Kind = null)
+    string? Kind = null,
+    string Source = RebootSource.Heartbeat)
 {
     public TimeSpan? UptimeBefore =>
         UptimeBeforeSeconds is { } s ? TimeSpan.FromSeconds(s) : null;
@@ -36,13 +41,35 @@ public sealed record RebootEvent(
     public bool IsFailure => ShutdownKind.CountsAsFailure(Kind);
 }
 
+/// <summary>Откуда событие известно.</summary>
+public static class RebootSource
+{
+    /// <summary>Hub сам увидел смену boot-time при живом агенте.</summary>
+    public const string Heartbeat = "heartbeat";
+
+    /// <summary>Запись из журнала клиента (Kernel-Power 41 / EventLog 6008), принесённая
+    /// агентом при подключении. Покрывает время, когда агента не было.</summary>
+    public const string Journal = "journal";
+}
+
+/// <summary>Событие питания из журнала клиента — то, что агент приносит hub при регистрации.</summary>
+/// <param name="Kind">Классификация по полям события (<see cref="ShutdownKind"/>).</param>
+public sealed record PowerEvent(DateTimeOffset At, string Kind);
+
+/// <summary>Пачка событий из журнала клиента.</summary>
+public sealed record PowerEventsReport(string Sz, IReadOnlyList<PowerEvent> Events);
+
 /// <summary>Таймлайн вырубонов по СЗ + сводка, которую нельзя не заметить при закрытии.</summary>
 /// <param name="MaxUptimeSeconds">Максимальный зафиксированный аптайм между вырубонами —
 /// ответ на вопрос «сколько машина вообще выдерживает».</param>
+/// <param name="WatchingSince">С какого момента СЗ вообще под наблюдением hub. Без этой даты
+/// «вырубонов не зафиксировано» читается как «их не было», хотя может значить «мы не
+/// смотрели» (бэклог п.97).</param>
 public sealed record RebootTimeline(
     string Sz,
     IReadOnlyList<RebootEvent> Events,
-    long? MaxUptimeSeconds)
+    long? MaxUptimeSeconds,
+    DateTimeOffset? WatchingSince = null)
 {
     public int Count => Events.Count;
 

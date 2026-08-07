@@ -34,6 +34,7 @@ public class AgentSessionTests
         public Task ConnectAsync(CancellationToken ct = default) { Connected = true; return Task.CompletedTask; }
         public DateTimeOffset? RegisteredBootTime { get; private set; }
         public Task RegisterAsync(string sz, string hostname, DateTimeOffset? bootTime = null, string? lastShutdown = null, CancellationToken ct = default) { RegisteredSz = sz; RegisteredBootTime = bootTime; return Task.CompletedTask; }
+        public Task ReportPowerEventsAsync(SzDiag.Contracts.PowerEventsReport report, CancellationToken ct = default) => Task.CompletedTask;
         public Task HeartbeatAsync(string sz, CancellationToken ct = default) { Heartbeats++; return Task.CompletedTask; }
         public void OnRevert(Func<string, Task> handler) => _onRevert = handler;
         public List<SzDiag.Contracts.UploadReportPart> Uploaded { get; } = new();

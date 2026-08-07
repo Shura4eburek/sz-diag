@@ -39,7 +39,8 @@ public sealed class SqliteSessionStore : ISessionStore
                 new_boot      INTEGER NULL,
                 uptime_before INTEGER NULL,
                 activity      TEXT    NULL,
-                kind          TEXT    NULL
+                kind          TEXT    NULL,
+                source        TEXT    NULL
             );
             CREATE INDEX IF NOT EXISTS ix_reboots_sz ON reboots(sz);
             """;
@@ -47,10 +48,13 @@ public sealed class SqliteSessionStore : ISessionStore
 
         // Миграция для баз, заведённых до появления классификации (бэклог п.93): у старых
         // записей kind останется NULL и будет читаться как «неизвестно», а не как «кнопка».
-        await using var alter = conn.CreateCommand();
-        alter.CommandText = "ALTER TABLE reboots ADD COLUMN kind TEXT NULL;";
-        try { await alter.ExecuteNonQueryAsync(ct); }
-        catch (SqliteException) { /* колонка уже есть — штатный случай */ }
+        foreach (var column in new[] { "kind TEXT NULL", "source TEXT NULL" })
+        {
+            await using var alter = conn.CreateCommand();
+            alter.CommandText = $"ALTER TABLE reboots ADD COLUMN {column};";
+            try { await alter.ExecuteNonQueryAsync(ct); }
+            catch (SqliteException) { /* колонка уже есть — штатный случай */ }
+        }
     }
 
     public async Task RecordOpenAsync(SessionRecord record, CancellationToken ct = default)
@@ -93,10 +97,11 @@ public sealed class SqliteSessionStore : ISessionStore
         await conn.OpenAsync(ct);
         await using var cmd = conn.CreateCommand();
         cmd.CommandText = """
-            INSERT INTO reboots (sz, at, prev_boot, new_boot, uptime_before, activity, kind)
-            VALUES ($sz, $at, $prev, $new, $uptime, $activity, $kind);
+            INSERT INTO reboots (sz, at, prev_boot, new_boot, uptime_before, activity, kind, source)
+            VALUES ($sz, $at, $prev, $new, $uptime, $activity, $kind, $source);
             """;
         cmd.Parameters.AddWithValue("$kind", (object?)evt.Kind ?? DBNull.Value);
+        cmd.Parameters.AddWithValue("$source", evt.Source);
         cmd.Parameters.AddWithValue("$sz", evt.Sz);
         cmd.Parameters.AddWithValue("$at", evt.At.ToUnixTimeSeconds());
         cmd.Parameters.AddWithValue("$prev", (object?)evt.PreviousBootTime?.ToUnixTimeSeconds() ?? DBNull.Value);
@@ -112,7 +117,7 @@ public sealed class SqliteSessionStore : ISessionStore
         await conn.OpenAsync(ct);
         await using var cmd = conn.CreateCommand();
         cmd.CommandText = """
-            SELECT at, prev_boot, new_boot, uptime_before, activity, kind
+            SELECT at, prev_boot, new_boot, uptime_before, activity, kind, source
             FROM reboots WHERE sz = $sz ORDER BY at, id;
             """;
         cmd.Parameters.AddWithValue("$sz", sz);
@@ -131,9 +136,55 @@ public sealed class SqliteSessionStore : ISessionStore
                 reader.IsDBNull(2) ? null : DateTimeOffset.FromUnixTimeSeconds(reader.GetInt64(2)),
                 uptime,
                 reader.IsDBNull(4) ? null : reader.GetString(4),
-                reader.IsDBNull(5) ? null : reader.GetString(5)));
+                reader.IsDBNull(5) ? null : reader.GetString(5),
+                reader.IsDBNull(6) ? RebootSource.Heartbeat : reader.GetString(6)));
         }
-        return new RebootTimeline(sz, events, maxUptime);
+        await reader.CloseAsync();
+
+        // С какого момента СЗ под наблюдением: без этой даты «вырубонов не зафиксировано»
+        // читается как «их не было», хотя может значить «мы не смотрели» (бэклог п.97).
+        await using var since = conn.CreateCommand();
+        since.CommandText = "SELECT MIN(opened_at) FROM sessions WHERE sz = $sz;";
+        since.Parameters.AddWithValue("$sz", sz);
+        var raw = await since.ExecuteScalarAsync(ct);
+        DateTimeOffset? watchingSince = raw is null or DBNull
+            ? null
+            : DateTimeOffset.FromUnixTimeSeconds(Convert.ToInt64(raw));
+
+        return new RebootTimeline(sz, events, maxUptime, watchingSince);
+    }
+
+    /// <summary>Слияние событий из журнала клиента: hub видит только смены boot-time при живом
+    /// heartbeat, поэтому всё, что случилось до подключения агента, приходит отсюда. Дубли
+    /// отсекаем по времени (±5 минут) — одно и то же событие hub мог уже записать сам.</summary>
+    public async Task<int> MergeJournalEventsAsync(PowerEventsReport report, CancellationToken ct = default)
+    {
+        await using var conn = new SqliteConnection(_connectionString);
+        await conn.OpenAsync(ct);
+
+        var added = 0;
+        foreach (var evt in report.Events)
+        {
+            var at = evt.At.ToUnixTimeSeconds();
+            await using var check = conn.CreateCommand();
+            check.CommandText = "SELECT COUNT(*) FROM reboots WHERE sz = $sz AND ABS(at - $at) <= 300;";
+            check.Parameters.AddWithValue("$sz", report.Sz);
+            check.Parameters.AddWithValue("$at", at);
+            if (Convert.ToInt64(await check.ExecuteScalarAsync(ct)) > 0) continue;
+
+            await using var insert = conn.CreateCommand();
+            insert.CommandText = """
+                INSERT INTO reboots (sz, at, prev_boot, new_boot, uptime_before, activity, kind, source)
+                VALUES ($sz, $at, NULL, NULL, NULL, NULL, $kind, $source);
+                """;
+            insert.Parameters.AddWithValue("$sz", report.Sz);
+            insert.Parameters.AddWithValue("$at", at);
+            insert.Parameters.AddWithValue("$kind", evt.Kind);
+            insert.Parameters.AddWithValue("$source", RebootSource.Journal);
+            await insert.ExecuteNonQueryAsync(ct);
+            added++;
+        }
+        return added;
     }
 
     public async Task<IReadOnlyList<SessionRecord>> GetHistoryAsync(CancellationToken ct = default)

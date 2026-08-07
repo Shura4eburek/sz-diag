@@ -136,14 +136,20 @@ switch (command)
         var timeline = await client.GetRebootsAsync(args[1]);
         if (timeline is null || timeline.Count == 0)
         {
+            // «Не зафиксировано» ≠ «не было»: важно, с какого момента машина под наблюдением
+            // (бэклог п.97).
+            var sinceText = timeline?.WatchingSince is { } w
+                ? $"под наблюдением с {w.ToLocalTime():dd.MM HH:mm}"
+                : "под наблюдением ещё не была";
             AnsiConsole.MarkupLineInterpolated(
-                $"[grey]СЗ {args[1]}: вырубонов не зафиксировано[/] (hub видит их по смене boot-time).");
+                $"[grey]СЗ {args[1]}: вырубонов не зафиксировано[/] ({sinceText}; журнал клиента агент приносит при подключении).");
             break;
         }
 
         var rebootTable = new Table().Border(TableBorder.Rounded).BorderColor(Color.Grey);
         rebootTable.AddColumn("Когда");
         rebootTable.AddColumn("Как");
+        rebootTable.AddColumn("Откуда");
         rebootTable.AddColumn("Продержалась");
         rebootTable.AddColumn("Была занята");
         foreach (var e in timeline.Events)
@@ -154,9 +160,15 @@ switch (command)
             var kind = e.IsFailure
                 ? $"[red]{ShutdownKind.Describe(e.Kind)}[/]"
                 : $"[dim]{ShutdownKind.Describe(e.Kind)}[/]";
-            rebootTable.AddRow($"{e.At.ToLocalTime():dd.MM HH:mm:ss}", kind, held, busy);
+            // Источник важен: событие из журнала клиента могло случиться до того, как машина
+            // вообще попала к нам под наблюдение (бэклог п.97).
+            var src = e.Source == RebootSource.Journal ? "[grey]журнал[/]" : "[dim]hub[/]";
+            rebootTable.AddRow($"{e.At.ToLocalTime():dd.MM HH:mm:ss}", kind, src, held, busy);
         }
         AnsiConsole.Write(rebootTable);
+        if (timeline.WatchingSince is { } watching)
+            AnsiConsole.MarkupLineInterpolated(
+                $"[grey]Под наблюдением hub с {watching.ToLocalTime():dd.MM HH:mm}; более ранние строки — из журнала клиента.[/]");
         PrintRebootTotals(timeline);
         break;
     }

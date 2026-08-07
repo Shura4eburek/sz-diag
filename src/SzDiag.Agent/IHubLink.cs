@@ -8,6 +8,10 @@ public interface IHubLink
         CancellationToken ct = default);
     Task HeartbeatAsync(string sz, CancellationToken ct = default);
 
+    /// <summary>Отдать hub события питания из журнала клиента — то, что hub сам увидеть не
+    /// может (бэклог п.97).</summary>
+    Task ReportPowerEventsAsync(SzDiag.Contracts.PowerEventsReport report, CancellationToken ct = default);
+
     /// <summary>Подписка на команду revert от hub (sz → callback).</summary>
     void OnRevert(Func<string, Task> handler);
 

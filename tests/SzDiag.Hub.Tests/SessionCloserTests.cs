@@ -34,6 +34,7 @@ public class SessionCloserTests
         }
         public Task<IReadOnlyList<SessionRecord>> GetHistoryAsync(CancellationToken ct = default)
             => Task.FromResult((IReadOnlyList<SessionRecord>)new List<SessionRecord>());
+        public Task<int> MergeJournalEventsAsync(PowerEventsReport report, CancellationToken ct = default) => Task.FromResult(0);
         public Task RecordRebootAsync(SzDiag.Contracts.RebootEvent evt, CancellationToken ct = default)
             => Task.CompletedTask;
         public Task<SzDiag.Contracts.RebootTimeline> GetRebootsAsync(string sz, CancellationToken ct = default)

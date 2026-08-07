@@ -15,6 +15,7 @@ public class HeartbeatLoopCallbackTests
         public Task ConnectAsync(CancellationToken ct = default) => Task.CompletedTask;
         public Task RegisterAsync(string sz, string hostname, DateTimeOffset? bootTime = null, string? lastShutdown = null,
             CancellationToken ct = default) => Task.CompletedTask;
+        public Task ReportPowerEventsAsync(SzDiag.Contracts.PowerEventsReport report, CancellationToken ct = default) => Task.CompletedTask;
         public Task HeartbeatAsync(string sz, CancellationToken ct = default)
         {
             Interlocked.Increment(ref Calls);
@@ -159,6 +160,7 @@ public class HeartbeatLoopCallbackTests
         public Task RegisterAsync(string sz, string hostname, DateTimeOffset? bootTime = null,
             string? lastShutdown = null, CancellationToken ct = default) => Task.CompletedTask;
         public Task HeartbeatAsync(string sz, CancellationToken ct = default) => Task.CompletedTask;
+        public Task ReportPowerEventsAsync(SzDiag.Contracts.PowerEventsReport report, CancellationToken ct = default) => Task.CompletedTask;
         public void OnRevert(Func<string, Task> handler) { }
         public void OnRunTests(Func<string, string?, Task> handler) { }
         public void OnRunDiag(Func<string, string?, Task> handler) { }

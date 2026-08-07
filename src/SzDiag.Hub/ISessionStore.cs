@@ -15,4 +15,9 @@ public interface ISessionStore
 
     /// <summary>Таймлайн вырубонов по СЗ, от старых к новым.</summary>
     Task<RebootTimeline> GetRebootsAsync(string sz, CancellationToken ct = default);
+
+    /// <summary>Слить события из журнала клиента с уже известными. Возвращает, сколько
+    /// записей добавилось: те, что hub уже видел сам (по времени ±5 минут), не дублируются
+    /// (бэклог п.97).</summary>
+    Task<int> MergeJournalEventsAsync(PowerEventsReport report, CancellationToken ct = default);
 }

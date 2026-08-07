@@ -26,6 +26,9 @@ public sealed class SignalRHubLink : IHubLink
     public Task HeartbeatAsync(string sz, CancellationToken ct = default)
         => _conn.InvokeAsync(HubRoutes.Heartbeat, sz, ct);
 
+    public Task ReportPowerEventsAsync(PowerEventsReport report, CancellationToken ct = default)
+        => _conn.InvokeAsync(HubRoutes.PowerEvents, report, ct);
+
     public void OnRevert(Func<string, Task> handler)
         => _conn.On<string>(HubRoutes.Revert, sz => handler(sz));
 

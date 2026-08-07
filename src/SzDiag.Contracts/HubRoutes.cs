@@ -47,6 +47,11 @@ public static class HubRoutes
     // Агент -> hub: итог доставки инструмента.
     public const string PushResult = nameof(PushResult);
 
+    // Агент -> hub: события питания из ЖУРНАЛА клиента (Kernel-Power 41 / EventLog 6008).
+    // Нужны, потому что hub видит только смены boot-time при живом heartbeat: всё, что
+    // случилось до подключения агента, в таймлайне не появлялось вовсе (бэклог п.97).
+    public const string PowerEvents = nameof(PowerEvents);
+
     // Апдейтер клиента: раздача пакета агента (HTTP, под TokenHeader).
     public const string AgentApiPrefix = "/agent";
     public const string AgentVersionRoute = "/agent/version";
