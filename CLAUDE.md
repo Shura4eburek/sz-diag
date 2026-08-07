@@ -39,6 +39,14 @@ test --schedule=… --auto-start`, максимум транзиентов CPU+G
 scheduled task под SYSTEM, т.к. под нагрузкой SSH глохнет и Start-Process через SSH-сессию
 умирает), **cdb** для минидампов. Дискриминация — свопом компонента + повтором теста.
 
+**Ночной прогон бэклога (2026-08-07):** закрыты все P0 и почти все P1 — заморозка WU переживает
+ребут (`szcli freeze --status`), watchdog не режет доступ под живой сессией, sshd поднимается сам,
+exec-канал не встаёт, `reboots` отличает обрыв от кнопки и подтягивает журнал клиента, `diag`
+отделяет историю чужого железа, `sensors` понимает широкий CSV и видит GPU. Новые команды:
+`szcli client info|cleanup`, `szcli maintenance`, `szcli agent restart|set`, `szcli kb doctor`,
+`tools\doctor.ps1`. **Что проверить на живой заявке** —
+[docs/live-checklist-2026-08-07.md](docs/live-checklist-2026-08-07.md).
+
 **Бэклог улучшений инструментария** — [docs/dev-backlog.md](docs/dev-backlog.md): боли, собранные
 по живым СЗ (доставка тулов мимо SMB через hub, ad-hoc PS через агента вместо SSH/ConPTY,
 boot-time в heartbeat, freshness-guard для `build-dist`, валидация секций diag, sensors одной
