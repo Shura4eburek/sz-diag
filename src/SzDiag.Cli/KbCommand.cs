@@ -77,6 +77,27 @@ public static class KbCommand
             return Task.FromResult(0);
         }
 
+        if (sub == "doctor")
+        {
+            // «Чужой вывод в чужой СЗ» должен ловиться командой, а не глазами через неделю
+            // (бэклог п.11).
+            var issues = KbDoctor.Check(kbRoot);
+            if (issues.Count == 0)
+            {
+                Console.WriteLine("База знаний цела: висячих эмбедов и пропавших файлов нет.");
+                return Task.FromResult(0);
+            }
+
+            foreach (var i in issues.OrderByDescending(i => i.IsError))
+                Console.WriteLine($"  [{(i.IsError ? "ОШИБКА" : "внимание")}] {i.Where}: {i.What}");
+
+            var errors = issues.Count(i => i.IsError);
+            Console.WriteLine($"Проблем: {issues.Count} (из них ломающих: {errors}).");
+            if (errors > 0)
+                Console.WriteLine("Починить скелеты: szcli kb summary <СЗ> — он дозаполняет недостающие файлы.");
+            return Task.FromResult(errors > 0 ? 1 : 0);
+        }
+
         PrintUsage();
         return Task.FromResult(2);
     }
@@ -97,6 +118,7 @@ public static class KbCommand
           szcli kb summary <СЗ>
           szcli kb search [--order X] [--text "..."]
           szcli kb rm <СЗ>            удалить СЗ из базы знаний целиком
+          szcli kb doctor             проверка целостности vault (висячие эмбеды, дубли имён)
         """);
 
     private static string Clean(string raw) => raw.Trim('"').Replace("[[", "").Replace("]]", "");
