@@ -75,6 +75,35 @@ switch (command)
             AnsiConsole.MarkupLineInterpolated($"[red]СЗ {args[1]} не найдена[/] среди активных.");
         break;
 
+    // agent restart <СЗ>: поднять агента заново, не подходя к машине. Агент себя НЕ убивает —
+    // он ставит отложенную задачу под SYSTEM, и только она гасит процесс и запускает новый
+    // (прошлая попытка сделать это скриптом стоила потери машины — бэклог п.83).
+    case "agent" when args.Length >= 3 && args[1].Equals("restart", StringComparison.OrdinalIgnoreCase):
+    {
+        var restartSz = args[2];
+        if (!SzNumber.IsValid(restartSz))
+        {
+            AnsiConsole.MarkupLineInterpolated($"[red]Неверный номер СЗ:[/] {SzNumber.Explain(restartSz)}.");
+            return 2;
+        }
+
+        var restart = await client.ExecAsync(restartSz, AgentRestart.BuildScript(restartSz), 120);
+        if (restart is null)
+        {
+            AnsiConsole.MarkupLineInterpolated($"[red]СЗ {restartSz} не найдена[/] среди активных.");
+            return 1;
+        }
+        if (!string.IsNullOrEmpty(restart.StdOut)) Console.WriteLine(CliXml.Decode(restart.StdOut).TrimEnd());
+        if (restart.ExitCode != 0)
+        {
+            AnsiConsole.MarkupLineInterpolated($"[red]Перезапуск не поставлен:[/] {CliXml.Decode(restart.StdErr).TrimEnd()}");
+            return 1;
+        }
+        AnsiConsole.MarkupLineInterpolated(
+            $"[green]СЗ {restartSz}: перезапуск поставлен.[/] Через минуту СЗ должна вернуться в [green]online[/] — следи в szcli watch.");
+        break;
+    }
+
     // sensors: наблюдатель нагрузки на время стресс-прогона + разбор его CSV.
     case "sensors" when args.Length >= 2:
         return await SensorsCommand.RunAsync(client, args[1..], AppContext.BaseDirectory);
@@ -346,6 +375,7 @@ static void PrintUsage()
               [yellow]szcli pull[/] [blue]<СЗ>[/] [grey]<путь…> [[--max-mb N]] [[-r]][/]
                 [grey]забрать файлы (маска [/]*.dmp[grey], папка или несколько путей) в[/] hub\pulled\<СЗ>\<время>\
                 [grey]-r — с подпапками (LiveKernelReports держит дампы в[/] WATCHDOG*[grey])[/]
+              [yellow]szcli agent restart[/] [blue]<СЗ>[/]  поднять агента заново (задачей под SYSTEM, без похода к машине)
               [yellow]szcli kb[/] …               работа с базой знаний ([grey]record/summary/search/rm[/])
               [yellow]szcli hw[/] …               видяха по PCI hardware id
             [grey]Номер СЗ — 6 цифр.[/]

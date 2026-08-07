@@ -430,9 +430,23 @@ try
 {
 
 term.Write(new Rule("[bold]sz-diag agent[/]").LeftJustified());
-term.Markup("Введите номер [yellow]СЗ[/]: ");
-var sz = (Console.ReadLine() ?? "").Trim();
-logFile.WriteLine($"Введите номер СЗ: {sz}");
+
+// Номер СЗ можно передать аргументом (`agent.exe 160306`) — так агента поднимает
+// задача-перезапуск с хоста, для которой консоли нет вовсе (бэклог п.83). Без аргумента
+// работает как раньше: спрашиваем с консоли.
+var szFromArgs = args.FirstOrDefault(a => SzNumber.IsValid(a));
+string sz;
+if (szFromArgs is not null)
+{
+    sz = szFromArgs;
+    Announce($"СЗ {sz} взята из аргументов командной строки.", null);
+}
+else
+{
+    term.Markup("Введите номер [yellow]СЗ[/]: ");
+    sz = (Console.ReadLine() ?? "").Trim();
+    logFile.WriteLine($"Введите номер СЗ: {sz}");
+}
 // Формат номера — ровно 6 цифр: hub по нему заводит скелет заметок, и опечатка оседает
 // в базе знаний отдельной папкой-призраком (бэклог п.57).
 if (!SzNumber.IsValid(sz))
@@ -487,6 +501,10 @@ catch (SshdStartException ex)
 }
 Announce($"СЗ {sz}: доступ открыт ● online. Хост {Environment.MachineName}.",
     $"СЗ {sz}: доступ открыт [green]● online[/]. Хост {Environment.MachineName}.");
+
+// Задача-перезапуск (если нас подняла именно она) больше не нужна — снимаем, иначе она
+// останется следом на машине клиента.
+try { ps.Run(AgentRestart.BuildCleanupScript(sz), throwOnError: false); } catch { }
 
 // Та же проверка для обычного старта: агент мог быть перезапущен после ребута руками.
 var freezeNote = WindowsUpdateFreezeGuard.ReapplyIfMarked(ps);
