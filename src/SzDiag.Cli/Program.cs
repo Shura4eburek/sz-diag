@@ -70,6 +70,10 @@ switch (command)
             // Заморозка обязана сниматься до отдачи машины клиенту — иначе она уедет
             // без обновлений безопасности (бэклог п.34b).
             FreezeCommand.WarnIfStillFrozen(AppContext.BaseDirectory, args[1]);
+            // Следы прогонов агент чистит сам при откате, но 12 ГБ iotest.bin из папки
+            // клиента он не тронет — проверять надо ДО закрытия (бэклог п.56/99).
+            AnsiConsole.MarkupLineInterpolated(
+                $"[grey]Проверить остатки на клиенте (пока агент жив):[/] szcli client info {args[1]}");
         }
         else
             AnsiConsole.MarkupLineInterpolated($"[red]СЗ {args[1]} не найдена[/] среди активных.");
@@ -103,6 +107,11 @@ switch (command)
             $"[green]СЗ {restartSz}: перезапуск поставлен.[/] Через минуту СЗ должна вернуться в [green]online[/] — следи в szcli watch.");
         break;
     }
+
+    // client info|cleanup: следы прогонов на клиентской машине (задачи szdiag*, драйверы
+    // инструментов, наши временные каталоги) — бэклог п.56/88/99.
+    case "client" when args.Length >= 2:
+        return await ClientCommand.RunAsync(client, args);
 
     // sensors: наблюдатель нагрузки на время стресс-прогона + разбор его CSV.
     case "sensors" when args.Length >= 2:
@@ -376,6 +385,7 @@ static void PrintUsage()
                 [grey]забрать файлы (маска [/]*.dmp[grey], папка или несколько путей) в[/] hub\pulled\<СЗ>\<время>\
                 [grey]-r — с подпапками (LiveKernelReports держит дампы в[/] WATCHDOG*[grey])[/]
               [yellow]szcli agent restart[/] [blue]<СЗ>[/]  поднять агента заново (задачей под SYSTEM, без похода к машине)
+              [yellow]szcli client[/] [grey]info|cleanup <СЗ>[/]  следы прогонов на клиенте и их уборка
               [yellow]szcli kb[/] …               работа с базой знаний ([grey]record/summary/search/rm[/])
               [yellow]szcli hw[/] …               видяха по PCI hardware id
             [grey]Номер СЗ — 6 цифр.[/]

@@ -1,4 +1,5 @@
 using System.Security.Cryptography;
+using SzDiag.Contracts;
 
 namespace SzDiag.Agent;
 
@@ -182,6 +183,13 @@ public sealed class WindowsSystemAccessManager : ISystemAccessManager
         // Вернуть системный sshd, если гасили его на время сессии.
         Step("системный sshd", state.StoppedSystemSshd, () =>
             _ps.Run("Start-Service sshd -ErrorAction SilentlyContinue", throwOnError: false));
+
+        // Следы прогонов убираем ПОСЛЕ штатных шагов: задачи с префиксом szdiag (включая
+        // безымянные — п.99), драйвер R0lhmmon, который держит .sys и не даёт удалить папку
+        // (п.88), и наши временные каталоги (п.56). Свои задачи к этому моменту уже сняты,
+        // поэтому исключать нечего — но список передаём на случай неполного отката.
+        Step("следы прогонов (задачи/драйверы/временные файлы)", true, () =>
+            _ps.Run(ClientTraces.BuildCleanupScript(), throwOnError: false));
 
         // Файл состояния сносим, только если всё откатилось: иначе следующая попытка
         // (перевзведённый watchdog или ручной --revert) не будет знать, что доделывать.
