@@ -349,7 +349,9 @@ switch (command)
         var state = status.Running
             ? $"[yellow]выполняется[/] ({SessionTableRenderer.FormatElapsed(DateTimeOffset.Now - status.StartedAt)})"
             : $"[green]завершена[/] (exit {status.ExitCode})";
-        AnsiConsole.MarkupLineInterpolated($"Задача {args[3]}: {state}, вывода {status.OutputBytes} б");
+        // MarkupLine, а не MarkupLineInterpolated: последний экранирует вставленные значения,
+        // и разметка из $state печаталась как текст «[green]завершена[/]» (260306).
+        AnsiConsole.MarkupLine($"Задача {Markup.Escape(args[3])}: {state}, вывода {status.OutputBytes} б");
         if (!string.IsNullOrEmpty(status.Tail)) Console.WriteLine(status.Tail);
         return 0;
     }

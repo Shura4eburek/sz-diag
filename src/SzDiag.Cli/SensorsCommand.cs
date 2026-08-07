@@ -102,7 +102,9 @@ public static class SensorsCommand
             return 1;
         }
         var state = status.Running ? "[yellow]идёт[/]" : $"[grey]завершён[/] (exit {status.ExitCode})";
-        AnsiConsole.MarkupLineInterpolated($"Наблюдатель {run.JobId}: {state}, CSV {run.CsvPath}");
+        // MarkupLine + Escape для данных: Interpolated-вариант съедал разметку из $state и
+        // печатал её текстом («[yellow]идёт[/]» на 260306).
+        AnsiConsole.MarkupLine($"Наблюдатель {Markup.Escape(run.JobId)}: {state}, CSV {Markup.Escape(run.CsvPath)}");
         if (!string.IsNullOrEmpty(status.Error)) AnsiConsole.MarkupLineInterpolated($"[red]{status.Error}[/]");
         return 0;
     }

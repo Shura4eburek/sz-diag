@@ -15,8 +15,19 @@ $plan = @(
     @{ Type = 'PowerSupply'; Dur = '00:30:00' }    # CPU+GPU одновременно, пиковое потребление
 )
 
-$sched = Get-Content (Join-Path $occt 'schedule-long.json') -Raw -Encoding UTF8 | ConvertFrom-Json
+# Донор — штатное расписание OCCT. Имя файла зависит от того, чем его завели: свежая
+# раздача (`szcli push occt`) кладёт `schedule.json`, ручные прогоны оставляли
+# `schedule-long.json`. На 260306 жёсткое имя `schedule-long.json` дало пустой JSON и
+# ложное «записан» — берём первое, что реально лежит, иначе падаем громко.
+$donorFile = @('schedule-long.json', 'schedule.json') |
+    ForEach-Object { Join-Path $occt $_ } |
+    Where-Object { Test-Path $_ } |
+    Select-Object -First 1
+if (-not $donorFile) { throw "нет эталонного расписания OCCT в $occt (ожидались schedule-long.json / schedule.json) — запусти OCCT один раз вручную или сделай szcli push <СЗ> occt" }
+
+$sched = Get-Content $donorFile -Raw -Encoding UTF8 | ConvertFrom-Json
 $donor = $sched.Periods[0]
+if (-not $donor) { throw "в $donorFile нет ни одного Period — эталон непригоден как донор" }
 $sched.Periods = foreach ($p in $plan) {
     $c = $donor | ConvertTo-Json -Depth 20 | ConvertFrom-Json
     $c.TestType = $p.Type
@@ -27,8 +38,11 @@ $sched.Periods = foreach ($p in $plan) {
 }
 $out = Join-Path $occt 'schedule-gpu.json'
 $sched | ConvertTo-Json -Depth 20 | Set-Content $out -Encoding UTF8
+# «Записан» печатаем только по факту наличия файла: на 260306 сообщение об успехе было,
+# а файла на клиенте не оказалось — и это выяснилось лишь при следующем запуске.
+if (-not (Test-Path $out)) { throw "не удалось записать $out" }
 
-"записан: $out"
+"записан: $out (донор: $(Split-Path $donorFile -Leaf))"
 $total = [TimeSpan]::Zero
 foreach ($p in $sched.Periods) { "   {0,-12} {1}" -f $p.TestType, $p.Duration; $total += [TimeSpan]::Parse($p.Duration) }
 # Конечное расписание САМО завершает тест — снаружи это неотличимо от «машина выстояла» (грабля 160306)

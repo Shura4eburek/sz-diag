@@ -1,4 +1,4 @@
-$OutputEncoding = [Console]::OutputEncoding = [Text.Encoding]::UTF8
+﻿$OutputEncoding = [Console]::OutputEncoding = [Text.Encoding]::UTF8
 # Грабля (бэклог п.96, СЗ 161312): на неверный TestType OCCT CLI отвечает
 #   Error : Could not load the schedule file - file does not exists
 # при том, что файл на месте и читается. Это ошибка РАЗБОРА, а не путей — полчаса ушло на
@@ -9,9 +9,11 @@ $OutputEncoding = [Console]::OutputEncoding = [Text.Encoding]::UTF8
 # через Combined.
 #
 #   szcli exec <СЗ> -f tools\recipes\client\check-occt-schedule.ps1
-param(
-    [string]$Schedule
-)
+# Без param(): `szcli exec -f` клеит скрипт после своей шапки (кодировка + $ProgressPreference),
+# а param-блок обязан быть первым выражением — иначе на клиенте «The term 'param' is not
+# recognized» и скрипт молча работает мимо аргументов (260306). Путь задаётся переменной
+# $Schedule, если её выставили выше по скрипту; иначе ищется рядом с агентом.
+if (-not (Get-Variable Schedule -Scope Script -ErrorAction SilentlyContinue)) { $Schedule = $null }
 
 # Проверено перебором на 161312: работает только это.
 $valid = @('CpuOnlyOcct', 'PowerSupply', 'CpuLinpack', 'Combined', 'CpuOcct', 'Memtest', 'Vram', 'Gpu3d', 'GpuUnreal')
