@@ -41,8 +41,13 @@ public static class SensorWatcher
             $procNames = @({{procs}})
             {{deadline}}
             if (-not (Test-Path $csv)) {
-                'time;cpu_pct;stress_procs;cpu_temp_c;ram_used_pct' | Out-File -FilePath $csv -Encoding utf8
+                'time;cpu_pct;stress_procs;cpu_temp_c;ram_used_pct;gpu_pct;gpu_temp_c;gpu_power_w' | Out-File -FilePath $csv -Encoding utf8
             }
+            # nvidia-smi лежит в System32 и работает даже из session 0 (проверено на 161312).
+            # Без GPU-колонок 30 минут FurMark выглядели как «нагрузка шла 2% времени» — по
+            # одному только CPU (бэклог п.80). Нет nvidia-smi (AMD/Intel) - колонки пустые.
+            $smi = Join-Path $env:SystemRoot 'System32\nvidia-smi.exe'
+            $hasSmi = Test-Path $smi
             while ((Get-Date) -lt $deadline) {
                 # Win32_Processor.LoadPercentage - дешёвый счётчик; счётчики производительности
                 # под 100% нагрузкой сами становятся узким местом и рвут ряд наблюдений.
@@ -58,9 +63,18 @@ public static class SensorWatcher
                 if ($os -and $os.TotalVisibleMemorySize) {
                     $ram = [math]::Round(100 - ($os.FreePhysicalMemory / $os.TotalVisibleMemorySize * 100))
                 }
+                $gpu = ''; $gpuTemp = ''; $gpuPower = ''
+                if ($hasSmi) {
+                    $line = & $smi --query-gpu=utilization.gpu,temperature.gpu,power.draw --format=csv,noheader,nounits 2>$null | Select-Object -First 1
+                    if ($line) {
+                        $p = $line -split ','
+                        $gpu = $p[0].Trim(); $gpuTemp = $p[1].Trim(); $gpuPower = $p[2].Trim()
+                    }
+                }
                 # Add-Content открывает и закрывает файл на каждой строке: пережить вырубон
                 # важнее, чем сэкономить на вводе-выводе.
-                ((Get-Date -Format 'yyyy-MM-dd HH:mm:ss') + ';' + $cpu + ';' + $running + ';' + $temp + ';' + $ram) |
+                ((Get-Date -Format 'yyyy-MM-dd HH:mm:ss') + ';' + $cpu + ';' + $running + ';' + $temp + ';' + $ram +
+                 ';' + $gpu + ';' + $gpuTemp + ';' + $gpuPower) |
                     Add-Content -Path $csv -Encoding utf8
                 Start-Sleep -Seconds {{intervalSeconds}}
             }

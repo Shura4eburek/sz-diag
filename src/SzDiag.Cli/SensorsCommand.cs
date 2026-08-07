@@ -142,7 +142,10 @@ public static class SensorsCommand
             return 1;
         }
 
-        var summary = SensorReport.Summarize(SensorReport.Parse(File.ReadAllText(csvPath)));
+        // Формат определяем сами: широкий лог lhmmon раньше давал «CSV пуст — прогон не
+        // подтверждён ничем» на полностью валидном пятичасовом файле (бэклог п.91).
+        var parsed = SensorReport.ParseAny(File.ReadAllText(csvPath));
+        var summary = SensorReport.Summarize(parsed.Samples, format: parsed.Format);
         Console.WriteLine(SensorReport.Format(summary));
         return summary.Samples == 0 ? 1 : 0;
     }
