@@ -117,5 +117,43 @@ public class SessionTableRendererTests
 
         Assert.Contains("Активность", text);
         Assert.Contains("Тест OCCT", text);
+    }
+
+    [Fact]
+    public void Render_OfflineSession_FreezesUptimeAndShowsSilence()
+    {
+        // Регрессия (п.89): у offline-СЗ uptime продолжал расти и читался как «машина жива».
+        var now = new DateTimeOffset(2026, 8, 6, 13, 30, 0, TimeSpan.Zero);
+        var boot = now - TimeSpan.FromHours(3);
+        var lastSeen = now - TimeSpan.FromMinutes(12);
+        var sessions = new List<SessionInfo>
+        {
+            new("160467", "10.0.0.42", "PC-1", SessionStatus.Offline, lastSeen, lastSeen, BootTime: boot),
+        };
+
+        var text = RenderToText(SessionTableRenderer.Render(sessions, now));
+
+        Assert.Contains("2ч 48мин", text);        // заморожено на моменте последнего контакта
+        Assert.Contains("нет связи", text);
+        Assert.DoesNotContain("3ч 0мин", text);
     }
+
+    [Fact]
+    public void Render_BootTimeInFuture_SaysClockIsWrong_InsteadOfZero()
+    {
+        // Регрессия (п.90): WinPE отдаёт boot-time со смещением -08:00, разность отрицательная,
+        // и в колонке печаталось «0сек» на машине, стоявшей больше часа.
+        var now = new DateTimeOffset(2026, 8, 6, 17, 37, 0, TimeSpan.Zero);
+        var sessions = new List<SessionInfo>
+        {
+            new("159948", "10.0.0.42", "PE-1", SessionStatus.Online, now, now,
+                BootTime: now + TimeSpan.FromHours(11)),
+        };
+
+        var text = RenderToText(SessionTableRenderer.Render(sessions, now));
+
+        Assert.Contains("boot-time в будущем", text);
+        Assert.DoesNotContain("0сек", text);
+    }
+
 }

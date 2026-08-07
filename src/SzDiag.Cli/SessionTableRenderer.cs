@@ -45,8 +45,25 @@ public static class SessionTableRenderer
     private static string UptimeCell(SessionInfo s, DateTimeOffset now)
     {
         if (s.BootTime is not DateTimeOffset boot) return "[dim]—[/]";
-        var up = FormatElapsed(now - boot);
+
+        // Boot-time в будущем = недостоверный источник: WinPE стартует с дефолтной таймзоной
+        // (Pacific) и отдаёт время со смещением -08:00, из-за чего разность отрицательная и
+        // рендерилась как «0сек» на машине, стоявшей час (бэклог п.90).
+        if (boot - now > TimeSpan.FromMinutes(5))
+            return "[yellow]— (boot-time в будущем: часы клиента)[/]";
+
         var counter = s.RebootCount > 0 ? $" [red]⚡{s.RebootCount}[/]" : "";
+
+        // У offline-СЗ время «с загрузки» замораживаем на последнем контакте: растущий счётчик
+        // читается как признак живой машины, хотя связи нет (бэклог п.89).
+        if (s.Status == SessionStatus.Offline)
+        {
+            var frozen = FormatElapsed(s.LastHeartbeat - boot);
+            var silent = FormatElapsed(now - s.LastHeartbeat);
+            return $"[grey]{frozen}[/] [dim](нет связи {silent})[/]{counter}";
+        }
+
+        var up = FormatElapsed(now - boot);
         if (s.LastRebootAt is DateTimeOffset reboot && now - reboot < TimeSpan.FromHours(1))
             return $"[red]{up} (ребут {reboot.ToLocalTime():HH:mm})[/]{counter}";
         return $"[grey]{up}[/]{counter}";

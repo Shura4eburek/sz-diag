@@ -87,6 +87,32 @@ public class RebootJournalTests : IDisposable
     }
 
     [Fact]
+    public void Register_BootTimeJitter_IsNotAReboot()
+    {
+        // Агент считает boot-time как «сейчас минус аптайм» (п.90), поэтому между запусками
+        // значение гуляет на секунды — ребутом это быть не должно.
+        var reg = new SessionRegistry();
+        reg.Register("160467", "10.0.0.42", "PC-1", "conn-1", Boot1);
+
+        var outcome = reg.Register("160467", "10.0.0.42", "PC-1", "conn-2", Boot1.AddSeconds(7));
+
+        Assert.False(outcome.Rebooted);
+        Assert.Equal(0, Assert.Single(reg.GetActive()).RebootCount);
+    }
+
+    [Fact]
+    public void Register_BootTimeFromFuture_IsIgnored()
+    {
+        // WinPE стартует с дефолтной таймзоной и отдаёт boot-time на 11 часов вперёд: по нему
+        // нельзя ни считать аптайм, ни заводить вырубоны (бэклог п.90).
+        var reg = new SessionRegistry();
+
+        reg.Register("159948", "10.0.0.42", "PE-1", "conn-1", DateTimeOffset.UtcNow.AddHours(11));
+
+        Assert.Null(Assert.Single(reg.GetActive()).BootTime);
+    }
+
+    [Fact]
     public void Register_Reconnect_DoesNotInventReboot()
     {
         // Под нагрузкой heartbeat опаздывает и SignalR переподключается — это не вырубон.

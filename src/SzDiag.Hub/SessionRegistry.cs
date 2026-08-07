@@ -8,6 +8,16 @@ public sealed class SessionRegistry
 {
     private sealed record Entry(SessionInfo Info, string ConnectionId);
 
+    /// <summary>Насколько boot-time может «дрожать» между регистрациями, оставаясь тем же.
+    /// Агент считает его от собственных часов как «сейчас минус аптайм» (так кривая таймзона
+    /// WinPE перестаёт всё ломать — бэклог п.90), и два запуска подряд дают значения,
+    /// расходящиеся на секунды. Ребутом считаем только заметный сдвиг.</summary>
+    public static readonly TimeSpan RebootTolerance = TimeSpan.FromMinutes(2);
+
+    /// <summary>Boot-time из будущего недостоверен (часы клиента, таймзона PE): по нему нельзя
+    /// ни считать аптайм, ни заводить вырубоны.</summary>
+    public static readonly TimeSpan FutureBootSlack = TimeSpan.FromMinutes(5);
+
     private readonly ConcurrentDictionary<string, Entry> _bySz = new();
     private readonly TimeProvider _time;
 
@@ -38,10 +48,14 @@ public sealed class SessionRegistry
         var now = _time.GetUtcNow();
         _bySz.TryGetValue(sz, out var prev);
 
+        // Boot-time из будущего (часы клиента, дефолтная таймзона WinPE) не годится ни для
+        // аптайма, ни для детекта вырубона — считаем, что его нет вовсе (бэклог п.90).
+        if (bootTime is { } future && future - now > FutureBootSlack) bootTime = null;
+
         var rebooted = prev is not null
                        && prev.Info.BootTime is { } was
                        && bootTime is { } isNow
-                       && was != isNow;
+                       && (isNow - was).Duration() > RebootTolerance;
 
         var lastReboot = rebooted ? now : prev?.Info.LastRebootAt;
         var countsAsFailure = rebooted && ShutdownKind.CountsAsFailure(lastShutdown);

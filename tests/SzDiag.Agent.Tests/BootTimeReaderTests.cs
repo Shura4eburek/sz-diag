@@ -58,11 +58,41 @@ public class BootTimeReaderTests
     }
 
     [Fact]
-    public void Read_Success_ReturnsParsedValue()
+    public void Read_Success_ReturnsBootTimeFromUptime()
     {
-        var ps = new FakePs(new PsResult(0, "2026-07-28T10:56:01.0000000+03:00\r\n", ""));
+        // Агент спрашивает у клиента АПТАЙМ, а не абсолютное время загрузки: разность двух
+        // локальных времён не зависит от таймзоны, и кривая TZ в WinPE перестаёт всё ломать
+        // (бэклог п.90).
+        var ps = new FakePs(new PsResult(0, "3600\r\n", ""));
 
-        Assert.Equal(new DateTimeOffset(2026, 7, 28, 10, 56, 1, TimeSpan.FromHours(3)),
-            BootTimeReader.Read(ps)!.Value);
+        var boot = BootTimeReader.Read(ps);
+
+        Assert.NotNull(boot);
+        Assert.InRange((DateTimeOffset.Now - boot!.Value).TotalMinutes, 59.5, 60.5);
     }
+
+    [Fact]
+    public void ParseUptimeSeconds_UsesAgentClock_RegardlessOfClientTimezone()
+    {
+        var now = new DateTimeOffset(2026, 8, 6, 17, 26, 0, TimeSpan.FromHours(3));
+
+        var boot = BootTimeReader.ParseUptimeSeconds("4044.5", now);
+
+        Assert.Equal(new DateTimeOffset(2026, 8, 6, 16, 18, 35, TimeSpan.FromHours(3)), boot);
+    }
+
+    [Fact]
+    public void ParseUptimeSeconds_CommaDecimalSeparator_IsUnderstood()
+    {
+        var now = new DateTimeOffset(2026, 8, 6, 17, 0, 0, TimeSpan.FromHours(3));
+
+        Assert.Equal(now.AddSeconds(-90), BootTimeReader.ParseUptimeSeconds("90,0", now));
+    }
+
+    [Theory]
+    [InlineData("")]
+    [InlineData("не число")]
+    [InlineData("-10")]      // отрицательный аптайм = битые часы, лучше «неизвестно»
+    public void ParseUptimeSeconds_Garbage_ReturnsNull(string stdout)
+        => Assert.Null(BootTimeReader.ParseUptimeSeconds(stdout, DateTimeOffset.Now));
 }
