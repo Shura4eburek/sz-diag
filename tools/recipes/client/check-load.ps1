@@ -4,7 +4,13 @@
 # ВАЖНО: только Import-Csv/ConvertFrom-Csv. Ручной split по запятой врёт — первая ячейка шапки
 # склеена с BOM и timestamp, индексы уезжают на единицу, и GPU clock 2210 читается как «temp 1058».
 #   szcli exec <СЗ> -f tools\recipes\client\check-load.ps1
-$Csv  = 'C:\OCCT\sensors.csv'
+# Путь не зашит: `szcli sensors start` кладёт CSV в ProgramData под именем с номером СЗ,
+# а ручной lhmmon — в C:\OCCT. Берём самый свежий из обоих мест, иначе рецепт молча читает
+# позавчерашний файл (или падает на отсутствующем) и показывает «нагрузки нет».
+$Csv = Get-ChildItem 'C:\ProgramData\szdiag\sensors\*.csv', 'C:\OCCT\sensors.csv' -ErrorAction SilentlyContinue |
+    Sort-Object LastWriteTime -Descending | Select-Object -First 1 -ExpandProperty FullName
+if (-not $Csv) { 'CSV сенсоров не найден — наблюдатель не запущен (szcli sensors start)'; return }
+"файл: $Csv"
 $Tail = 20   # сколько последних замеров усреднять
 
 $rows = (@(Get-Content $Csv -TotalCount 1) + @(Get-Content $Csv -Tail $Tail)) | ConvertFrom-Csv

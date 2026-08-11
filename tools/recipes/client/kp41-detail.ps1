@@ -7,7 +7,9 @@
 #   BugcheckCode = 0 + WHEA пусто + дампов нет → обрыв питания / срабатывание защиты.
 # Рядом печатаются 6008 (грязное выключение) и 6005/6013 — чтобы датировать простой.
 #   szcli exec <СЗ> -f tools\recipes\client\kp41-detail.ps1
-$Days = 14
+# 30, а не 14: на 161346 машина приехала в сервис через две недели после последнего
+# вырубона, и окно в 14 дней вернуло пустоту там, где в журнале лежало 24 события.
+$Days = 30
 
 $since = (Get-Date).AddDays(-$Days)
 $ev = Get-WinEvent -FilterHashtable @{ LogName = 'System'; Id = 41; StartTime = $since } -ErrorAction SilentlyContinue
