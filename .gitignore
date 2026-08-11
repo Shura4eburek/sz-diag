@@ -39,3 +39,7 @@ build/
 *.db-shm
 *.db-wal
 *.db-journal
+
+# Claude Code: локальные разрешения и рабочие worktree-каталоги (личные, у каждого свои)
+.claude/settings.local.json
+.claude/worktrees/
