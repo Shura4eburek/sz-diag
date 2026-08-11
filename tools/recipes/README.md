@@ -22,14 +22,20 @@
 | `boot-time.ps1` | boot-time/uptime/таймзона глазами клиента — сверка с hub | не нужен после фикса бэклог-п.90 |
 | `prep-stress.ps1` | `C:\OCCT` + исключение Defender на `lhmmon`, предупреждение про HVCI | `szcli sensors prep <СЗ>` с парным откатом (бэклог п.38) |
 | `make-gpu-schedule.ps1` | GPU-профиль OCCT из эталона: `Gpu3d` → `Vram` → `GpuUnreal` Switch → `PowerSupply`. Донор — `schedule-long.json` или `schedule.json` (что лежит), отсутствие эталона = ошибка, а не пустышка (п.109) | профили в `szcli test run <СЗ> --profile gpu` |
+| `make-cpu-schedule.ps1` | CPU-профиль OCCT из эталона: `CpuOcct` (Large) → `CpuOnlyOcct` (Small) → `CpuLinpack`. Конфиги тестов правятся **явно**: донорский `CpuOnlyOcctConfig` приходит `Threads=Fixed/1` + `Mode=Normal` — копия донора грузит одно ядро и рапортует «выстоял» (161346) | профили в `szcli test run <СЗ> --profile cpu` |
 | `start-sensors.ps1` | `lhmmon` задачей под SYSTEM + приёмка (нули в CPU = драйвер не поднялся) | `szcli sensors start` уже даёт GPU (%, °C, Вт через `nvidia-smi`) — рецепт нужен ради **вольтажей и линий питания**, которых у наблюдателя нет |
 | `start-occt.ps1` | клон интерактивной задачи OCCT с подменой расписания | `szcli stress start <СЗ> --schedule <файл>` |
 | `check-load.ps1` | хвост CSV: нагрузка реально идёт или это часы простоя | часть `szcli sensors status` |
 | `check-voltages.ps1` | какие линии питания на этой машине реально мерятся (+ защита от заглушки-константы) | секция в `szcli sensors report` |
 | `idle-check.ps1` | машина реально СТОИТ: аптайм, стресс-процессы, задачи, сон/гибернация, последние 41/6008 | `szcli list` должен различать «простаивает» и «под нагрузкой» |
-| `kp41-detail.ps1` | разбор `Kernel-Power 41` по полям: кнопка / BSOD / hard-off + WHEA за период | `szcli reboots` должен сверяться с журналом клиента (бэклог п.97) |
+| `kp41-detail.ps1` | разбор `Kernel-Power 41` по полям: кнопка / BSOD / hard-off + WHEA за период. Окно — 30 дней: на 161346 машину привезли через две недели после дефекта, и 14 дней вернули пустоту (бэклог п.123) | `szcli reboots` должен сверяться с журналом клиента и печатать код BSOD (бэклог п.97, п.121) |
+| `nvme-smart.ps1` | настоящий SMART для NVMe (log page 02h через IOCTL): **Unsafe Shutdowns**, Power Cycles, Power On Hours, Media Errors, Critical Warning словами, износ, Data Units R/W. Штатная секция `storage` эти поля отдаёт **пустыми** — `Get-StorageReliabilityCounter` их на NVMe не знает | втянуть в пробу `storage` для `BusType=NVMe` (бэклог п.120) |
+| `nvme-errlog.ps1` | NVMe Error Information Log (page 01h) со Status Code Type/Code словами + карта `Harddisk N → модель/SN → SCSIPort` для привязки `\Device\RaidPortN` из журнала | карта — в пробу `storage` (бэклог п.122); сам error log контроллеры Kingston NV3 отдали пустым при `ErrorLogEntries=20` в SMART — перепроверить на другом вендоре |
+| `whea-storage-detail.ps1` | полные тела событий WHEA + дисковых ошибок с резолвом `Harddisk N` в модель; обход упавшей секции `whea` (бэклог п.101) | чинить саму секцию `whea`, а карту дисков — в `storage` (п.101, п.122) |
 | `cleanup-stress.ps1` | снятие задач, процессов, **драйвера `R0lhmmon`**, исключения Defender, `C:\OCCT` | закрыто: `szcli client cleanup` + уборка в `Revert` (бэклог п.88/56/99) |
 | `check-occt-schedule.ps1` | валидирует `TestType` в расписании OCCT и предупреждает про `CpuLinpack` с дефолтными 2048 МБ | шаг `szcli stress start` (бэклог п.96) |
+| `set-occt-schedule.ps1` | подменяет `schedule.json`, который жёстко зашит в шаге `occt` тест-сьюта, на нужное расписание (с сохранением `.orig`) и печатает фактическую длительность | ключ `szcli test run --schedule/--profile` (бэклог п.124) |
+| `post-run-check.ps1` | что случилось за прогон: живы ли процессы теста, аварии приложений, KP41/6008, WHEA/disk/stornvme/nvlddmkm, троттлинг, новые минидампы | приёмка в `szcli test run` по завершении (бэклог п.124) |
 
 **Проверено на живой машине (260306, 2026-08-07):** связка `push occt` → `make-gpu-schedule`
 → `check-occt-schedule` → запуск → `szcli sensors report` даёт приборный итог прогона
@@ -64,6 +70,11 @@
   с `The string is missing the terminator` — это не про кодировку вывода, а про парсинг.
   Касается и скриптов в `tools/`: 2026-08-07 без BOM оказались `doctor.ps1`,
   `occt-schedule.ps1` и два рецепта — `doctor.ps1` не запускался вообще (бэклог п.112).
+- **Расписание OCCT из одного периода нужно собирать через `@(...)`.** `$sched.Periods = foreach (…)`
+  при единственном элементе даёт скаляр, `ConvertTo-Json` пишет `"Periods": {…}` вместо `[{…}]`,
+  и OCCT отвечает `Could not load the schedule file - file does not exists` — **про существующий
+  файл** (161346: догон Linpack «отработал» за минуту с нулевой нагрузкой). После записи проверять
+  регуляркой, что `Periods` сериализован массивом (бэклог п.128).
 - **Перед отправкой скрипта проверять синтаксис** локально:
   `[System.Management.Automation.PSParser]::Tokenize((Get-Content -Raw <файл>), [ref]$e)` —
   дешевле, чем ловить парс-ошибку в выводе агента.

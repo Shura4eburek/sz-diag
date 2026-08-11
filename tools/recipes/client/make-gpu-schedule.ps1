@@ -28,16 +28,19 @@ if (-not $donorFile) { throw "нет эталонного расписания O
 $sched = Get-Content $donorFile -Raw -Encoding UTF8 | ConvertFrom-Json
 $donor = $sched.Periods[0]
 if (-not $donor) { throw "в $donorFile нет ни одного Period — эталон непригоден как донор" }
-$sched.Periods = foreach ($p in $plan) {
+# @() обязателен: план из одного периода PowerShell отдаёт скаляром, и OCCT на такой JSON
+# отвечает «Could not load the schedule file - file does not exists» (161346)
+$sched.Periods = @(foreach ($p in $plan) {
     $c = $donor | ConvertTo-Json -Depth 20 | ConvertFrom-Json
     $c.TestType = $p.Type
     $c.Duration = $p.Dur
     $c.IsInfinite = $false
     $c.GpuUnrealConfig.IntensityType = 'Switch'
     $c
-}
+})
 $out = Join-Path $occt 'schedule-gpu.json'
 $sched | ConvertTo-Json -Depth 20 | Set-Content $out -Encoding UTF8
+if ((Get-Content $out -Raw -Encoding UTF8) -notmatch '"Periods"\s*:\s*\[') { throw "в $out Periods сериализован не массивом — OCCT такой файл не примет" }
 # «Записан» печатаем только по факту наличия файла: на 260306 сообщение об успехе было,
 # а файла на клиенте не оказалось — и это выяснилось лишь при следующем запуске.
 if (-not (Test-Path $out)) { throw "не удалось записать $out" }
