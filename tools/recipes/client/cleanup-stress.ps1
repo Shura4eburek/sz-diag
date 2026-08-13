@@ -7,7 +7,10 @@
 #   szcli exec <СЗ> -f tools\recipes\client\cleanup-stress.ps1
 $Sz          = '000000'   # ← номер СЗ
 $RemoveCsv   = $true      # C:\OCCT удалить (сначала szcli pull!)
-$TaskSuffixes = @('lhm', 'occtgpu', 'watch')   # какие наши задачи снимать (szdiag-<суффикс>-<СЗ>)
+# Суффиксы задач (szdiag-<суффикс>-<СЗ>): p95 и yc заведены рецептами start-prime95/start-ycruncher —
+# без них задача остаётся на клиенте и снова поднимет тест после ребута (160587).
+# 'occt' — базовая задача-донор: её создаёт и штатный прогон, и ручной запуск OCCT (161716).
+$TaskSuffixes = @('lhm', 'occt', 'occtgpu', 'watch', 'p95', 'yc')
 
 $proc = Get-CimInstance Win32_Process -Filter "Name='SzDiag.Agent.exe'" | Select-Object -First 1
 $base = Split-Path $proc.ExecutablePath -Parent
@@ -20,9 +23,16 @@ foreach ($s in $TaskSuffixes) {
     } catch { "задача $t : $($_.Exception.Message)" }
 }
 
-foreach ($n in @('OCCTCmd', 'lhmmon', 'GPU3DDX11', 'FurMark')) {
+foreach ($n in @('OCCTCmd', 'lhmmon', 'GPU3DDX11', 'FurMark', 'prime95')) {
     try { Get-Process $n -ErrorAction SilentlyContinue | ForEach-Object { $_.Kill(); "процесс $n убит" } } catch {}
 }
+
+# y-cruncher по имени не ищется: `y-cruncher.exe` — лаунчер, считает дочерний бинарь из
+# Binaries\ с именем под конкретный CPU (на Zen4 7500F это «22-ZN4 ~ Kizuna.exe»), см. start-ycruncher.ps1.
+try {
+    Get-CimInstance Win32_Process | Where-Object { $_.ExecutablePath -like '*\ycruncher\*' } |
+        ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue; "процесс $($_.Name) (y-cruncher) убит" }
+} catch {}
 
 try {
     $st = sc.exe query R0lhmmon 2>&1
