@@ -10,7 +10,9 @@ $RemoveCsv   = $true      # C:\OCCT удалить (сначала szcli pull!)
 # Суффиксы задач (szdiag-<суффикс>-<СЗ>): p95 и yc заведены рецептами start-prime95/start-ycruncher —
 # без них задача остаётся на клиенте и снова поднимет тест после ребута (160587).
 # 'occt' — базовая задача-донор: её создаёт и штатный прогон, и ручной запуск OCCT (161716).
-$TaskSuffixes = @('lhm', 'occt', 'occtgpu', 'watch', 'p95', 'yc')
+# 'furmark' — задача из start-furmark.ps1 (161190): запускается в сессии пользователя, поэтому
+# после ребута её видно не сразу, но остаётся она так же намертво, как и остальные.
+$TaskSuffixes = @('lhm', 'occt', 'occtgpu', 'watch', 'p95', 'yc', 'furmark')
 
 $proc = Get-CimInstance Win32_Process -Filter "Name='SzDiag.Agent.exe'" | Select-Object -First 1
 $base = Split-Path $proc.ExecutablePath -Parent
