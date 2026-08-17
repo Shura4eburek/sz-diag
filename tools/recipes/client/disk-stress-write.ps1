@@ -110,12 +110,27 @@ try {
             }
 
             # --- обратное чтение со сверкой каждого блока ---
+            # ЧИТАЕМ МИМО КЭША ОС (бэклог п.141): на 161346 сверка оказалась фиктивной —
+            # файл 8 ГБ целиком лежал в кэше (32 ГБ ОЗУ), обратное чтение шло из оперативки,
+            # `DataUnitsRead` по SMART не вырос вообще, и «расхождений 0» ничего не доказывало.
+            # 0x20000000 = FILE_FLAG_NO_BUFFERING. Требует размеров, кратных сектору (4 МБ — ок),
+            # но может упасть на выравнивании буфера — тогда честно откатываемся и пишем об этом.
             $t0 = Get-Date
             $bad = 0
+            $noBuf = $true
             try {
-                $fs = [IO.FileStream]::new($file, [IO.FileMode]::Open, [IO.FileAccess]::Read,
-                                           [IO.FileShare]::None, $BlockMB * 1MB,
-                                           [IO.FileOptions]::SequentialScan)
+                try {
+                    $fs = [IO.FileStream]::new($file, [IO.FileMode]::Open, [IO.FileAccess]::Read,
+                                               [IO.FileShare]::None, $BlockMB * 1MB,
+                                               ([IO.FileOptions]0x20000000 -bor [IO.FileOptions]::SequentialScan))
+                }
+                catch {
+                    $noBuf = $false
+                    Say "  ! чтение мимо кэша не поднялось ($($_.Exception.Message)) — читаю обычным путём, сверка НЕ доказательна"
+                    $fs = [IO.FileStream]::new($file, [IO.FileMode]::Open, [IO.FileAccess]::Read,
+                                               [IO.FileShare]::None, $BlockMB * 1MB,
+                                               [IO.FileOptions]::SequentialScan)
+                }
                 $buf = New-Object byte[] ($BlockMB * 1MB)
                 $sha = [Security.Cryptography.SHA256]::Create()
                 while (($n = $fs.Read($buf, 0, $buf.Length)) -gt 0) {
@@ -135,7 +150,8 @@ try {
                 $fs.Dispose()
                 $secs = ((Get-Date) - $t0).TotalSeconds
                 $mbps = if ($secs -gt 0) { [math]::Round(($blocks * $BlockMB) / $secs) } else { 0 }
-                Say "  проход $pass $drv чтение+сверка: $mbps МБ/с, расхождений $bad"
+                $how = if ($noBuf) { 'мимо кэша' } else { 'ЧЕРЕЗ КЭШ — недоказательно' }
+                Say "  проход $pass $drv чтение+сверка ($how): $mbps МБ/с, расхождений $bad"
             }
             catch {
                 $errors++
