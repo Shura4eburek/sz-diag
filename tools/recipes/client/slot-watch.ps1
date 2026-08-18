@@ -12,7 +12,8 @@
 #
 # Использование: szcli exec <СЗ> -f tools\recipes\client\slot-watch.ps1 --detach
 
-$Minutes  = 300
+# Переживает прогон нагрузки с запасом, но заканчивается до обесточивания бокса (после 19:00).
+$Minutes  = 240   # 18.08 второй запуск: свет сегодня не рубят, добираем простой сверх вчерашних 3.5 ч
 $Log      = 'C:\ProgramData\szdiag\slot-watch.log'
 $EverySec = 5
 
