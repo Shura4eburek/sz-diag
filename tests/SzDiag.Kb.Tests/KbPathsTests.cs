@@ -13,6 +13,14 @@ public class KbPathsTests
     }
 
     [Fact]
+    public void Journal_And_Snapshots_LiveInsideSzFolder()
+    {
+        var p = new KbPaths("/vault");
+        Assert.Equal(Path.Combine("/vault", "СЗ", "160697", "журнал.md"), p.Journal("160697"));
+        Assert.Equal(Path.Combine("/vault", "СЗ", "160697", "snapshots"), p.SnapshotsDir("160697"));
+    }
+
+    [Fact]
     public void EntityNotes_UnderNamedFolders()
     {
         var p = new KbPaths("/vault");

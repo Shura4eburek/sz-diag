@@ -18,6 +18,13 @@ public sealed class KbPaths
     public string ReportDir(string sz, string timestamp) => Path.Combine(ReportsDir(sz), timestamp);
     public string Summary(string sz) => Path.Combine(SzDir(sz), "висновок.md");
 
+    /// <summary>Журнал СЗ: сырьё процесса — команды, ручные шаги мастера, события машины.
+    /// Пишется автоматически по ходу диагностики; `дії.md` остаётся человеческим пересказом.</summary>
+    public string Journal(string sz) => Path.Combine(SzDir(sz), "журнал.md");
+
+    /// <summary>Снимки конфигурации железа (JSON) — для диффа «что изменилось между прогонами».</summary>
+    public string SnapshotsDir(string sz) => Path.Combine(SzDir(sz), "snapshots");
+
     public string SymptomsRoot => Path.Combine(Root, "Симптоми");
     public string SymptomNote(string symptom) => Path.Combine(SymptomsRoot, $"{SafeEntityName(symptom)}.md");
 
