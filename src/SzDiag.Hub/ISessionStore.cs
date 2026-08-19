@@ -1,4 +1,4 @@
-using SzDiag.Contracts;
+﻿using SzDiag.Contracts;
 
 namespace SzDiag.Hub;
 
@@ -23,6 +23,12 @@ public interface ISessionStore
 
     /// <summary>Отметить окно ручных работ с машиной: события питания внутри него — не дефект
     /// (бэклог п.100).</summary>
+    /// <summary>Запомнить, в какой конфигурации гнали последний прогон по этой СЗ.</summary>
+    Task SetLastTestConfigAsync(string sz, string config, CancellationToken ct = default);
+
+    /// <summary>Метка последнего прогона (null — прогонов ещё не было).</summary>
+    Task<string?> GetLastTestConfigAsync(string sz, CancellationToken ct = default);
+
     Task AddMaintenanceAsync(MaintenanceWindow window, CancellationToken ct = default);
 
     /// <summary>Окна ручных работ по СЗ.</summary>

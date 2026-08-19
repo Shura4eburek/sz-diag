@@ -16,6 +16,18 @@ public class SqliteSessionStoreTests : IDisposable
     }
 
     [Fact]
+    public async Task TestConfig_LastValueWins_AndUnknownSzGivesNull()
+    {
+        var store = await NewStoreAsync();
+
+        await store.SetLastTestConfigAsync("160697", "EXPO 6000, штатний БЖ");
+        await store.SetLastTestConfigAsync("160697", "сток 4800, тестовий БЖ");
+
+        Assert.Equal("сток 4800, тестовий БЖ", await store.GetLastTestConfigAsync("160697"));
+        Assert.Null(await store.GetLastTestConfigAsync("160698"));
+    }
+
+    [Fact]
     public async Task RecordOpen_ThenHistory_ReturnsOpenRecord()
     {
         var store = await NewStoreAsync();

@@ -1,4 +1,4 @@
-using Microsoft.Data.Sqlite;
+﻿using Microsoft.Data.Sqlite;
 using SzDiag.Contracts;
 
 namespace SzDiag.Hub;
@@ -54,6 +54,14 @@ public sealed class SqliteSessionStore : ISessionStore
                 reason    TEXT    NOT NULL
             );
             CREATE INDEX IF NOT EXISTS ix_maintenance_sz ON maintenance(sz);
+
+            -- Метка конфигурации последнего прогона: «EXPO 6000, штатный БП» против «сток».
+            -- Без неё повторный прогон нечитаем — не с чем сравнивать (СЗ 160697).
+            CREATE TABLE IF NOT EXISTS test_config (
+                sz     TEXT PRIMARY KEY,
+                config TEXT NOT NULL,
+                set_at INTEGER NOT NULL
+            );
             """;
         await cmd.ExecuteNonQueryAsync(ct);
 
@@ -182,6 +190,31 @@ public sealed class SqliteSessionStore : ISessionStore
         }
 
         return new RebootTimeline(sz, events, maxUptime, watchingSince);
+    }
+
+    public async Task SetLastTestConfigAsync(string sz, string config, CancellationToken ct = default)
+    {
+        await using var conn = new SqliteConnection(_connectionString);
+        await conn.OpenAsync(ct);
+        await using var cmd = conn.CreateCommand();
+        cmd.CommandText = """
+            INSERT INTO test_config (sz, config, set_at) VALUES ($sz, $config, $at)
+            ON CONFLICT(sz) DO UPDATE SET config = excluded.config, set_at = excluded.set_at;
+            """;
+        cmd.Parameters.AddWithValue("$sz", sz);
+        cmd.Parameters.AddWithValue("$config", config);
+        cmd.Parameters.AddWithValue("$at", DateTimeOffset.UtcNow.ToUnixTimeSeconds());
+        await cmd.ExecuteNonQueryAsync(ct);
+    }
+
+    public async Task<string?> GetLastTestConfigAsync(string sz, CancellationToken ct = default)
+    {
+        await using var conn = new SqliteConnection(_connectionString);
+        await conn.OpenAsync(ct);
+        await using var cmd = conn.CreateCommand();
+        cmd.CommandText = "SELECT config FROM test_config WHERE sz = $sz;";
+        cmd.Parameters.AddWithValue("$sz", sz);
+        return await cmd.ExecuteScalarAsync(ct) as string;
     }
 
     public async Task AddMaintenanceAsync(MaintenanceWindow window, CancellationToken ct = default)

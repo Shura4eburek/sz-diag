@@ -44,8 +44,29 @@ public static class ManagementApi
             return Results.Ok();
         });
 
-        group.MapPost("/sessions/{sz}/test", async (string sz, string? filter, TestRunTrigger trigger) =>
-            await trigger.TriggerAsync(sz, filter) ? Results.Ok() : Results.NotFound());
+        // Метка конфигурации обязательна: см. TestRunRequest. Без неё прогон не стартует —
+        // это дешевле, чем через неделю гадать, на профиле гнали или на стоке.
+        group.MapPost("/sessions/{sz}/test", async (string sz, TestRunRequest body,
+            TestRunTrigger trigger, ISessionStore store, JournalWriter journal) =>
+        {
+            var last = await store.GetLastTestConfigAsync(sz);
+            var config = body.Config?.Trim();
+            if (string.IsNullOrWhiteSpace(config) && body.SameConfig) config = last;
+
+            if (string.IsNullOrWhiteSpace(config))
+            {
+                var hint = last is null
+                    ? "укажите конфигурацию: --config \"EXPO 6000, штатный БП\""
+                    : $"прошлый прогон: «{last}» — повторить ту же: --same-config";
+                return Results.BadRequest($"прогон без метки конфигурации не запускается; {hint}");
+            }
+
+            if (!await trigger.TriggerAsync(sz, body.Filter)) return Results.NotFound();
+
+            await store.SetLastTestConfigAsync(sz, config);
+            journal.Command(sz, $"`test run {body.Filter ?? "усе"}` — старт; конфігурація: **{config}**");
+            return Results.Ok();
+        });
 
         group.MapPost("/sessions/{sz}/diag", async (string sz, string? sections,
             DiagRunTrigger trigger, JournalWriter journal) =>
