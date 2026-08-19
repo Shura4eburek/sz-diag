@@ -255,16 +255,27 @@ switch (command)
         await HwCommand.RunAsync(args[1..], ResolveLocal(options.GpuDbPath), ResolveLocal(options.PciIdsPath));
         break;
 
+    // Метка конфигурации обязательна: прогон без неё через неделю нечитаем — непонятно,
+    // что с чем сравнивать (на 160697 так потерялись обе половины дискриминатора).
     case "test" when args.Length >= 3 && args[1].Equals("run", StringComparison.OrdinalIgnoreCase):
-        var testFilter = args.Length >= 4 ? args[3] : null;
-        if (await client.TriggerTestAsync(args[2], testFilter))
+    {
+        var (testFilter, testConfig, sameConfig) = TestRunArgs.Parse(args[3..]);
+        var testResult = await client.TriggerTestAsync(args[2], testFilter, testConfig, sameConfig);
+        if (testResult.Ok)
         {
             var scope = testFilter is null ? "весь набор" : $"фильтр: {testFilter}";
-            AnsiConsole.MarkupLineInterpolated($"[green]СЗ {args[2]}: прогон запущен[/] ({scope}) на агенте (отчёт появится в kb).");
+            var label = testConfig ?? "как в прошлый раз";
+            AnsiConsole.MarkupLineInterpolated(
+                $"[green]СЗ {args[2]}: прогон запущен[/] ({scope}, конфигурация: {label}) на агенте (отчёт появится в kb).");
         }
         else
-            AnsiConsole.MarkupLineInterpolated($"[red]СЗ {args[2]} не найдена[/] среди активных.");
+        {
+            var reason = testResult.Error ?? $"СЗ {args[2]} не найдена среди активных";
+            AnsiConsole.MarkupLineInterpolated($"[red]СЗ {args[2]}: прогон не запущен.[/] {reason}");
+            return 2;
+        }
         break;
+    }
 
     // Секции принимаем и через запятую, и несколькими аргументами; опечатка — ошибка, а не
     // молчаливое «собралась одна system» (бэклог п.6). Реальный список печатаем эхом.
@@ -463,7 +474,9 @@ static void PrintUsage()
                 [grey]наблюдатель нагрузки (CSV построчно, переживает вырубон) и его разбор[/]
               [yellow]szcli freeze[/] [blue]<СЗ>[/] [grey][[--status]][/]  заморозить Windows Update (или проверить, держится ли)
               [yellow]szcli unfreeze[/] [blue]<СЗ>[/]      вернуть Windows Update как было (обязательно!)
-              [yellow]szcli test run[/] [blue]<СЗ>[/] [grey][[occt|tm5,furmark|…]][/]  прогон тестов (все или по id)
+              [yellow]szcli test run[/] [blue]<СЗ>[/] [grey][[occt|tm5,furmark|…]][/] [red]--config[/] [grey]"<конфигурация>"[/]
+                [grey]прогон тестов; метка конфигурации обязательна («EXPO 6000, штатный БП»),[/]
+                [grey]повторить ту же — --same-config[/]
               [yellow]szcli diag run[/] [blue]<СЗ>[/] [grey][[storage,events|…]][/]  диагностика (снапшот; секции точечно)
                 [grey]секции: system cpu memory gpu storage temps drivers events reboots whea livekernel reliability battery[/]
                 [grey]можно через запятую или пробел; all — все; алиасы: hw ram disks video bsod tdr temp[/]

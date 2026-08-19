@@ -63,14 +63,18 @@ public sealed class HubApiClient : IHubApiClient
         return await resp.Content.ReadFromJsonAsync<TargetInfo>(cts.Token);
     }
 
-    public async Task<bool> TriggerTestAsync(string sz, string? filter = null, CancellationToken ct = default)
+    public async Task<TriggerResult> TriggerTestAsync(string sz, string? filter, string? config,
+        bool sameConfig, CancellationToken ct = default)
     {
-        var url = string.IsNullOrWhiteSpace(filter)
-            ? $"/api/sessions/{sz}/test"
-            : $"/api/sessions/{sz}/test?filter={Uri.EscapeDataString(filter)}";
         using var cts = Short(ct);
-        var resp = await _http.PostAsync(url, null, cts.Token);
-        return resp.StatusCode == HttpStatusCode.OK;
+        var resp = await _http.PostAsJsonAsync($"/api/sessions/{sz}/test",
+            new TestRunRequest(filter, config, sameConfig), cts.Token);
+        if (resp.StatusCode == HttpStatusCode.OK) return new TriggerResult(true, null);
+
+        // Текст причины от hub несёт подсказку про --same-config: без него пользователь
+        // видит «не запущен» и не понимает, чего от него хотят.
+        var body = await resp.Content.ReadAsStringAsync(cts.Token);
+        return new TriggerResult(false, string.IsNullOrWhiteSpace(body) ? null : body.Trim());
     }
 
     /// <summary>Выполнить скрипт на агенте и дождаться вывода. null — СЗ не онлайн.</summary>

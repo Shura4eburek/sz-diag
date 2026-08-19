@@ -10,7 +10,8 @@ public interface IHubApiClient
     /// <summary>Ручной шаг у машины в журнал СЗ. Принимается и когда сессии нет.</summary>
     Task<bool> AddNoteAsync(string sz, string text, CancellationToken ct = default);
     Task<TargetInfo?> GetTargetAsync(string sz, CancellationToken ct = default);
-    Task<bool> TriggerTestAsync(string sz, string? filter = null, CancellationToken ct = default);
+    Task<TriggerResult> TriggerTestAsync(string sz, string? filter, string? config,
+        bool sameConfig, CancellationToken ct = default);
     Task<bool> TriggerDiagAsync(string sz, string? sections = null, CancellationToken ct = default);
     Task<ExecResult?> ExecAsync(string sz, string script, int? timeoutSeconds = null,
         CancellationToken ct = default, bool detached = false);
@@ -23,3 +24,7 @@ public interface IHubApiClient
     Task<bool> AddMaintenanceAsync(MaintenanceWindow window, CancellationToken ct = default);
     Task<IReadOnlyList<MaintenanceWindow>> GetMaintenanceAsync(string sz, CancellationToken ct = default);
 }
+
+/// <summary>Итог запуска прогона: hub возвращает текст причины, и CLI обязан его показать —
+/// иначе подсказка про `--same-config` до пользователя не доедет.</summary>
+public sealed record TriggerResult(bool Ok, string? Error);

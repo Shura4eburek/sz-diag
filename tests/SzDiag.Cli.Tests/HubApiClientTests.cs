@@ -101,28 +101,53 @@ public class HubApiClientTests
     }
 
     [Fact]
-    public async Task TriggerTest_Ok_ReturnsTrue()
+    public async Task TriggerTest_Ok_ReturnsSuccess()
     {
         var client = NewClient(new StubHandler(HttpStatusCode.OK));
-        Assert.True(await client.TriggerTestAsync("156864"));
+
+        var result = await client.TriggerTestAsync("156864", null, "сток JEDEC 4800", false);
+
+        Assert.True(result.Ok);
+        Assert.Null(result.Error);
     }
 
     [Fact]
-    public async Task TriggerTest_NotFound_ReturnsFalse()
+    public async Task TriggerTest_NotFound_ReturnsFailure()
     {
         var client = NewClient(new StubHandler(HttpStatusCode.NotFound));
-        Assert.False(await client.TriggerTestAsync("000000"));
+
+        Assert.False((await client.TriggerTestAsync("000000", null, "сток", false)).Ok);
     }
 
     [Fact]
-    public async Task TriggerTest_WithFilter_AppendsQuery()
+    public async Task TriggerTest_SendsFilterAndConfigInBody()
     {
         var handler = new StubHandler(HttpStatusCode.OK);
         var client = NewClient(handler);
 
-        await client.TriggerTestAsync("156864", "occt");
+        await client.TriggerTestAsync("156864", "occt", "EXPO 6000, штатний БЖ", false);
 
-        Assert.Contains("filter=occt", handler.LastRequest!.RequestUri!.Query);
+        Assert.Equal("/api/sessions/156864/test", handler.LastRequest!.RequestUri!.AbsolutePath);
+        var sent = await handler.LastRequest.Content!.ReadFromJsonAsync<TestRunRequest>();
+        Assert.Equal("occt", sent!.Filter);
+        Assert.Equal("EXPO 6000, штатний БЖ", sent.Config);
+        Assert.False(sent.SameConfig);
+    }
+
+    [Fact]
+    public async Task TriggerTest_SameConfig_SendsFlagAndReturnsHubErrorText()
+    {
+        // Подсказка hub про --same-config обязана доехать до пользователя целиком.
+        var handler = new StubHandler(HttpStatusCode.BadRequest,
+            "прогон без метки конфигурации не запускается; повторить ту же: --same-config");
+        var client = NewClient(handler);
+
+        var result = await client.TriggerTestAsync("156864", "occt", null, true);
+
+        Assert.False(result.Ok);
+        Assert.Contains("--same-config", result.Error);
+        var sent = await handler.LastRequest!.Content!.ReadFromJsonAsync<TestRunRequest>();
+        Assert.True(sent!.SameConfig);
     }
 
     [Fact]
