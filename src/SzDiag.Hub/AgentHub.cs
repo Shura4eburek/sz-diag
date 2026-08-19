@@ -1,4 +1,5 @@
-﻿using Microsoft.AspNetCore.SignalR;
+﻿using System.Text;
+using Microsoft.AspNetCore.SignalR;
 using SzDiag.Contracts;
 using SzDiag.Kb;
 
@@ -135,10 +136,24 @@ public sealed class AgentHub : Microsoft.AspNetCore.SignalR.Hub
         return Task.CompletedTask;
     }
 
-    public Task UploadReportFile(UploadReportPart part)
+    public async Task UploadReportFile(UploadReportPart part)
     {
-        _reports.Save(part.Sz, part.Timestamp, part.FileName, part.Content);
-        return Task.CompletedTask;
+        var content = part.Content;
+
+        // Отчёт собирает агент, а метку конфигурации знает только хост — дописываем здесь.
+        // Без неё через неделю непонятно, на профиле гнали или на стоке (СЗ 160697).
+        if (part.FileName.Equals("report.md", StringComparison.OrdinalIgnoreCase)
+            && await _store.GetLastTestConfigAsync(part.Sz) is { } config)
+        {
+            var text = Encoding.UTF8.GetString(content);
+            var nl = text.Contains("\r\n") ? "\r\n" : "\n";
+            var cut = text.IndexOf(nl, StringComparison.Ordinal);
+            content = Encoding.UTF8.GetBytes(cut < 0
+                ? $"{text}{nl}{nl}**Конфігурація прогону:** {config}{nl}"
+                : $"{text[..cut]}{nl}{nl}**Конфігурація прогону:** {config}{text[cut..]}");
+        }
+
+        _reports.Save(part.Sz, part.Timestamp, part.FileName, content);
     }
 
     public override async Task OnDisconnectedAsync(Exception? exception)
