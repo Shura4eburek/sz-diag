@@ -48,6 +48,12 @@ builder.Services.AddSingleton<IReportStore>(sp =>
     var opts = sp.GetRequiredService<IOptions<HubOptions>>().Value;
     return new KbReportStore(opts.KnowledgeBaseRoot);
 });
+builder.Services.AddSingleton<ISzJournal>(sp =>
+{
+    var opts = sp.GetRequiredService<IOptions<HubOptions>>().Value;
+    return new SzJournal(new KbPaths(opts.KnowledgeBaseRoot));
+});
+builder.Services.AddSingleton<JournalWriter>();
 builder.Services.AddSingleton<IKbBackup>(sp =>
 {
     var opts = sp.GetRequiredService<IOptions<HubOptions>>().Value;
