@@ -100,6 +100,21 @@ public class PushEndToEndTests : IClassFixture<WebApplicationFactory<Program>>, 
     }
 
     [Fact]
+    public async Task Push_Successful_LeavesLineInSzJournal()
+    {
+        // Успешная команда обязана оставить след в журнале СЗ: по нему потом восстанавливается
+        // ход диагностики, даже если сессия чата давно кончилась (СЗ 160697).
+        await using var agent = await ConnectAgentAsync("160708", _clientDir);
+
+        var resp = await Cli().PostAsJsonAsync("/api/sessions/160708/push", new PushCommandRequest("occt"));
+        resp.EnsureSuccessStatusCode();
+
+        var journal = File.ReadAllText(Path.Combine(_kbRoot, "СЗ", "160708", "журнал.md"));
+        Assert.Contains("`push occt`", journal);
+        Assert.Contains("# Журнал 160708", journal);
+    }
+
+    [Fact]
     public async Task Push_Repeat_SkipsFilesAlreadyThere()
     {
         // Повторный push после обрыва должен дотягивать остаток, а не 300 МБ заново.

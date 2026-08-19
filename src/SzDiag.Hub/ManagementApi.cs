@@ -47,18 +47,27 @@ public static class ManagementApi
         group.MapPost("/sessions/{sz}/test", async (string sz, string? filter, TestRunTrigger trigger) =>
             await trigger.TriggerAsync(sz, filter) ? Results.Ok() : Results.NotFound());
 
-        group.MapPost("/sessions/{sz}/diag", async (string sz, string? sections, DiagRunTrigger trigger) =>
-            await trigger.TriggerAsync(sz, sections) ? Results.Ok() : Results.NotFound());
+        group.MapPost("/sessions/{sz}/diag", async (string sz, string? sections,
+            DiagRunTrigger trigger, JournalWriter journal) =>
+        {
+            if (!await trigger.TriggerAsync(sz, sections)) return Results.NotFound();
+            journal.Command(sz, $"`diag run` — старт (секції: {sections ?? "усі"})");
+            return Results.Ok();
+        });
 
         // exec: синхронный запуск скрипта на агенте. 404 — СЗ не онлайн, 504 — агент молчит.
-        group.MapPost("/sessions/{sz}/exec", async (string sz, ExecCommandRequest body, ExecCoordinator exec) =>
+        group.MapPost("/sessions/{sz}/exec", async (string sz, ExecCommandRequest body,
+            ExecCoordinator exec, JournalWriter journal) =>
         {
             if (string.IsNullOrWhiteSpace(body.Script)) return Results.BadRequest("пустой скрипт");
             try
             {
                 var result = await exec.RunAsync(sz, body.Script, body.TimeoutSeconds,
                     detached: body.Detached);
-                return result is null ? Results.NotFound() : Results.Ok(result);
+                if (result is null) return Results.NotFound();
+                var mode = body.Detached ? ", detached" : "";
+                journal.Command(sz, $"`exec` — скрипт виконано ({body.Script.Length} символів{mode})");
+                return Results.Ok(result);
             }
             catch (TimeoutException ex)
             {
@@ -88,13 +97,16 @@ public static class ManagementApi
         group.MapGet("/tools", (ToolCatalog catalog) => Results.Ok(
             new ToolCatalogInfo(catalog.Root, Directory.Exists(catalog.Root), catalog.List())));
 
-        group.MapPost("/sessions/{sz}/push", async (string sz, PushCommandRequest body, PushCoordinator push) =>
+        group.MapPost("/sessions/{sz}/push", async (string sz, PushCommandRequest body,
+            PushCoordinator push, JournalWriter journal) =>
         {
             if (string.IsNullOrWhiteSpace(body.Tool)) return Results.BadRequest("не указан инструмент");
             try
             {
                 var result = await push.PushAsync(sz, body.Tool);
-                return result is null ? Results.NotFound() : Results.Ok(result);
+                if (result is null) return Results.NotFound();
+                journal.Command(sz, $"`push {body.Tool}` — доставка інструмента");
+                return Results.Ok(result);
             }
             catch (TimeoutException ex)
             {
@@ -103,13 +115,16 @@ public static class ManagementApi
         });
 
         // pull: забрать файл(ы) с клиента на хост. 404 — СЗ не онлайн, 504 — агент не закончил.
-        group.MapPost("/sessions/{sz}/pull", async (string sz, PullCommandRequest body, PullCoordinator pull) =>
+        group.MapPost("/sessions/{sz}/pull", async (string sz, PullCommandRequest body,
+            PullCoordinator pull, JournalWriter journal) =>
         {
             if (string.IsNullOrWhiteSpace(body.Path)) return Results.BadRequest("пустой путь");
             try
             {
                 var result = await pull.PullAsync(sz, body.Path, body.MaxBytes, body.Recurse);
-                return result is null ? Results.NotFound() : Results.Ok(result);
+                if (result is null) return Results.NotFound();
+                journal.Command(sz, $"`pull {body.Path}` — забір файлів");
+                return Results.Ok(result);
             }
             catch (TimeoutException ex)
             {
@@ -124,11 +139,13 @@ public static class ManagementApi
         // Окна ручных работ: событие питания внутри окна — не дефект, а «гасили руками»
         // (бэклог п.100). Ставится в том числе задним числом.
         group.MapPost("/sessions/{sz}/maintenance", async (string sz, MaintenanceWindow body,
-            ISessionStore store) =>
+            ISessionStore store, JournalWriter journal) =>
         {
             if (string.IsNullOrWhiteSpace(body.Reason)) return Results.BadRequest("нужна причина");
             if (body.Until < body.From) return Results.BadRequest("конец окна раньше начала");
             await store.AddMaintenanceAsync(body with { Sz = sz });
+            journal.Command(sz, $"`maintenance` — вікно обслуговування " +
+                $"{body.From.ToLocalTime():dd.MM HH:mm}–{body.Until.ToLocalTime():dd.MM HH:mm}: {body.Reason}");
             return Results.Ok();
         });
 
