@@ -1,6 +1,8 @@
-using System.Net;
+﻿using System.Net;
+using System.Net.Http.Json;
 using System.Text;
 using SzDiag.Cli;
+using SzDiag.Contracts;
 using Xunit;
 
 namespace SzDiag.Cli.Tests;
@@ -49,6 +51,32 @@ public class HubApiClientTests
 
         Assert.Equal("156864", sessions.Single().Sz);
         Assert.Equal("mgmt-token", handler.LastRequest!.Headers.GetValues("X-SzDiag-Mgmt-Token").Single());
+    }
+
+    [Fact]
+    public async Task AddNoteAsync_PostsTextToJournalEndpoint()
+    {
+        var handler = new StubHandler(HttpStatusCode.OK);
+        var client = NewClient(handler);
+
+        var ok = await client.AddNoteAsync("160697", "поставив тестовий Corsair RM850x");
+
+        Assert.True(ok);
+        Assert.Equal(HttpMethod.Post, handler.LastRequest!.Method);
+        Assert.Equal("/api/sessions/160697/journal", handler.LastRequest.RequestUri!.AbsolutePath);
+        // Тело разбираем обратно, а не ищем подстроку: System.Text.Json экранирует кириллицу
+        // в escape-последовательности — это валидный JSON, hub его читает, но в сыром теле
+        // текста глазами не видно.
+        var sent = await handler.LastRequest.Content!.ReadFromJsonAsync<JournalNoteRequest>();
+        Assert.Equal("поставив тестовий Corsair RM850x", sent!.Text);
+    }
+
+    [Fact]
+    public async Task AddNoteAsync_WhenHubRejects_ReturnsFalse()
+    {
+        var client = NewClient(new StubHandler(HttpStatusCode.BadRequest));
+
+        Assert.False(await client.AddNoteAsync("160697", "текст"));
     }
 
     [Fact]

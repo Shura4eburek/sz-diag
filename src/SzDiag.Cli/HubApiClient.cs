@@ -46,6 +46,14 @@ public sealed class HubApiClient : IHubApiClient
         return resp.StatusCode == HttpStatusCode.OK;
     }
 
+    public async Task<bool> AddNoteAsync(string sz, string text, CancellationToken ct = default)
+    {
+        using var cts = Short(ct);
+        var resp = await _http.PostAsJsonAsync($"/api/sessions/{sz}/journal",
+            new JournalNoteRequest(text), cts.Token);
+        return resp.StatusCode == HttpStatusCode.OK;
+    }
+
     public async Task<TargetInfo?> GetTargetAsync(string sz, CancellationToken ct = default)
     {
         using var cts = Short(ct);

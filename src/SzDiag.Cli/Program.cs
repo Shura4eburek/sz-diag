@@ -33,7 +33,8 @@ if (command is "--help" or "-h" or "help" or "/?")
 // Мусорный ввод раньше молча уезжал в hub и в базу знаний (бэклог п.57).
 var szArgIndex = command switch
 {
-    "close" or "target" or "exec" or "pull" or "reboots" or "freeze" or "unfreeze" when args.Length >= 2 => 1,
+    "close" or "target" or "exec" or "pull" or "reboots" or "freeze" or "unfreeze" or "note"
+        when args.Length >= 2 => 1,
     "push" when args.Length >= 2 && !args[1].StartsWith('-') => 1,
     "test" or "diag" when args.Length >= 3 => 2,
     _ => -1
@@ -180,6 +181,25 @@ switch (command)
         return await FreezeCommand.UnfreezeAsync(client, args[1], AppContext.BaseDirectory);
 
     // reboots: таймлайн вырубонов по СЗ (по сменам boot-time, а не по пропаже heartbeat).
+    // Ручной шаг у машины (свап железа, правка BIOS, осмотр). Пишется в журнал СЗ сразу:
+    // до конца дня оно забывается — на 160697 так пропал свап БП вместе с результатом прогона.
+    case "note" when args.Length >= 3:
+    {
+        // Номер уже проверен на входе (общий блок валидации выше).
+        var noteSz = args[1];
+
+        // Кавычки вокруг текста необязательны: всё, что после номера, — одна заметка.
+        var noteText = string.Join(' ', args[2..]);
+        if (await client.AddNoteAsync(noteSz, noteText))
+            AnsiConsole.MarkupLineInterpolated($"[green]СЗ {noteSz}: записано в журнал[/]");
+        else
+        {
+            AnsiConsole.MarkupLineInterpolated($"[red]СЗ {noteSz}: hub не принял заметку[/]");
+            return 1;
+        }
+        break;
+    }
+
     case "reboots" when args.Length >= 2:
     {
         var timeline = await client.GetRebootsAsync(args[1]);
@@ -437,6 +457,8 @@ static void PrintUsage()
               [yellow]szcli close[/] [blue]<СЗ>[/]         закрыть СЗ (revert на агенте)
               [yellow]szcli target[/] [blue]<СЗ>[/]        SSH-адрес по номеру СЗ
               [yellow]szcli reboots[/] [blue]<СЗ>[/]       таймлайн вырубонов (по смене boot-time)
+              [yellow]szcli note[/] [blue]<СЗ>[/] [grey]<текст>[/]  ручной шаг в журнал СЗ (свап железа, BIOS, осмотр)
+                [grey]принимается и когда машина offline или СЗ закрыта[/]
               [yellow]szcli sensors[/] [grey]start|status|stop <СЗ> | report <csv>[/]
                 [grey]наблюдатель нагрузки (CSV построчно, переживает вырубон) и его разбор[/]
               [yellow]szcli freeze[/] [blue]<СЗ>[/] [grey][[--status]][/]  заморозить Windows Update (или проверить, держится ли)
