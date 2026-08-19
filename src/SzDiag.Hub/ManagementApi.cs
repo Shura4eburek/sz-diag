@@ -24,8 +24,25 @@ public static class ManagementApi
 
         group.MapGet("/sessions", (SessionRegistry reg) => Results.Ok(reg.GetActive()));
 
-        group.MapPost("/sessions/{sz}/close", async (string sz, SessionCloser closer) =>
-            await closer.CloseAsync(sz) ? Results.Ok() : Results.NotFound());
+        group.MapPost("/sessions/{sz}/close", async (string sz, SessionCloser closer,
+            JournalWriter journal) =>
+        {
+            if (!await closer.CloseAsync(sz)) return Results.NotFound();
+            journal.Command(sz, "`close` — доступ згорнуто, сесію закрито");
+            return Results.Ok();
+        });
+
+        // Заметку принимаем даже когда сессии нет: мастер отходит от машины, агент может быть
+        // уже offline или СЗ закрыта, а зафиксировать физический шаг надо в момент, когда он
+        // сделан — иначе информация теряется вместе с сессией (СЗ 160697).
+        group.MapPost("/sessions/{sz}/journal", (string sz, JournalNoteRequest body,
+            JournalWriter journal) =>
+        {
+            if (!SzNumber.IsValid(sz)) return Results.BadRequest(SzNumber.Explain(sz));
+            if (string.IsNullOrWhiteSpace(body.Text)) return Results.BadRequest("пустая заметка");
+            journal.Manual(sz, body.Text.Trim());
+            return Results.Ok();
+        });
 
         group.MapPost("/sessions/{sz}/test", async (string sz, string? filter, TestRunTrigger trigger) =>
             await trigger.TriggerAsync(sz, filter) ? Results.Ok() : Results.NotFound());
