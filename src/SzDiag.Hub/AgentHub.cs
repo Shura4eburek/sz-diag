@@ -14,10 +14,11 @@ public sealed class AgentHub : Microsoft.AspNetCore.SignalR.Hub
     private readonly ExecCoordinator _exec;
     private readonly PullCoordinator _pull;
     private readonly PushCoordinator _push;
+    private readonly JournalWriter _journal;
 
     public AgentHub(SessionRegistry registry, ISessionStore store,
         IKnowledgeBaseScaffolder kb, IReportStore reports, ExecCoordinator exec,
-        PullCoordinator pull, PushCoordinator push)
+        PullCoordinator pull, PushCoordinator push, JournalWriter journal)
     {
         _registry = registry;
         _store = store;
@@ -26,6 +27,7 @@ public sealed class AgentHub : Microsoft.AspNetCore.SignalR.Hub
         _exec = exec;
         _pull = pull;
         _push = push;
+        _journal = journal;
     }
 
     public async Task Register(RegisterRequest request)
@@ -47,6 +49,17 @@ public sealed class AgentHub : Microsoft.AspNetCore.SignalR.Hub
             Console.WriteLine($"[hub] СЗ {request.Sz}: {label} — клиент перезагрузился " +
                               $"({ShutdownKind.Describe(request.LastShutdown)}, " +
                               $"boot-time {request.BootTime:yyyy-MM-dd HH:mm:ss}){held}{busy}");
+            // Журнал СЗ ведётся на украинском (как весь kb), поэтому слова свои, а не из
+            // консольной строки hub. События машины обязаны попадать туда сами: команды с
+            // хоста в этот момент нет, а без записи ход диагностики потом не восстановить.
+            var heldUa = outcome.UptimeBefore is { } uUa
+                ? $", протрималась {uUa:d\\.hh\\:mm\\:ss}" : "";
+            var busyUa = outcome.ActivityBefore is { } aUa
+                ? $", активність: {aUa}" : "";
+            var labelUa = failure
+                ? "вирубон"
+                : "перезавантаження";
+            _journal.Machine(request.Sz, $"**{labelUa}**{heldUa}{busyUa}");
             await _store.RecordRebootAsync(new RebootEvent(
                 request.Sz, DateTimeOffset.UtcNow, outcome.PreviousBootTime, request.BootTime,
                 (long?)outcome.UptimeBefore?.TotalSeconds, outcome.ActivityBefore,
