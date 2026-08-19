@@ -55,7 +55,8 @@ CLI-токен — заголовок `X-SzDiag-Mgmt-Token` (`ManagementApi.Toke
 |---|---|---|
 | `GET /api/sessions` | `Registry.GetActive()` | `SessionInfo[]` |
 | `POST /api/sessions/{sz}/close` | `SessionCloser.CloseAsync` | `Ok`/`NotFound` |
-| `POST /api/sessions/{sz}/test?filter=` | `TestRunTrigger.TriggerAsync` | `Ok`/`NotFound` |
+| `POST /api/sessions/{sz}/test` (тело `TestRunRequest{Filter,Config,SameConfig}`) | `TestRunTrigger.TriggerAsync` + метка конфигурации в SQLite и журнал | `Ok`/`NotFound`/`BadRequest` без метки |
+| `POST /api/sessions/{sz}/journal` (тело `JournalNoteRequest{Text}`) | `JournalWriter.Manual` → `kb/СЗ/<sz>/журнал.md` | `Ok`/`BadRequest`; **активная сессия не требуется** |
 | `POST /api/sessions/{sz}/diag?sections=` | `DiagRunTrigger.TriggerAsync` | `Ok`/`NotFound` |
 | `GET /api/sessions/{sz}/target` | реестр + `ServiceAccount` | `TargetInfo{Sz,Ip,User,Ssh}`/`NotFound` |
 
