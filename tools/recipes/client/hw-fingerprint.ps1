@@ -29,11 +29,25 @@ $cpu = Get-CimInstance Win32_Processor -ErrorAction SilentlyContinue | Select-Ob
 $snap.Cpu = "$(Val $cpu.Name) SN=$(Val $cpu.ProcessorId)"
 
 # --- Память: слот + серийник + партномер + фактическая частота (виден профиль XMP/EXPO) ---
+# Грабля (СЗ 161211, 21.08.2026): ключом брали DeviceLocator — на ASUS TUF B850-PLUS ОБЕ планки
+# репортятся как "DIMM 1", вторая затирала первую, и в паспорте вместо 2x32 печаталась одна
+# планка. Едва не ушли в версию «стоит один модуль». Ключ теперь — BankLabel+DeviceLocator+SN,
+# плюс отдельной строкой итог по объёму и числу планок (сверка с тем, что показывает Windows).
 $snap.Memory = [ordered]@{}
-foreach ($m in (Get-CimInstance Win32_PhysicalMemory -ErrorAction SilentlyContinue | Sort-Object DeviceLocator)) {
-    $snap.Memory[(Val $m.DeviceLocator)] =
-        "$([math]::Round($m.Capacity/1GB)) ГБ $(Val $m.PartNumber) SN=$(Val $m.SerialNumber) @ $($m.ConfiguredClockSpeed) (JEDEC $($m.Speed))"
+$mems = @(Get-CimInstance Win32_PhysicalMemory -ErrorAction SilentlyContinue |
+          Sort-Object BankLabel, DeviceLocator, SerialNumber)
+$i = 0
+foreach ($m in $mems) {
+    $i++
+    $slot = (@((Val $m.BankLabel), (Val $m.DeviceLocator)) | Where-Object { $_ -and $_ -ne '?' }) -join '/'
+    if (-not $slot) { $slot = "модуль $i" }
+    $key = "$slot [SN=$(Val $m.SerialNumber)]"
+    $snap.Memory[$key] =
+        "$([math]::Round($m.Capacity/1GB)) ГБ $(Val $m.PartNumber) @ $($m.ConfiguredClockSpeed) (JEDEC $($m.Speed))"
 }
+$snap.Memory['ИТОГО'] = "{0} планок, {1} ГБ (Windows видит {2:N1} ГБ)" -f `
+    $mems.Count, [math]::Round(($mems | Measure-Object Capacity -Sum).Sum / 1GB),
+    ((Get-CimInstance Win32_ComputerSystem -ErrorAction SilentlyContinue).TotalPhysicalMemory / 1GB)
 
 # --- Накопители: ключевое — В КАКОМ СЛОТЕ. Слот = PCI bus/device/function, он и определяет
 #     номер \Device\HarddiskN и \Device\RaidPortN в журнале ---
