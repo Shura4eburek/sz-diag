@@ -47,6 +47,17 @@ exec-канал не встаёт, `reboots` отличает обрыв от к
 `tools\doctor.ps1`. **Что проверить на живой заявке** —
 [docs/live-checklist-2026-08-07.md](docs/live-checklist-2026-08-07.md).
 
+**Прогон бэклога (2026-08-22/23):** закрыты повторяющиеся боли живых заявок — длинные скрипты
+и `param()` в exec (`whea` больше не падает «имя слишком длинное»), exit-коды `szcli exec`
+(0/N/3/4), `exec --cancel/--jobs` по каналу статуса (проходит под нагрузкой), parse-ошибки
+скриптов видны в `--result`, NVMe SMART (Unsafe Shutdowns) и карта `HarddiskN → модель` прямо
+в `diag storage`, сон отделён от Uptime в `system`, коды BSOD в `szcli reboots`, freeze:
+exit-код = «машина защищена?» + фоновый сторож удержания, `pull` по пустому пути = 0,
+`client info` не путает живую сессию с остатками, `target` печатает рабочую ssh-строку,
+артефакты прогонов мимо vault, `kb doctor` без шума скелетов, неизвестная команда szcli =
+exit 2 + `--version`. **Что проверить на живой заявке** —
+[docs/live-checklist-2026-08-23.md](docs/live-checklist-2026-08-23.md).
+
 **Бэклог улучшений инструментария** — [docs/dev-backlog.md](docs/dev-backlog.md): боли, собранные
 по живым СЗ (доставка тулов мимо SMB через hub, ad-hoc PS через агента вместо SSH/ConPTY,
 boot-time в heartbeat, freshness-guard для `build-dist`, валидация секций diag, sensors одной
