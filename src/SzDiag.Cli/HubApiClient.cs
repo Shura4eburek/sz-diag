@@ -115,6 +115,33 @@ public sealed class HubApiClient : IHubApiClient
         return await resp.Content.ReadFromJsonAsync<ExecJobStatus>(cancellationToken: cts.Token);
     }
 
+    /// <summary>Снять фоновую exec-задачу (убить дерево процессов). null — СЗ не онлайн.</summary>
+    /// <exception cref="TimeoutException">Агент не ответил (hub вернул 504).</exception>
+    public async Task<ExecJobStatus?> ExecCancelAsync(string sz, string jobId,
+        CancellationToken ct = default)
+    {
+        using var cts = Short(ct);
+        var resp = await _http.DeleteAsync($"/api/sessions/{sz}/exec/{jobId}", cts.Token);
+        if (resp.StatusCode == HttpStatusCode.NotFound) return null;
+        if (resp.StatusCode == HttpStatusCode.GatewayTimeout)
+            throw new TimeoutException($"агент СЗ {sz} не подтвердил отмену задачи");
+        resp.EnsureSuccessStatusCode();
+        return await resp.Content.ReadFromJsonAsync<ExecJobStatus>(cancellationToken: cts.Token);
+    }
+
+    /// <summary>Список фоновых exec-задач на агенте. null — СЗ не онлайн.</summary>
+    /// <exception cref="TimeoutException">Агент не ответил (hub вернул 504).</exception>
+    public async Task<ExecJobStatus?> ExecJobsAsync(string sz, CancellationToken ct = default)
+    {
+        using var cts = Short(ct);
+        var resp = await _http.GetAsync($"/api/sessions/{sz}/exec", cts.Token);
+        if (resp.StatusCode == HttpStatusCode.NotFound) return null;
+        if (resp.StatusCode == HttpStatusCode.GatewayTimeout)
+            throw new TimeoutException($"агент СЗ {sz} не вернул список задач");
+        resp.EnsureSuccessStatusCode();
+        return await resp.Content.ReadFromJsonAsync<ExecJobStatus>(cancellationToken: cts.Token);
+    }
+
     /// <summary>Забрать файл(ы) с клиента на хост. null — СЗ не онлайн.</summary>
     /// <exception cref="TimeoutException">Агент не закончил забор (hub вернул 504).</exception>
     public async Task<PullResponse?> PullAsync(string sz, string path, long? maxBytes = null,

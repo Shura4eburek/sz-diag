@@ -16,6 +16,12 @@ public interface IHubApiClient
     Task<ExecResult?> ExecAsync(string sz, string script, int? timeoutSeconds = null,
         CancellationToken ct = default, bool detached = false);
     Task<ExecJobStatus?> ExecStatusAsync(string sz, string jobId, int tailLines, CancellationToken ct = default);
+
+    /// <summary>Снять фоновую exec-задачу. null — СЗ не онлайн (бэклог п.134/172/176).</summary>
+    Task<ExecJobStatus?> ExecCancelAsync(string sz, string jobId, CancellationToken ct = default);
+
+    /// <summary>Список фоновых exec-задач на агенте (сводка в Tail).</summary>
+    Task<ExecJobStatus?> ExecJobsAsync(string sz, CancellationToken ct = default);
     Task<PullResponse?> PullAsync(string sz, string path, long? maxBytes = null, bool recurse = false,
         CancellationToken ct = default);
     Task<PushResult?> PushAsync(string sz, string tool, CancellationToken ct = default);

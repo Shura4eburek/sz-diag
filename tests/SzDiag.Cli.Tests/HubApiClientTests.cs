@@ -80,6 +80,41 @@ public class HubApiClientTests
     }
 
     [Fact]
+    public async Task ExecCancelAsync_SendsDeleteToJobEndpoint()
+    {
+        // Отмена фоновой задачи — одной командой (бэклог п.134/172/176).
+        var json = """
+        {"requestId":"r","jobId":"job-1","running":false,"exitCode":null,
+         "tail":"","startedAt":"2026-08-22T10:00:00+00:00","outputBytes":0,"cancelled":true}
+        """;
+        var handler = new StubHandler(HttpStatusCode.OK, json);
+        var client = NewClient(handler);
+
+        var status = await client.ExecCancelAsync("161346", "job-1");
+
+        Assert.Equal(HttpMethod.Delete, handler.LastRequest!.Method);
+        Assert.Equal("/api/sessions/161346/exec/job-1", handler.LastRequest.RequestUri!.AbsolutePath);
+        Assert.True(status!.Cancelled);
+    }
+
+    [Fact]
+    public async Task ExecJobsAsync_RequestsJobsList()
+    {
+        var json = """
+        {"requestId":"r","jobId":"*","running":false,"exitCode":null,
+         "tail":"job-1  выполняется","startedAt":"2026-08-22T10:00:00+00:00","outputBytes":0}
+        """;
+        var handler = new StubHandler(HttpStatusCode.OK, json);
+        var client = NewClient(handler);
+
+        var status = await client.ExecJobsAsync("161346");
+
+        Assert.Equal(HttpMethod.Get, handler.LastRequest!.Method);
+        Assert.Equal("/api/sessions/161346/exec", handler.LastRequest.RequestUri!.AbsolutePath);
+        Assert.Contains("job-1", status!.Tail);
+    }
+
+    [Fact]
     public async Task Close_Ok_ReturnsTrue()
     {
         var client = NewClient(new StubHandler(HttpStatusCode.OK));

@@ -111,6 +111,26 @@ public class ExecAckAndJobTests
     }
 
     [Fact]
+    public async Task Cancel_FlagReachesAgentThroughStatusChannel()
+    {
+        // Отмена едет тем же коротким каналом, что и статус: он единственный проходит
+        // под полной нагрузкой (бэклог п.134/172/176).
+        var sender = new SpySender();
+        var coordinator = new ExecCoordinator(RegistryWith("160636"), sender, graceSeconds: 0);
+        sender.OnStatus = req =>
+        {
+            coordinator.CompleteStatus(new ExecJobStatus(req.RequestId, req.JobId, false, null, "",
+                DateTimeOffset.UtcNow, 0, Cancelled: true));
+            return Task.CompletedTask;
+        };
+
+        var status = await coordinator.StatusAsync("160636", "job-1", 10, cancel: true);
+
+        Assert.True(Assert.Single(sender.StatusSent).Cancel);
+        Assert.True(status!.Cancelled);
+    }
+
+    [Fact]
     public async Task Status_OfflineSz_ReturnsNull()
     {
         var coordinator = new ExecCoordinator(new SessionRegistry(), new SpySender(), graceSeconds: 0);

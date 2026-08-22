@@ -93,6 +93,97 @@ public class ExecCommandHandlerTests
     }
 
     [Fact]
+    public void Handle_HugeOutput_KeepsHeadAndTail()
+    {
+        // Регрессия (бэклог п.181): chkdsk кладёт вердикт в НАЧАЛО вывода, а статистику —
+        // в конец. Обрезка только с одной стороны теряет либо то, либо другое.
+        var huge = "ВЕРДИКТ-В-НАЧАЛЕ\n" + new string('x', ExecLimits.MaxOutputChars + 5_000)
+            + "\nИТОГ-В-КОНЦЕ";
+        var handler = new ExecCommandHandler(new StubPs(new PsResult(0, huge, "")));
+
+        var r = handler.Handle(Req());
+
+        Assert.True(r.Truncated);
+        Assert.Contains("ВЕРДИКТ-В-НАЧАЛЕ", r.StdOut);
+        Assert.Contains("ИТОГ-В-КОНЦЕ", r.StdOut);
+        Assert.Contains("пропущено", r.StdOut);
+    }
+
+    [Fact]
+    public async Task Status_WithCancel_KillsRunningJob()
+    {
+        // Снять улетевшую задачу — одной командой, по тому же короткому каналу, который
+        // проходит под нагрузкой (бэклог п.134/172/176).
+        var root = Path.Combine(Path.GetTempPath(), $"szexec-{Guid.NewGuid():N}");
+        try
+        {
+            var jobs = new BackgroundJobs(root);
+            var handler = new ExecCommandHandler(new StubPs(new PsResult(0, "", "")), jobs);
+            var started = jobs.Start(new ExecRequest("160306", "r1", "Start-Sleep -Seconds 120", 60,
+                Detached: true));
+
+            var st = handler.Status(new ExecStatusRequest("160306", "r2", started.JobId!, 10,
+                Cancel: true));
+            Assert.True(st.Cancelled, "ответ обязан подтверждать отмену");
+
+            var deadline = DateTime.UtcNow.AddSeconds(15);
+            ExecJobStatus after;
+            do
+            {
+                after = handler.Status(new ExecStatusRequest("160306", "r3", started.JobId!, 10));
+                if (!after.Running) break;
+                await Task.Delay(200);
+            } while (DateTime.UtcNow < deadline);
+            Assert.False(after.Running, "процесс задачи должен быть убит");
+        }
+        finally
+        {
+            try { Directory.Delete(root, recursive: true); } catch { }
+        }
+    }
+
+    [Fact]
+    public void Status_CancelUnknownJob_FallsBackToProcessSearch()
+    {
+        // Агент мог перезапуститься — задача не в памяти, но её процесс жив. Ищем по jobId
+        // в командной строке процесса и валим дерево.
+        var ps = new StubPs(new PsResult(0, "", ""));
+        var handler = new ExecCommandHandler(ps,
+            new BackgroundJobs(Path.Combine(Path.GetTempPath(), $"szexec-{Guid.NewGuid():N}")));
+
+        handler.Status(new ExecStatusRequest("160306", "r", "20260801-000000-abcdef", 10,
+            Cancel: true));
+
+        Assert.NotNull(ps.LastScript);
+        Assert.Contains("20260801-000000-abcdef", ps.LastScript);
+    }
+
+    [Fact]
+    public void Status_JobsListRequest_ReturnsSummaryOfJobs()
+    {
+        // JobId «*» — список задач: сейчас, чтобы узнать, что крутится на машине, надо
+        // помнить jobId из прошлой сессии (бэклог п.134).
+        var root = Path.Combine(Path.GetTempPath(), $"szexec-{Guid.NewGuid():N}");
+        try
+        {
+            var jobs = new BackgroundJobs(root);
+            var handler = new ExecCommandHandler(new StubPs(new PsResult(0, "", "")), jobs);
+            var started = jobs.Start(new ExecRequest("160306", "r1", "Start-Sleep -Seconds 60", 60,
+                Detached: true));
+
+            var st = handler.Status(new ExecStatusRequest("160306", "r2", "*", 10));
+
+            Assert.Null(st.Error);
+            Assert.Contains(started.JobId!, st.Tail);
+            jobs.Stop(started.JobId!);
+        }
+        finally
+        {
+            try { Directory.Delete(root, recursive: true); } catch { }
+        }
+    }
+
+    [Fact]
     public void Handle_Timeout_ReportsTimedOutInsteadOfThrowing()
     {
         var handler = new ExecCommandHandler(new StubPs(new PowerShellTimeoutException("убит")));

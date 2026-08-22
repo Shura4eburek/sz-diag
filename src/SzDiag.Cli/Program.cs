@@ -372,10 +372,10 @@ switch (command)
             AnsiConsole.MarkupLineInterpolated($"[red]СЗ {args[1]} не найдена[/] среди активных.");
             return 1;
         }
-        if (!string.IsNullOrEmpty(status.Error))
+        if (!string.IsNullOrEmpty(status.Error) && status.ExitCode is null && !status.Running)
         {
             AnsiConsole.MarkupLineInterpolated($"[red]{status.Error}[/]");
-            return 1;
+            return ExecExitCode.AgentFailure;
         }
         var state = status.Running
             ? $"[yellow]выполняется[/] ({SessionTableRenderer.FormatElapsed(DateTimeOffset.Now - status.StartedAt)})"
@@ -384,6 +384,44 @@ switch (command)
         // и разметка из $state печаталась как текст «[green]завершена[/]» (260306).
         AnsiConsole.MarkupLine($"Задача {Markup.Escape(args[3])}: {state}, вывода {status.OutputBytes} б");
         if (!string.IsNullOrEmpty(status.Tail)) Console.WriteLine(status.Tail);
+        // Ошибка скрипта (например, parse-ошибка из err.txt) — отдельно от хвоста: раньше
+        // «завершена (exit 1), вывода 0 б» была неотличима от упавшего агента (п.177).
+        if (!string.IsNullOrEmpty(status.Error))
+            AnsiConsole.MarkupLineInterpolated($"[red]ошибка скрипта:[/] {status.Error}");
+        // Код возврата отражает исход задачи — поверх можно строить автоматизацию (п.103).
+        return ExecExitCode.FromStatus(status);
+    }
+
+    // exec --cancel <jobId>: снять фоновую задачу (убить дерево процессов). Едет тем же
+    // коротким каналом, что и --result — проходит под полной нагрузкой (п.134/172/176).
+    case "exec" when args.Length >= 4 && args[2].Equals("--cancel", StringComparison.OrdinalIgnoreCase):
+    {
+        var status = await client.ExecCancelAsync(args[1], args[3]);
+        if (status is null)
+        {
+            AnsiConsole.MarkupLineInterpolated($"[red]СЗ {args[1]} не найдена[/] среди активных.");
+            return 1;
+        }
+        if (status.Cancelled)
+        {
+            AnsiConsole.MarkupLineInterpolated($"[green]✓ задача {args[3]} снята[/] (дерево процессов убито)");
+            return 0;
+        }
+        AnsiConsole.MarkupLineInterpolated(
+            $"[yellow]задача {args[3]} не снята:[/] {status.Error ?? "процесс не найден — возможно, уже завершилась"}");
+        return 1;
+    }
+
+    // exec --jobs: список фоновых задач на агенте — без запоминания jobId из прошлой сессии.
+    case "exec" when args.Length >= 3 && args[2].Equals("--jobs", StringComparison.OrdinalIgnoreCase):
+    {
+        var status = await client.ExecJobsAsync(args[1]);
+        if (status is null)
+        {
+            AnsiConsole.MarkupLineInterpolated($"[red]СЗ {args[1]} не найдена[/] среди активных.");
+            return 1;
+        }
+        Console.WriteLine(status.Tail);
         return 0;
     }
 
@@ -437,12 +475,19 @@ switch (command)
         if (!string.IsNullOrEmpty(execRes.StdErr))
             AnsiConsole.MarkupLineInterpolated($"[yellow]stderr:[/] {CliXml.Decode(execRes.StdErr).TrimEnd()}");
         if (execRes.JobId is not null)
+        {
             AnsiConsole.MarkupLineInterpolated($"[grey]Фоновая задача:[/] szcli exec {execSz} --result {execRes.JobId}");
-        if (execRes.Truncated) AnsiConsole.MarkupLine("[yellow]⚠ вывод обрезан по лимиту[/]");
+            AnsiConsole.MarkupLineInterpolated($"[grey]Снять задачу:[/]   szcli exec {execSz} --cancel {execRes.JobId}");
+            // Таймаут к фоновой задаче не применяется — она живёт до конца скрипта (п.180).
+            AnsiConsole.MarkupLine("[grey]Лимит времени к фону не применяется.[/]");
+        }
+        if (execRes.Truncated) AnsiConsole.MarkupLine("[yellow]⚠ вывод обрезан по лимиту (голова и хвост сохранены)[/]");
         if (execRes.TimedOut) AnsiConsole.MarkupLine("[red]⚠ скрипт остановлен по таймауту[/]");
         if (execRes.ExitCode != 0)
             AnsiConsole.MarkupLineInterpolated($"[yellow]exit code: {execRes.ExitCode}[/]");
-        break;
+        // Код возврата отражает исход скрипта: успех 0, exit N — как есть, отказ агента 3,
+        // таймаут 4 (п.103). Раньше все исходы давали $LASTEXITCODE = 0.
+        return ExecExitCode.From(execRes);
     }
 
     default:
@@ -482,8 +527,10 @@ static void PrintUsage()
                 [grey]можно через запятую или пробел; all — все; алиасы: hw ram disks video bsod tdr temp[/]
               [yellow]szcli exec[/] [blue]<СЗ>[/] [grey]"<powershell>" | -f <файл> [[--timeout <сек>]] [[--detach]][/]
               [yellow]szcli exec[/] [blue]<СЗ>[/] [grey]--result <jobId> [[--tail N]]   состояние фоновой задачи[/]
+              [yellow]szcli exec[/] [blue]<СЗ>[/] [grey]--cancel <jobId> | --jobs      снять задачу / список задач[/]
                 [grey]выполнить скрипт на агенте и получить вывод (без SSH)[/]
                 [grey]всё сложнее однострочника — через [/][yellow]-f[/][grey]: inline-строку портит твой шелл[/]
+                [grey]exit code: 0 успех · N код скрипта · 3 отказ агента · 4 таймаут[/]
               [yellow]szcli push[/] [blue]<СЗ>[/] [grey]<tool> | --list[/]
                 [grey]доставить инструмент на клиента через hub (клиент качает сам, без SMB)[/]
               [yellow]szcli pull[/] [blue]<СЗ>[/] [grey]<путь…> [[--max-mb N]] [[-r]][/]

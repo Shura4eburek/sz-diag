@@ -71,6 +71,69 @@ public class PowerShellRunnerTests
     }
 
     [Fact]
+    public void Run_HugeScript_FallsBackToFileAndRuns()
+    {
+        // Регрессия (бэклог п.101/196): -EncodedCommand — это 2,67 символа аргумента на символ
+        // скрипта, а лимит командной строки Windows — 32 767. Секция whea (~13 КБ исходника)
+        // дважды падала на живых заявках с «имя файла или его расширение имеет слишком большую
+        // длину». Длинный скрипт обязан уезжать во временный .ps1 (-File) и работать.
+        var runner = new PowerShellRunner(utf8: true);
+        var filler = string.Join("\n", Enumerable.Range(1, 600).Select(i =>
+            $"# наполнитель {i}: длинная строка комментария, раздувающая скрипт до размеров секции whea"));
+        var script = filler + "\nWrite-Output 'огромный-ок'";
+
+        var r = runner.Run(script, timeout: TimeSpan.FromSeconds(30));
+
+        Assert.Equal(0, r.ExitCode);
+        Assert.Contains("огромный-ок", r.StdOut);
+    }
+
+    [Fact]
+    public void Run_HugeScript_TempFileIsCleanedUp()
+    {
+        // Файл-фоллбэк не должен замусоривать клиентскую машину: после прогона временный
+        // .ps1 обязан исчезнуть.
+        var runner = new PowerShellRunner(utf8: true);
+        var filler = string.Join("\n", Enumerable.Range(1, 600).Select(i =>
+            $"# наполнитель {i}: длинная строка комментария, раздувающая скрипт до размеров секции whea"));
+
+        runner.Run(filler + "\n'ok'", timeout: TimeSpan.FromSeconds(30));
+
+        var leftovers = Directory.GetFiles(Path.GetTempPath(), "szdiag-ps-*.ps1");
+        Assert.Empty(leftovers);
+    }
+
+    [Fact]
+    public void Run_ScriptWithParamBlock_UsesDefaultsInsteadOfBreaking()
+    {
+        // Регрессия (бэклог п.102/168/189): шапка с [Console]::OutputEncoding клеится ПЕРЕД
+        // скриптом, а param(...) обязан быть первым выражением — любой рецепт с параметрами
+        // падал с CommandNotFoundException и шёл дальше мимо аргументов, искажая результат.
+        var runner = new PowerShellRunner(utf8: true);
+
+        var r = runner.Run("param([string]$Name = 'мир')\n\"привет $Name\"",
+            timeout: TimeSpan.FromSeconds(15));
+
+        Assert.Contains("привет мир", r.StdOut);
+        Assert.DoesNotContain("CommandNotFoundException", r.StdErr);
+    }
+
+    [Fact]
+    public void Run_ParamBlockAfterComments_StillWorks()
+    {
+        // param может идти после комментариев — детект не должен требовать первой строки.
+        var runner = new PowerShellRunner(utf8: true);
+        var script = "# рецепт с граблей\n<# блочный\n   комментарий #>\nparam([int]$N = 7)\n\"N=$N\"";
+
+        var r = runner.Run(script, timeout: TimeSpan.FromSeconds(15));
+
+        Assert.Contains("N=7", r.StdOut);
+        // Значение могло «выжить» и случайно (аргумент-выражение вычисляется до провала
+        // поиска команды param) — поэтому проверяем и чистоту stderr.
+        Assert.DoesNotContain("CommandNotFoundException", r.StdErr);
+    }
+
+    [Fact]
     public void Run_MultilinePipeline_ReturnsAllLines()
     {
         // Регрессия: скрипт раньше шёл через stdin `-Command -`, который в PowerShell 5.1

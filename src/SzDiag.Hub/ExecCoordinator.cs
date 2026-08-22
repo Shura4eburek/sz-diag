@@ -69,9 +69,11 @@ public sealed class ExecCoordinator
         }
     }
 
-    /// <summary>Состояние фоновой задачи на агенте: короткий запрос, проходит и под нагрузкой.</summary>
+    /// <summary>Состояние фоновой задачи на агенте: короткий запрос, проходит и под нагрузкой.
+    /// Этим же каналом едут отмена (<paramref name="cancel"/>) и список задач (jobId «*») —
+    /// именно потому, что он единственный проверенно проходит под нагрузкой (п.134/172/176).</summary>
     public async Task<ExecJobStatus?> StatusAsync(string sz, string jobId, int tailLines,
-        CancellationToken ct = default)
+        CancellationToken ct = default, bool cancel = false)
     {
         var connId = _registry.TryGetConnectionId(sz);
         if (connId is null) return null;
@@ -82,7 +84,7 @@ public sealed class ExecCoordinator
         try
         {
             await _sender.SendExecStatusAsync(connId,
-                new ExecStatusRequest(sz, requestId, jobId, tailLines), ct);
+                new ExecStatusRequest(sz, requestId, jobId, tailLines, cancel), ct);
 
             var wait = TimeSpan.FromSeconds(ExecLimits.AckSeconds + _graceSeconds);
             var done = await Task.WhenAny(tcs.Task, Task.Delay(wait, ct));

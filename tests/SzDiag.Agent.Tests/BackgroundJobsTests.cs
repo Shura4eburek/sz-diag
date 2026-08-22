@@ -89,6 +89,40 @@ public class BackgroundJobsTests : IDisposable
     }
 
     [Fact]
+    public async Task Start_ParseErrorInScript_SurfacesErrorText()
+    {
+        // Регрессия (бэклог п.177): опечатка в рецепте валила скрипт ДО первой строки,
+        // задача «завершалась» с exit 1 и нулём байт вывода — неотличимо от упавшего агента.
+        // Parse-ошибка обязана доехать до оператора текстом.
+        var jobs = Jobs;
+        var job = jobs.Start(Req("$key: = 'x'\n'never-runs'"));
+
+        var status = await WaitUntilAsync(jobs, job.JobId!,
+            s => !s.Running && !string.IsNullOrEmpty(s.Error));
+
+        Assert.False(status.Running);
+        Assert.False(string.IsNullOrWhiteSpace(status.Error));
+        Assert.NotEqual(0, status.ExitCode);
+        Assert.DoesNotContain("never-runs", status.Tail);
+    }
+
+    [Fact]
+    public async Task List_ShowsRunningAndFinishedJobs()
+    {
+        // «Что вообще крутится на машине» — без запоминания jobId из прошлой сессии (п.134/176).
+        var jobs = Jobs;
+        var running = jobs.Start(Req("Start-Sleep -Seconds 60"));
+        var finished = jobs.Start(Req("'done'"));
+        await WaitUntilAsync(jobs, finished.JobId!, s => !s.Running);
+
+        var list = jobs.List();
+
+        Assert.Contains(list, j => j.JobId == running.JobId && j.Running);
+        Assert.Contains(list, j => j.JobId == finished.JobId && !j.Running);
+        jobs.Stop(running.JobId!);
+    }
+
+    [Fact]
     public void Status_UnknownJob_ReturnsErrorNotThrow()
     {
         var status = Jobs.Status(new ExecStatusRequest("160705", "r", "нет-такой-задачи", 10));

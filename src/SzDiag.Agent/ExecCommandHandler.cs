@@ -22,15 +22,62 @@ public sealed class ExecCommandHandler
     /// <summary>Сколько фоновых задач сейчас выполняется — для колонки активности (п.73).</summary>
     public int RunningJobs() => _jobs.RunningCount();
 
-    /// <summary>Состояние фоновой задачи + хвост вывода.</summary>
+    /// <summary>Состояние фоновой задачи + хвост вывода. Этот же короткий канал везёт
+    /// отмену (Cancel) и список задач (JobId «*») — он единственный, который проверенно
+    /// проходит под полной нагрузкой (бэклог п.134/172/176).</summary>
     public ExecJobStatus Status(ExecStatusRequest request)
     {
-        try { return _jobs.Status(request); }
+        try
+        {
+            if (request.JobId == "*") return ListJobs(request);
+            if (request.Cancel) return CancelJob(request);
+            return _jobs.Status(request);
+        }
         catch (Exception ex)
         {
             return new ExecJobStatus(request.RequestId, request.JobId, false, null, "",
                 DateTimeOffset.MinValue, 0, ex.Message);
         }
+    }
+
+    private ExecJobStatus ListJobs(ExecStatusRequest request)
+    {
+        var jobs = _jobs.List();
+        var text = jobs.Count == 0
+            ? "фоновых задач нет"
+            : string.Join("\n", jobs.Select(j =>
+            {
+                var state = j.Running
+                    ? "выполняется"
+                    : j.ExitCode is { } c ? $"завершена (exit {c})" : "не из этой жизни агента";
+                return $"{j.JobId}  {state}, старт {j.StartedAt:dd.MM HH:mm:ss}, вывода {j.OutputBytes} б";
+            }));
+        return new ExecJobStatus(request.RequestId, "*", false, null, text, DateTimeOffset.Now, 0);
+    }
+
+    private ExecJobStatus CancelJob(ExecStatusRequest request)
+    {
+        var killed = _jobs.Stop(request.JobId);
+        if (!killed)
+        {
+            // Агент мог перезапуститься — задача не в памяти, но её процесс жив: ищем
+            // powershell по jobId в командной строке (путь скрипта содержит его) и валим
+            // дерево процессов, иначе дочерние (OCCT, robocopy) переживут родителя.
+            var script =
+                "$procs = Get-CimInstance Win32_Process -Filter \"Name like '%powershell%'\" | " +
+                $"Where-Object {{ $_.CommandLine -like '*{request.JobId}*' -and $_.ProcessId -ne $PID }}\n" +
+                "foreach ($p in $procs) { taskkill /PID $p.ProcessId /T /F | Out-Null }\n" +
+                "@($procs).Count";
+            try
+            {
+                var r = _ps.Run(script, throwOnError: false, timeout: TimeSpan.FromSeconds(45));
+                killed = int.TryParse(r.StdOut.Trim(), out var n) && n > 0;
+            }
+            catch { /* не нашли — статус ниже скажет, что задачи нет */ }
+        }
+
+        var status = _jobs.Status(request with { Cancel = false });
+        return status with { Cancelled = killed };
     }
 
     public ExecResult Handle(ExecRequest request)
@@ -64,11 +111,16 @@ public sealed class ExecCommandHandler
         }
     }
 
-    /// <summary>Обрезает вывод до лимита, помечая факт обрезки.</summary>
+    /// <summary>Обрезает вывод до лимита, сохраняя голову И хвост: chkdsk кладёт вердикт в
+    /// начало, а статистику — в конец; односторонняя обрезка теряла то или другое (п.181).</summary>
     private static (string Text, bool Truncated) Cap(string? text)
     {
         if (string.IsNullOrEmpty(text)) return ("", false);
         if (text.Length <= ExecLimits.MaxOutputChars) return (text, false);
-        return (text[..ExecLimits.MaxOutputChars] + "\n… вывод обрезан …", true);
+        var head = ExecLimits.MaxOutputChars / 2;
+        var tail = ExecLimits.MaxOutputChars - head;
+        var skipped = text.Length - ExecLimits.MaxOutputChars;
+        return (text[..head] + $"\n… вывод обрезан: пропущено {skipped} символов …\n" + text[^tail..],
+            true);
     }
 }

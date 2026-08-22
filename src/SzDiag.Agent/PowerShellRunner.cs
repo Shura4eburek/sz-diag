@@ -29,6 +29,11 @@ public sealed class PowerShellRunner : IPowerShellRunner
     /// строки). Дефолт определяется средой.</param>
     public PowerShellRunner(bool? utf8 = null) => _utf8 = utf8 ?? !WinPeEnvironment.IsWinPe;
 
+    /// <summary>Порог для файла-фоллбэка: -EncodedCommand — это 2,67 символа аргумента на
+    /// символ скрипта, а лимит командной строки Windows — 32 767. Секция whea (~13 КБ
+    /// исходника) дважды падала на живых заявках с «имя файла слишком длинное» (п.101/196).</summary>
+    private const int MaxEncodedCommandChars = 30_000;
+
     public PsResult Run(string script, bool throwOnError = true, TimeSpan? timeout = null)
     {
         // Скрипт передаём через -EncodedCommand (base64 UTF-16LE), а НЕ через stdin
@@ -45,12 +50,47 @@ public sealed class PowerShellRunner : IPowerShellRunner
         var prefix = _utf8
             ? "[Console]::OutputEncoding=[Text.Encoding]::UTF8;$OutputEncoding=[Text.Encoding]::UTF8;\n"
             : string.Empty;
-        var encoded = Convert.ToBase64String(
-            System.Text.Encoding.Unicode.GetBytes(prefix + "$ProgressPreference='SilentlyContinue';\n" + script));
+        // param(...) обязан быть первым выражением скрипта, а шапка выше его сдвигает —
+        // любой рецепт с параметрами падал с CommandNotFoundException и шёл дальше мимо
+        // аргументов (п.102/168/189). Такой скрипт заворачиваем в &{}: внутри scriptblock
+        // param снова первый, а exit по-прежнему завершает процесс своим кодом.
+        var body = StartsWithParamBlock(script) ? "& {\n" + script + "\n}" : script;
+        var full = prefix + "$ProgressPreference='SilentlyContinue';\n" + body;
+        var encoded = Convert.ToBase64String(System.Text.Encoding.Unicode.GetBytes(full));
+
+        // Длинный скрипт не влезает в командную строку — уводим во временный .ps1 (-File).
+        // UTF-8 строго с BOM: без него PowerShell 5.1 читает файл в ANSI и жуёт кириллицу.
+        string? tempFile = null;
+        var arguments = $"-NoProfile -NonInteractive -ExecutionPolicy Bypass -EncodedCommand {encoded}";
+        if (encoded.Length > MaxEncodedCommandChars)
+        {
+            tempFile = Path.Combine(Path.GetTempPath(), $"szdiag-ps-{Guid.NewGuid():N}.ps1");
+            File.WriteAllText(tempFile, full, new System.Text.UTF8Encoding(true));
+            arguments = $"-NoProfile -NonInteractive -ExecutionPolicy Bypass -File \"{tempFile}\"";
+        }
+        try
+        {
+            return RunProcess(arguments, script, throwOnError, timeout);
+        }
+        finally
+        {
+            if (tempFile is not null)
+                try { File.Delete(tempFile); } catch { /* занят антивирусом — мусор в %TEMP% не критичен */ }
+        }
+    }
+
+    /// <summary>Скрипт начинается с param-блока (комментарии и пустые строки не в счёт)?</summary>
+    private static bool StartsWithParamBlock(string script)
+        => System.Text.RegularExpressions.Regex.IsMatch(script,
+            @"^\s*(?:(?:#[^\r\n]*|<#[\s\S]*?#>)\s*)*param\s*\(",
+            System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+
+    private PsResult RunProcess(string arguments, string script, bool throwOnError, TimeSpan? timeout)
+    {
         var psi = new ProcessStartInfo
         {
             FileName = "powershell.exe",
-            Arguments = $"-NoProfile -NonInteractive -ExecutionPolicy Bypass -EncodedCommand {encoded}",
+            Arguments = arguments,
             RedirectStandardInput = true,
             RedirectStandardOutput = true,
             RedirectStandardError = true,

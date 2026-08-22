@@ -112,6 +112,38 @@ public static class ManagementApi
             }
         });
 
+        // Отмена фоновой задачи: тем же коротким каналом, что и статус — он единственный
+        // проходит под полной нагрузкой, когда отменить задачу нужнее всего (п.134/172/176).
+        group.MapDelete("/sessions/{sz}/exec/{jobId}", async (string sz, string jobId,
+            ExecCoordinator exec, JournalWriter journal) =>
+        {
+            try
+            {
+                var status = await exec.StatusAsync(sz, jobId, tailLines: 10, cancel: true);
+                if (status is null) return Results.NotFound();
+                if (status.Cancelled) journal.Command(sz, $"`exec --cancel {jobId}` — фонову задачу знято");
+                return Results.Ok(status);
+            }
+            catch (TimeoutException ex)
+            {
+                return Results.Problem(ex.Message, statusCode: StatusCodes.Status504GatewayTimeout);
+            }
+        });
+
+        // Список фоновых задач на агенте (jobId «*» — соглашение канала статуса).
+        group.MapGet("/sessions/{sz}/exec", async (string sz, ExecCoordinator exec) =>
+        {
+            try
+            {
+                var status = await exec.StatusAsync(sz, "*", tailLines: 0);
+                return status is null ? Results.NotFound() : Results.Ok(status);
+            }
+            catch (TimeoutException ex)
+            {
+                return Results.Problem(ex.Message, statusCode: StatusCodes.Status504GatewayTimeout);
+            }
+        });
+
         // push: доставить инструмент на клиента (агент качает его с hub сам).
         // Отдаём и каталог раздачи: без него пустой список выглядит как «инструментов нет»,
         // хотя на деле hub смотрит не туда (бэклог п.67).

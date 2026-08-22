@@ -15,6 +15,10 @@ namespace SzDiag.Agent;
 /// Здесь задача запускается **detached**, вывод пишется **в файл построчно** — то есть
 /// переживает жёсткий вырубон, ровно как самодельный наблюдатель-CSV, который приходилось
 /// городить руками (п.64). Хвост читается коротким запросом в любой момент.</summary>
+/// <summary>Краткая сводка по фоновой задаче для списка `szcli exec --jobs`.</summary>
+public sealed record ExecJobSummary(string JobId, bool Running, int? ExitCode,
+    DateTimeOffset StartedAt, long OutputBytes);
+
 public sealed class BackgroundJobs
 {
     private sealed record Job(string Id, Process Process, string OutPath, DateTimeOffset StartedAt);
@@ -39,17 +43,29 @@ public sealed class BackgroundJobs
         {
             Directory.CreateDirectory(dir);
             var scriptPath = Path.Combine(dir, "script.ps1");
+            var userPath = Path.Combine(dir, "user.ps1");
             var outPath = Path.Combine(dir, "out.txt");
+            var errPath = Path.Combine(dir, "err.txt");
 
             // Скрипт кладём файлом и просим PowerShell дописывать вывод построчно: при
             // вырубоне посреди прогона всё уже на диске (буферизованный stdout теряется —
             // ровно так `nvidia-smi -f` оставлял пустой файл, п.20).
+            //
+            // Пользовательский скрипт — ОТДЕЛЬНЫМ файлом: parse-ошибка в нём валит скрипт
+            // до первой строки и не ловится try/catch внутри него самого, но вызов файла
+            // через & превращает её в перехватываемое исключение обёртки — текст ошибки
+            // уезжает в err.txt, а не теряется вместе со stderr процесса (бэклог п.177).
+            File.WriteAllText(userPath, request.Script, new UTF8Encoding(true));
             var wrapped = new StringBuilder()
                 .AppendLine("$ErrorActionPreference='Continue'")
                 .AppendLine("$ProgressPreference='SilentlyContinue'")
-                .AppendLine("& {")
-                .AppendLine(request.Script)
-                .AppendLine("} *>&1 | ForEach-Object { $_ | Out-File -FilePath '" + outPath.Replace("'", "''") + "' -Append -Encoding utf8 }")
+                .AppendLine("try {")
+                .AppendLine("  & '" + userPath.Replace("'", "''") + "' *>&1 | ForEach-Object { $_ | Out-File -FilePath '" + outPath.Replace("'", "''") + "' -Append -Encoding utf8 }")
+                .AppendLine("  exit $LASTEXITCODE")
+                .AppendLine("} catch {")
+                .AppendLine("  $_ | Out-String | Out-File -FilePath '" + errPath.Replace("'", "''") + "' -Encoding utf8")
+                .AppendLine("  exit 199")
+                .AppendLine("}")
                 .ToString();
             File.WriteAllText(scriptPath, wrapped, new UTF8Encoding(true));
 
@@ -104,8 +120,62 @@ public sealed class BackgroundJobs
         var (tail, size) = ReadTail(outPath, request.TailLines);
         var started = job?.StartedAt
             ?? (Directory.Exists(dir) ? new DirectoryInfo(dir).CreationTime : DateTime.Now);
+
+        // Parse-ошибка скрипта лежит в err.txt (см. Start): без неё «завершена (exit 199),
+        // вывода 0 б» неотличима от упавшего агента или задавленной машины (п.177).
+        string? error = null;
+        var errPath = Path.Combine(dir, "err.txt");
+        if (File.Exists(errPath))
+        {
+            try
+            {
+                error = File.ReadAllText(errPath, Encoding.UTF8).Trim();
+                if (error.Length > 4000) error = error[..4000] + "\n… обрезано …";
+                if (error.Length == 0) error = null;
+            }
+            catch { /* пишется прямо сейчас — покажем в следующий раз */ }
+        }
+
         return new ExecJobStatus(request.RequestId, request.JobId, running, exitCode, tail,
-            started, size);
+            started, size, error);
+    }
+
+    /// <summary>Список всех фоновых задач: живые из памяти + завершённые/осиротевшие с диска.
+    /// Чтобы узнать, что крутится на машине, не нужно помнить jobId из прошлой сессии (п.134/176).</summary>
+    public IReadOnlyList<ExecJobSummary> List()
+    {
+        var result = new Dictionary<string, ExecJobSummary>(StringComparer.OrdinalIgnoreCase);
+        foreach (var job in _jobs.Values)
+        {
+            var running = false;
+            int? exitCode = null;
+            try
+            {
+                running = !job.Process.HasExited;
+                if (!running) exitCode = job.Process.ExitCode;
+            }
+            catch { /* процесс уже недоступен */ }
+            var size = 0L;
+            try { size = new FileInfo(job.OutPath).Length; } catch { }
+            result[job.Id] = new ExecJobSummary(job.Id, running, exitCode, job.StartedAt, size);
+        }
+
+        // Задачи с диска (агент мог перезапуститься): состояние процесса неизвестно —
+        // показываем как незапущенные в этой жизни агента, но с датой и объёмом вывода.
+        if (Directory.Exists(_root))
+        {
+            foreach (var dir in Directory.GetDirectories(_root))
+            {
+                var id = Path.GetFileName(dir);
+                if (result.ContainsKey(id)) continue;
+                var size = 0L;
+                try { size = new FileInfo(Path.Combine(dir, "out.txt")).Length; } catch { }
+                result[id] = new ExecJobSummary(id, false, null,
+                    new DirectoryInfo(dir).CreationTime, size);
+            }
+        }
+
+        return result.Values.OrderByDescending(j => j.StartedAt).ToList();
     }
 
     /// <summary>Сколько задач сейчас реально выполняется. Нужно колонке активности: «была

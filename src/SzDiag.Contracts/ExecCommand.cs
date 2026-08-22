@@ -16,12 +16,18 @@ public sealed record ExecRequest(string Sz, string RequestId, string Script, int
 /// выглядят одинаково — глухим таймаутом (бэклог п.35/п.43).</summary>
 public sealed record ExecAck(string RequestId, DateTimeOffset AcceptedAt);
 
-/// <summary>Hub → агент: как там фоновая задача (и отдай хвост вывода).</summary>
-public sealed record ExecStatusRequest(string Sz, string RequestId, string JobId, int TailLines = 50);
+/// <summary>Hub → агент: как там фоновая задача (и отдай хвост вывода).
+/// Этот же короткий канал везёт отмену и список задач: он единственный, который
+/// проверенно проходит под полной нагрузкой (бэклог п.134/172/176).</summary>
+/// <param name="JobId">Идентификатор задачи; «*» — вернуть список всех задач.</param>
+/// <param name="Cancel">Снять задачу (убить дерево процессов) перед ответом.</param>
+public sealed record ExecStatusRequest(string Sz, string RequestId, string JobId, int TailLines = 50,
+    bool Cancel = false);
 
 /// <summary>Агент → hub: состояние фоновой задачи.</summary>
 /// <param name="Running">Ещё выполняется.</param>
 /// <param name="Tail">Последние строки вывода — «шо там» во время часового прогона.</param>
+/// <param name="Cancelled">Задача была снята по запросу (Cancel в ExecStatusRequest).</param>
 public sealed record ExecJobStatus(
     string RequestId,
     string JobId,
@@ -30,7 +36,8 @@ public sealed record ExecJobStatus(
     string Tail,
     DateTimeOffset StartedAt,
     long OutputBytes,
-    string? Error = null);
+    string? Error = null,
+    bool Cancelled = false);
 
 /// <summary>Агент → hub: результат выполнения <see cref="ExecRequest"/>.</summary>
 /// <param name="TimedOut">Скрипт не уложился в таймаут и был убит.</param>
