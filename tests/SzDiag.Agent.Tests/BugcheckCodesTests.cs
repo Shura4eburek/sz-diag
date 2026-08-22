@@ -16,6 +16,15 @@ public class BugcheckCodesTests
     public void Format_KnownCode_ReturnsHexAndName(uint code, string expected)
         => Assert.Equal(expected, BugcheckCodes.Format(code));
 
+    [Theory]
+    // Регрессия (п.197, СЗ 161211): 0x1A8/0x1B8 — 62% событий LiveKernelEvent — печатались
+    // «unknown code», хотя рецепт pe-wer-livekernel.ps1 их давно знает: обе — видео-ветка.
+    [InlineData(0x1A8u, "0x1A8 WATCHDOG_LIVEDUMP")]
+    [InlineData(0x1B8u, "0x1B8 WATCHDOG_LIVEDUMP_DXGK")]
+    [InlineData(0x1C8u, "0x1C8 WATCHDOG_LIVEDUMP")]
+    public void Format_LiveKernelWatchdogCodes_HaveNames(uint code, string expected)
+        => Assert.Equal(expected, BugcheckCodes.Format(code));
+
     [Fact]
     public void Format_UnknownCode_ReturnsHexWithoutName()
     {

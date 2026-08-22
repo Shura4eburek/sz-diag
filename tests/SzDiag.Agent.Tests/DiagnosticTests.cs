@@ -82,6 +82,72 @@ public class DiagnosticProbesTests
     }
 
     [Fact]
+    public void AllProbeBodies_ParseAsValidPowerShell()
+    {
+        // Страж (п.182/196): синтаксическая ошибка в пробе должна падать на сборке, а не
+        // молча выпадать секцией на живой заявке. Один powershell токенизирует все пробы.
+        var dir = Path.Combine(Path.GetTempPath(), $"szprobes-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(dir);
+        try
+        {
+            foreach (var step in DiagnosticProbes.Suite.Steps)
+                File.WriteAllText(Path.Combine(dir, step.Id + ".ps1"), step.Run!,
+                    new System.Text.UTF8Encoding(true));
+
+            var check = $$"""
+                $bad = @()
+                foreach ($f in Get-ChildItem '{{dir}}' -Filter *.ps1) {
+                    $errors = $null
+                    [void][System.Management.Automation.PSParser]::Tokenize(
+                        (Get-Content $f.FullName -Raw), [ref]$errors)
+                    if ($errors.Count -gt 0) {
+                        $bad += "$($f.Name): $($errors[0].Message) (строка $($errors[0].Token.StartLine))"
+                    }
+                }
+                if ($bad.Count -gt 0) { $bad; exit 1 } else { 'all-ok' }
+                """;
+            var r = new PowerShellRunner().Run(check, throwOnError: false,
+                timeout: TimeSpan.FromSeconds(60));
+
+            Assert.True(r.ExitCode == 0 && r.StdOut.Contains("all-ok"),
+                $"пробы с ошибками разбора:\n{r.StdOut}\n{r.StdErr}");
+        }
+        finally
+        {
+            try { Directory.Delete(dir, recursive: true); } catch { }
+        }
+    }
+
+    [Fact]
+    public void StorageProbe_ReadsNvmeHealthLogDirectly()
+    {
+        // Регрессия (п.120/142): на NVMe Get-StorageReliabilityCounter отдаёт пустые
+        // PowerOnHours/ошибки, а Unsafe Shutdowns — главное доказательство в претензии —
+        // добывался только рецептом. Лог 02h читается напрямую через
+        // IOCTL_STORAGE_QUERY_PROPERTY, без smartctl.
+        var run = Body("storage");
+
+        Assert.Contains("UnsafeShutdowns", run);
+        Assert.Contains("MediaErrors", run);
+        Assert.Contains("PowerOnHours", run);
+        Assert.Contains("StorageDeviceProtocolSpecificProperty", run);
+        // На пустых счётчиках вердикт не имеет права быть «OK».
+        Assert.Contains("dannyh net", run);
+    }
+
+    [Fact]
+    public void StorageProbe_MapsDeviceHarddiskToPhysicalDisk()
+    {
+        // Регрессия (п.122): `\Device\Harddisk1\DR1 has a bad block` не привязан к диску —
+        // при двух NVMe одного вендора непонятно, клиентский сыплется или из заказа.
+        var run = Body("storage");
+
+        Assert.Contains("Win32_DiskDrive", run);
+        Assert.Contains("Harddisk", run);
+        Assert.Contains("SCSIPort", run);
+    }
+
+    [Fact]
     public void ReliabilityProbe_CrashDumpKindLookup_UsesIntKey()
     {
         // Регрессия (п.110): ключи хеш-таблицы — int, а лукап шёл строкой

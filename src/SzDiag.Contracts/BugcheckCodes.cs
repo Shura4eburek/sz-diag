@@ -57,6 +57,11 @@ public static class BugcheckCodes
         [0x154] = "UNEXPECTED_STORE_EXCEPTION",
         [0x18B] = "SECURE_KERNEL_ERROR",
         [0x193] = "VIDEO_DXGKRNL_LIVEDUMP",
+        // Коды LiveKernelEvent (WER), не фатальные BSOD: на 161211 два самых массовых кода
+        // (62% событий) печатались «unknown», хотя оба — видео-ветка (п.197).
+        [0x1A8] = "WATCHDOG_LIVEDUMP",
+        [0x1B8] = "WATCHDOG_LIVEDUMP_DXGK",
+        [0x1C8] = "WATCHDOG_LIVEDUMP",
     };
 
     /// <summary>«0xBE ATTEMPTED_WRITE_TO_READONLY_MEMORY» — или просто hex, если код незнаком.

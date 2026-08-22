@@ -29,6 +29,23 @@ if (command is "--help" or "-h" or "help" or "/?")
     return 0;
 }
 
+// Версия и дата сборки: протухший бинарь в dist виден сразу, а не по археологии (п.198).
+if (command is "--version" or "-v" or "version")
+{
+    Console.WriteLine(CliCommands.Describe());
+    return 0;
+}
+
+// Неизвестная команда — громкая ошибка, а не молчаливый usage с кодом 0: `szcli note` на
+// CLI, собранном до появления note, дважды списывался на кавычки и кириллицу (п.198).
+if (!CliCommands.IsKnown(command))
+{
+    AnsiConsole.MarkupLineInterpolated(
+        $"[red]Неизвестная команда:[/] {command} [grey]({CliCommands.Describe()} — если команда должна быть, пересобери build-dist)[/]");
+    PrintUsage();
+    return 2;
+}
+
 // Номер СЗ проверяем один раз на входе: команды, которые его принимают, перечислены явно.
 // Мусорный ввод раньше молча уезжал в hub и в базу знаний (бэклог п.57).
 var szArgIndex = command switch

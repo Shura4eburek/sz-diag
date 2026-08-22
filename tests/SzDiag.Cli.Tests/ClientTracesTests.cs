@@ -120,6 +120,20 @@ public class ClientTracesTests
     }
 
     [Fact]
+    public void AgentLogPath_ReadsLogLine_AndDoesNotLeakIntoLeftovers()
+    {
+        // Чек-лист отсылал к «agent.log рядом с exe» — лога там нет, он в logs\ (п.117).
+        var stdout = "log:C:\\Agent\\logs\\agent.log\nservice:R0lhmmon=none";
+
+        Assert.Equal(@"C:\Agent\logs\agent.log", ClientTraces.AgentLogPath(stdout));
+        Assert.Empty(ClientTraces.FindLeftoversDetailed(stdout, "160306").Leftovers);
+    }
+
+    [Fact]
+    public void AgentLogPath_NoLine_IsNull()
+        => Assert.Null(ClientTraces.AgentLogPath("service:R0lhmmon=none"));
+
+    [Fact]
     public void FindLeftoversDetailed_TasksOfOtherSz_AreLeftovers()
     {
         var report = ClientTraces.FindLeftoversDetailed("task:szdiag-sshd-159999=Ready", "160306");

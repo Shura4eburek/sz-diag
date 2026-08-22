@@ -111,7 +111,8 @@ boot-time в heartbeat, freshness-guard для `build-dist`, валидация 
 - **Агент переживает ребут + авто-реконнект под тем же СЗ.** **Реализовано (2026-07-24):**
   режим `agent.exe --resume` + автостарт-таск `-AtStartup` под SYSTEM (ставится в `Open` шаг 8,
   снимается в `Revert` первым). После ребута агент сам переподнимает sshd и реконнектится под
-  тем же СЗ из `state.json` (headless, логи в `agent.log`); watchdog при resume сдвигается;
+  тем же СЗ из `state.json` (headless, логи в `logsgent.log` рядом с exe — не в корне,
+  бэклог п.117); watchdog при resume сдвигается;
   guard откатывает остаток от другой незакрытой СЗ перед новым `Open`. Спека/план:
   [docs/superpowers/specs/2026-07-24-agent-survive-reboot-design.md](docs/superpowers/specs/2026-07-24-agent-survive-reboot-design.md).
   Осталось: живой e2e-прогон на онлайн-СЗ (ребут под нагрузкой → СЗ сама вернулась online).

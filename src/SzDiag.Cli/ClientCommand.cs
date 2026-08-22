@@ -39,9 +39,14 @@ public static class ClientCommand
             return 1;
         }
 
+        var stdout = CliXml.Decode(res.StdOut);
+        // Фактический путь к логу — доки отсылали «рядом с exe», и его там искали зря (п.117).
+        if (ClientTraces.AgentLogPath(stdout) is { } logPath)
+            AnsiConsole.MarkupLineInterpolated($"[grey]Лог агента:[/] {logPath}");
+
         // Задачи текущей сессии — отдельным блоком: раньше рабочий sshd/watchdog печатались
         // как «остатки» с советом cleanup, выполнить который значило снести себе доступ (п.107).
-        var report = ClientTraces.FindLeftoversDetailed(CliXml.Decode(res.StdOut), sz);
+        var report = ClientTraces.FindLeftoversDetailed(stdout, sz);
         if (report.CurrentSession.Count > 0)
         {
             AnsiConsole.MarkupLineInterpolated(

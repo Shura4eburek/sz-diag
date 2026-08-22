@@ -117,6 +117,104 @@ public static class DiagnosticProbes
                 "VAZHNO: eto NE 'diski zdorovy', a 'dannyh net'."
             }
 
+            "=== NVMe SMART (Health Information Log 02h) ==="
+            # Get-StorageReliabilityCounter na NVMe otdaet tolko TempC/Wear: PowerOnHours,
+            # oshibki i Unsafe Shutdowns prihodyat PUSTYMI, a imenno Unsafe Shutdowns byl
+            # glavnym dokazatelstvom v pretenzii na 161346 (p.120/142). Log 02h chitaetsya
+            # naprjamuyu cherez IOCTL_STORAGE_QUERY_PROPERTY / StorageDeviceProtocolSpecificProperty.
+            try {
+                Add-Type -ErrorAction Stop -TypeDefinition @'
+            using System;
+            using System.Runtime.InteropServices;
+            public static class NvmeLog
+            {
+                [DllImport("kernel32.dll", SetLastError = true, CharSet = CharSet.Unicode)]
+                static extern IntPtr CreateFileW(string name, uint access, uint share, IntPtr sec,
+                    uint disp, uint flags, IntPtr tmpl);
+                [DllImport("kernel32.dll", SetLastError = true)]
+                static extern bool DeviceIoControl(IntPtr h, uint code, byte[] inBuf, int inSize,
+                    byte[] outBuf, int outSize, out int returned, IntPtr ov);
+                [DllImport("kernel32.dll", SetLastError = true)]
+                static extern bool CloseHandle(IntPtr h);
+
+                const uint IOCTL = 0x2D1400;              // IOCTL_STORAGE_QUERY_PROPERTY
+                const int PropertyId = 50;                // StorageDeviceProtocolSpecificProperty
+                const int ProtoNvme = 3, DataTypeLogPage = 2, SmartLogPage = 2;
+                const int HeaderSize = 8, SpecificSize = 40, LogSize = 512;
+
+                public static byte[] Read(int driveNumber)
+                {
+                    IntPtr h = CreateFileW(@"\\.\PhysicalDrive" + driveNumber, 0,
+                        3, IntPtr.Zero, 3, 0, IntPtr.Zero);
+                    if (h == new IntPtr(-1))
+                        throw new Exception("CreateFile PhysicalDrive" + driveNumber + " failed, win32=" + Marshal.GetLastWin32Error());
+                    try
+                    {
+                        int total = HeaderSize + SpecificSize + LogSize;
+                        byte[] buf = new byte[total];
+                        BitConverter.GetBytes(PropertyId).CopyTo(buf, 0);
+                        BitConverter.GetBytes(0).CopyTo(buf, 4);
+                        BitConverter.GetBytes(ProtoNvme).CopyTo(buf, 8);
+                        BitConverter.GetBytes(DataTypeLogPage).CopyTo(buf, 12);
+                        BitConverter.GetBytes(SmartLogPage).CopyTo(buf, 16);
+                        BitConverter.GetBytes(0).CopyTo(buf, 20);
+                        BitConverter.GetBytes(SpecificSize).CopyTo(buf, 24);
+                        BitConverter.GetBytes(LogSize).CopyTo(buf, 28);
+
+                        byte[] outBuf = new byte[total];
+                        int ret;
+                        if (!DeviceIoControl(h, IOCTL, buf, total, outBuf, total, out ret, IntPtr.Zero))
+                            throw new Exception("DeviceIoControl failed, win32=" + Marshal.GetLastWin32Error());
+
+                        byte[] log = new byte[LogSize];
+                        Array.Copy(outBuf, HeaderSize + SpecificSize, log, 0, LogSize);
+                        return log;
+                    }
+                    finally { CloseHandle(h); }
+                }
+            }
+            '@
+                function Get-U128 { param([byte[]]$Log, [int]$Offset)
+                    $bytes = New-Object byte[] 17
+                    [Array]::Copy($Log, $Offset, $bytes, 0, 16)
+                    [System.Numerics.BigInteger]::new($bytes)
+                }
+                $nvme = @(Get-PhysicalDisk -ErrorAction SilentlyContinue | Where-Object BusType -eq 'NVMe' | Sort-Object DeviceId)
+                if ($nvme.Count -eq 0) { "NVMe diskov net." }
+                foreach ($d in $nvme) {
+                    $num = [int]$d.DeviceId
+                    try { $log = [NvmeLog]::Read($num) }
+                    catch { "PhysicalDrive{0} ({1}): oshibka chteniya loga - {2}" -f $num, $d.FriendlyName, $_.Exception.Message; continue }
+
+                    $crit = $log[0]
+                    $warn = @()
+                    if ($crit -band 0x01) { $warn += 'spare below threshold' }
+                    if ($crit -band 0x02) { $warn += 'temperature threshold exceeded' }
+                    if ($crit -band 0x04) { $warn += 'NVM subsystem reliability degraded' }
+                    if ($crit -band 0x08) { $warn += 'media in read-only mode' }
+                    if ($crit -band 0x10) { $warn += 'volatile memory backup failed' }
+                    $media = Get-U128 $log 160
+                    # Verdikt po polyam NVMe, a ne 'OK' na pustyh schetchikah (p.120).
+                    $verdict = if ($crit -ne 0 -or $media -gt 0) { 'SUSPECT' } else { 'OK po logu 02h' }
+                    [PSCustomObject]@{
+                        Disk               = $d.FriendlyName
+                        Serial             = $d.SerialNumber
+                        CriticalWarning    = if ($warn.Count -eq 0) { 'net (0x00)' } else { ('0x{0:X2}: {1}' -f $crit, ($warn -join ', ')) }
+                        TempC              = $(if (($t = [BitConverter]::ToUInt16($log, 1)) -gt 0) { $t - 273 } else { 0 })
+                        PercentageUsed     = "$($log[5]) %"
+                        AvailableSpare     = "$($log[3]) % (porog $($log[4]) %)"
+                        DataUnitsRead_TB   = [math]::Round([double](Get-U128 $log 32) * 512000 / 1TB, 2)
+                        DataUnitsWritten_TB= [math]::Round([double](Get-U128 $log 48) * 512000 / 1TB, 2)
+                        PowerCycles        = (Get-U128 $log 112).ToString()
+                        PowerOnHours       = (Get-U128 $log 128).ToString()
+                        UnsafeShutdowns    = (Get-U128 $log 144).ToString()
+                        MediaErrors        = $media.ToString()
+                        ErrorLogEntries    = (Get-U128 $log 176).ToString()
+                        VERDICT            = $verdict
+                    } | Format-List | Out-String
+                }
+            } catch { "NVMe SMART nedostupen: $($_.Exception.Message) - eto 'dannyh net', a ne 'disk zdorov'." }
+
             "=== Bukva -> fizicheskiy disk ==="
             # Without this table you have to guess which letter sits on which disk by size.
             $map = @{}
@@ -147,6 +245,20 @@ public static class DiagnosticProbes
                 "Podskazka: pagefile na diske s neispravimymi oshibkami chteniya => 0x154 UNEXPECTED_STORE_EXCEPTION / 0x1A MEMORY_MANAGEMENT. Lechitsya perenosom pagefile + zamenoy diska."
             }
 
+            "=== Karta \Device\HarddiskN i RaidPortN -> fizicheskiy disk ==="
+            # Sobytiya diska ssylayutsya na \Device\Harddisk1\DR1 / \Device\RaidPort2 - pri dvuh
+            # NVMe odnogo vendora ponyat, KAKOY fizicheski disk sypletsya, bez etoy karty
+            # nelzya (p.122; na 161346 klientskiy i zakazannyy putalis do zerkalnoy privyazki).
+            # VAZHNO: karta - 'na seychas'; k sobytiyam do perestanovki diskov primenyat s
+            # ogovorkoy (p.133).
+            $dmap = @{}
+            foreach ($dd in @(Get-CimInstance Win32_DiskDrive -ErrorAction SilentlyContinue)) {
+                $dmap[[int]$dd.Index] = $dd
+                "Harddisk{0} = {1} [SN {2}] {3}, {4} GB, SCSIPort{5} Target{6}" -f `
+                    $dd.Index, $dd.Model, ("$($dd.SerialNumber)".Trim()), $dd.InterfaceType, `
+                    [math]::Round($dd.Size/1GB), $dd.SCSIPort, $dd.SCSITargetId
+            }
+
             "=== Diskovye sobytiya (disk/Ntfs/volmgr) ==="
             # These never reach the events section (Critical/Error filter there), while
             # disk Id 7 'bad block on device' is direct proof of a dying disk.
@@ -162,7 +274,14 @@ public static class DiagnosticProbes
                 $diskEvents | Group-Object ProviderName, Id | Sort-Object Count -Descending | Select-Object -First 15 |
                     ForEach-Object { "{0}: {1}" -f $_.Name, $_.Count }
                 $diskEvents | Sort-Object TimeCreated -Descending | Select-Object -First 10 |
-                    Select-Object TimeCreated, ProviderName, Id, @{n='Msg';e={($_.Message -split "`r?`n")[0]}} |
+                    Select-Object TimeCreated, ProviderName, Id, @{n='Msg';e={
+                        $m = ($_.Message -split "`r?`n")[0]
+                        # Model ryadom s \Device\HarddiskN - chtoby ne gadat po nomeru (p.122).
+                        if ($m -match 'Harddisk(\d+)' -and $dmap[[int]$Matches[1]]) {
+                            $m += ' [' + $dmap[[int]$Matches[1]].Model + ']'
+                        }
+                        $m
+                    }} |
                     Format-Table -Auto | Out-String
             } else { "none" }
 

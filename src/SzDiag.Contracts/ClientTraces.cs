@@ -63,6 +63,13 @@ public static class ClientTraces
             Get-ChildItem 'C:\ProgramData\szdiag' -Recurse -File -ErrorAction SilentlyContinue |
                 Where-Object { $_.Length -gt 500MB } |
                 ForEach-Object { 'big:' + $_.FullName + '=' + [math]::Round(($_.Length / 1GB), 1) }
+            # Фактический путь к логу агента: чек-лист отсылал к «agent.log рядом с exe», лога
+            # там нет (он в logs\), и родился ложный вывод «агент не пишет лог» (п.117).
+            $pp = (Get-CimInstance Win32_Process -Filter "ProcessId=$PID" -ErrorAction SilentlyContinue).ParentProcessId
+            $agent = (Get-Process -Id $pp -ErrorAction SilentlyContinue).Path
+            if ($agent -and (Split-Path $agent -Leaf) -eq 'agent.exe') {
+                'log:' + (Join-Path (Split-Path $agent) 'logs\agent.log')
+            }
             """;
     }
 
@@ -104,6 +111,15 @@ public static class ClientTraces
     /// Плоский вариант без знания текущей СЗ — всё считается остатками.</summary>
     public static IReadOnlyList<string> FindLeftovers(string inventoryStdout)
         => FindLeftoversDetailed(inventoryStdout, sz: null).Leftovers;
+
+    /// <summary>Фактический путь к логу агента из вывода инвентаря (строка `log:`);
+    /// null — агент не определился (exec шёл не из-под agent.exe).</summary>
+    public static string? AgentLogPath(string inventoryStdout)
+        => (inventoryStdout ?? "").Split('\n')
+            .Select(l => l.Trim())
+            .Where(l => l.StartsWith("log:", StringComparison.OrdinalIgnoreCase))
+            .Select(l => l["log:".Length..].Trim())
+            .FirstOrDefault(p => p.Length > 0);
 
     /// <summary>Задачи рабочего доступа текущей сессии по её номеру СЗ.</summary>
     public static string[] SessionTasks(string sz)
