@@ -258,11 +258,17 @@ if (args.Length >= 2 && args[0] == "--resume")
         rCts.Token, null, args[1],
         () => logFile.WriteLine("[resume] доступ снят снаружи — агент завершается."));
 
+    // Заморозку WU надо держать, а не проверять однажды: оркестратор разморозил wuauserv
+    // через 32 секунды после «переприменена — проверено» (бэклог п.114).
+    var rFreezeHold = WindowsUpdateFreezeGuard.StartHoldLoop(ps, rCts.Token,
+        (plain, _) => { logFile.WriteLine($"[freeze] {plain}"); logFile.Flush(); });
+
     await rSession.Completion; // ждём отката от hub (close) или watchdog
     rCts.Cancel();
     try { await rHeartbeat; } catch { }
     try { await rActivity; } catch { }
     try { await rSshdWatchdog; } catch { }
+    try { await rFreezeHold; } catch { }
     logFile.WriteLine($"[resume] СЗ {state.Sz}: сессия закрыта, откат выполнен.");
     logFile.Flush();
     return 0;
@@ -606,6 +612,11 @@ var sshdWatchdog = SshdWatchdog.Start(sshd, opts.SshPort,
     $"{pubKey.Trim()} szdiag-{sz}", $"szdiag-sshd-{sz}",
     cts.Token, (plain, markup) => Announce(plain, markup));
 
+// Сторож заморозки WU: одноразовое «переприменена — проверено» проигрывает гонку
+// оркестратору (разморозил wuauserv через 32 секунды после проверки, бэклог п.114).
+var freezeHold = WindowsUpdateFreezeGuard.StartHoldLoop(ps, cts.Token,
+    (plain, markup) => Announce(plain, markup));
+
 // При липкой панели хоткеи живут в ней — в поток их не печатаем, чтобы не дублировать.
 if (sticky is null)
     term.MarkupLine("\n[green][[C]][/] Закрыть СЗ и откатить    [grey][[Q]][/] Выход без отката (не рекомендуется)");
@@ -627,6 +638,7 @@ try { await heartbeat; } catch (OperationCanceledException) { }
 try { await activityReporter; } catch (OperationCanceledException) { }
 try { await channelWatchdog; } catch (OperationCanceledException) { }
 try { await sshdWatchdog; } catch (OperationCanceledException) { }
+try { await freezeHold; } catch (OperationCanceledException) { }
 SleepGuard.Allow();
 Announce("Готово.", "[green]Готово.[/]");
 return 0;

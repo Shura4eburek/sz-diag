@@ -43,4 +43,47 @@ public static class WindowsUpdateFreezeGuard
             return $"заморозка Windows Update НЕ переприменена: {ex.Message}";
         }
     }
+
+    /// <summary>Держит заморозку, а не проверяет однажды: на 260306 агент записал
+    /// «переприменена — проверено» через секунду после применения, а через 32 секунды
+    /// оркестратор поднял BITS и разморозил wuauserv (бэклог п.114). Пока висит маркер,
+    /// раз в <paramref name="intervalSeconds"/> сверяется фактическое состояние; при дрейфе
+    /// (блокирующие расхождения — службы/политика) заморозка переприменяется. Тишина в логе,
+    /// пока всё держится.</summary>
+    /// <param name="isMarked">Тест-шов; по умолчанию — маркер на диске.</param>
+    public static Task StartHoldLoop(IPowerShellRunner ps, CancellationToken ct,
+        Action<string, string?> announce, int intervalSeconds = 300, Func<bool>? isMarked = null) =>
+        Task.Run(async () =>
+        {
+            var marked = isMarked ?? IsMarked;
+            while (!ct.IsCancellationRequested)
+            {
+                try
+                {
+                    if (marked())
+                    {
+                        var verify = ps.Run(WindowsUpdateFreeze.BuildVerifyScript(),
+                            throwOnError: false, timeout: TimeSpan.FromMinutes(3));
+                        var check = WindowsUpdateFreeze.CheckAppliedDetailed(verify.StdOut);
+                        if (!check.IsProtected)
+                        {
+                            announce("заморозка WU не удержалась (оркестратор?): "
+                                + string.Join("; ", check.Blocking) + " — переприменяю.", null);
+                            var r = ps.Run(WindowsUpdateFreeze.BuildFreezeScript(),
+                                throwOnError: false, timeout: TimeSpan.FromMinutes(5));
+                            announce(r.ExitCode == 0
+                                ? "заморозка WU переприменена — слежу дальше."
+                                : $"заморозка WU НЕ переприменена (код {r.ExitCode}).", null);
+                        }
+                    }
+                }
+                catch (Exception ex)
+                {
+                    announce($"сторож заморозки WU: {ex.Message}", null);
+                }
+
+                try { await Task.Delay(TimeSpan.FromSeconds(Math.Max(intervalSeconds, 0) ) + TimeSpan.FromMilliseconds(50), ct); }
+                catch (OperationCanceledException) { break; }
+            }
+        }, CancellationToken.None);
 }
