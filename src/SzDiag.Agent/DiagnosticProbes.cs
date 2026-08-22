@@ -46,6 +46,30 @@ public static class DiagnosticProbes
             try { "SecureBoot: " + (Confirm-SecureBootUEFI) } catch { "SecureBoot: n/a (non-UEFI or no rights)" }
             $tpm = Get-CimInstance -Namespace root/cimv2/security/microsofttpm -ClassName Win32_Tpm -ErrorAction SilentlyContinue
             if ($tpm) { "TPM: enabled=$($tpm.IsEnabled_InitialValue) spec=$($tpm.SpecVersion)" } else { "TPM: not found" }
+
+            "=== Uptime protiv realnoy raboty ==="
+            # Uptime = now - LastBootUpTime i NE vychitaet son: na 161346 'Uptime 11 sutok'
+            # uehal v pismo klientu kak '11 dib bez zboyiv', a mashina prospala v S3 pochti
+            # vsyo eto vremya (p.132). Schitaem son summoy intervalov Kernel-Power 42 -> 107.
+            if ($os.LastBootUpTime) {
+                $sleepEv = @(Get-WinEvent -FilterHashtable @{ LogName='System';
+                        ProviderName='Microsoft-Windows-Kernel-Power'; Id=42,107;
+                        StartTime=$os.LastBootUpTime } -ErrorAction SilentlyContinue |
+                    Sort-Object TimeCreated)
+                $slept = [TimeSpan]::Zero
+                $sleepStart = $null
+                foreach ($e in $sleepEv) {
+                    if ($e.Id -eq 42) { $sleepStart = $e.TimeCreated }
+                    elseif ($e.Id -eq 107 -and $sleepStart) { $slept += ($e.TimeCreated - $sleepStart); $sleepStart = $null }
+                }
+                $up = (Get-Date) - $os.LastBootUpTime
+                "Uptime {0:dd\.hh\:mm}, iz nih son {1:dd\.hh\:mm} => realnaya rabota {2:dd\.hh\:mm}" -f `
+                    $up, $slept, ($up - $slept)
+            }
+            $hb = (Get-ItemProperty 'HKLM:\SYSTEM\CurrentControlSet\Control\Session Manager\Power' -Name HiberbootEnabled -ErrorAction SilentlyContinue).HiberbootEnabled
+            $hf = Test-Path "$env:SystemDrive\hiberfil.sys"
+            "Fast startup: HiberbootEnabled=$hb, hiberfil.sys=$hf" + $(if ("$hb" -eq '1' -and $hf) { " => uptime perezhivaet 'vyklyuchenie'!" } else { "" })
+            "VAZHNO: uptime NE dokazyvaet rabotu. Narabotka = SMART PowerOnHours (sektsiya storage); chastotu otkazov schitat na chas narabotki, a ne na kalendarnyy den."
             """),
 
         Probe("cpu", "Процессор", """

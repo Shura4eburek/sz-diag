@@ -20,14 +20,21 @@ public static class KbDoctor
     private static readonly Regex Link = new(@"(?<!!)\[\[([^\]|#]+)", RegexOptions.Compiled);
 
     /// <param name="Severity">`error` — точно ломает заметку (подтянется чужой файл);
-    /// `warn` — стоит посмотреть.</param>
+    /// `warn` — стоит посмотреть; `template` — заглушка шаблона/ещё не заведённая сущность,
+    /// не проблема (иначе 38 из 40 строк — собственные скелеты hub, бэклог п.111).</param>
     public sealed record Issue(string Severity, string Where, string What)
     {
         public bool IsError => Severity == "error";
+
+        public bool IsTemplate => Severity == "template";
     }
 
     /// <summary>Файлы, без которых заметка СЗ неполна.</summary>
     private static readonly string[] RequiredNoteNames = { "запит", "діагностика", "дії", "висновок" };
+
+    /// <summary>Ссылки-заглушки, которые кладёт сам скелет (`KnowledgeBaseScaffolder`):
+    /// строки шаблона `[[report]]` и `[[симптом]]` до их заполнения.</summary>
+    private static readonly string[] TemplatePlaceholders = { "report", "симптом" };
 
     /// <summary>Проверить vault. `--fix` здесь нет намеренно: чинит скелеты
     /// <see cref="KnowledgeBaseScaffolder.EnsureSkeleton"/>, а доктор только смотрит.</summary>
@@ -73,12 +80,23 @@ public static class KbDoctor
                         $"эмбед ![[{target}]] без файла в своей папке — Obsidian подставит первый попавшийся в vault"));
                 }
 
+                var isHomeNote = string.Equals(Path.GetFileNameWithoutExtension(file), sz,
+                    StringComparison.OrdinalIgnoreCase);
                 foreach (Match m in Link.Matches(text))
                 {
                     var target = m.Groups[1].Value.Trim();
                     if (localNames.Contains(target)) continue;
                     if (ExistsSomewhere(kbRoot, target)) continue;
-                    issues.Add(new Issue("warn", where, $"ссылка [[{target}]] в никуда"));
+                    // Заглушки шаблона и ещё не заведённые сущности из <sz>.md (замовлення,
+                    // модель ПК — их создаст `kb record`) — не опечатки: настоящие находки
+                    // тонули в 38 таких строках (п.111).
+                    if (TemplatePlaceholders.Contains(target, StringComparer.OrdinalIgnoreCase))
+                        issues.Add(new Issue("template", where, $"заглушка шаблона [[{target}]]"));
+                    else if (isHomeNote)
+                        issues.Add(new Issue("template", where,
+                            $"сущность [[{target}]] ещё не заведена (создаст kb record)"));
+                    else
+                        issues.Add(new Issue("warn", where, $"ссылка [[{target}]] в никуда"));
                 }
             }
         }

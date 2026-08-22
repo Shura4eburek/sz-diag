@@ -82,17 +82,23 @@ public static class KbCommand
             // «Чужой вывод в чужой СЗ» должен ловиться командой, а не глазами через неделю
             // (бэклог п.11).
             var issues = KbDoctor.Check(kbRoot);
-            if (issues.Count == 0)
+            // Заглушки шаблона — не проблемы: одной строкой-счётчиком, а не 38 строками,
+            // в которых тонут настоящие находки (бэклог п.111).
+            var templates = issues.Count(i => i.IsTemplate);
+            var real = issues.Where(i => !i.IsTemplate).ToList();
+            if (real.Count == 0)
             {
-                Console.WriteLine("База знаний цела: висячих эмбедов и пропавших файлов нет.");
+                Console.WriteLine("База знаний цела: висячих эмбедов и пропавших файлов нет."
+                    + (templates > 0 ? $" Шаблонных заглушек: {templates} (не проблема)." : ""));
                 return Task.FromResult(0);
             }
 
-            foreach (var i in issues.OrderByDescending(i => i.IsError))
+            foreach (var i in real.OrderByDescending(i => i.IsError))
                 Console.WriteLine($"  [{(i.IsError ? "ОШИБКА" : "внимание")}] {i.Where}: {i.What}");
 
-            var errors = issues.Count(i => i.IsError);
-            Console.WriteLine($"Проблем: {issues.Count} (из них ломающих: {errors}).");
+            var errors = real.Count(i => i.IsError);
+            Console.WriteLine($"Проблем: {real.Count} (из них ломающих: {errors})."
+                + (templates > 0 ? $" Шаблонных заглушек: {templates} (не проблема)." : ""));
             if (errors > 0)
                 Console.WriteLine("Починить скелеты: szcli kb summary <СЗ> — он дозаполняет недостающие файлы.");
             return Task.FromResult(errors > 0 ? 1 : 0);

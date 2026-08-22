@@ -17,6 +17,7 @@ public class ReportConfigHeaderTests : IClassFixture<WebApplicationFactory<Progr
     private readonly WebApplicationFactory<Program> _factory;
     private readonly string _dbPath = Path.Combine(Path.GetTempPath(), $"szdiag-rch-{Guid.NewGuid():N}.db");
     private readonly string _kbRoot = Path.Combine(Path.GetTempPath(), $"szkb-rch-{Guid.NewGuid():N}");
+    private readonly string _pullRoot = Path.Combine(Path.GetTempPath(), $"szpull-rch-{Guid.NewGuid():N}");
 
     public ReportConfigHeaderTests(WebApplicationFactory<Program> factory)
     {
@@ -24,6 +25,7 @@ public class ReportConfigHeaderTests : IClassFixture<WebApplicationFactory<Progr
             b.UseSetting("Hub:AgentToken", "test-token")
              .UseSetting("Hub:SqliteConnectionString", $"Data Source={_dbPath}")
              .UseSetting("Hub:KnowledgeBaseRoot", _kbRoot)
+             .UseSetting("Hub:PullRoot", _pullRoot)
              .WithoutSystemLogging());
     }
 
@@ -61,13 +63,19 @@ public class ReportConfigHeaderTests : IClassFixture<WebApplicationFactory<Progr
     }
 
     [Fact]
-    public async Task UploadReport_NonMarkdownFile_LeftUntouched()
+    public async Task UploadReport_NonMarkdownFile_LeftUntouchedAndStoredOutsideVault()
     {
         await Store.SetLastTestConfigAsync("160715", "EXPO 6000, штатний БЖ");
 
         await UploadAsync("160715", "20260810-170400", "sensors.csv", "time,cpu\n");
 
-        Assert.DoesNotContain("Конфігурація", Saved("160715", "20260810-170400", "sensors.csv"));
+        // Артефакты (CSV, HTML, скрины) — вне vault (п.131): git-история kb иначе
+        // раздувается необратимо. Метка конфигурации в них тоже не вставляется.
+        var saved = File.ReadAllText(Path.Combine(_pullRoot, "160715", "reports",
+            "20260810-170400", "sensors.csv"));
+        Assert.DoesNotContain("Конфігурація", saved);
+        Assert.False(File.Exists(Path.Combine(_kbRoot, "СЗ", "160715", "reports",
+            "20260810-170400", "sensors.csv")), "CSV не должен попадать в vault");
     }
 
     [Fact]
@@ -83,5 +91,6 @@ public class ReportConfigHeaderTests : IClassFixture<WebApplicationFactory<Progr
         SqliteConnection.ClearAllPools();
         try { if (File.Exists(_dbPath)) File.Delete(_dbPath); } catch { }
         try { if (Directory.Exists(_kbRoot)) Directory.Delete(_kbRoot, recursive: true); } catch { }
+        try { if (Directory.Exists(_pullRoot)) Directory.Delete(_pullRoot, recursive: true); } catch { }
     }
 }

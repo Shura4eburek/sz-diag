@@ -79,6 +79,40 @@ public class KbDoctorTests : IDisposable
     public void EmptyVault_IsFine()
         => Assert.Empty(KbDoctor.Check(_root));
 
+    [Fact]
+    public void TemplatePlaceholders_AreClassifiedAsTemplate_NotWarnings()
+    {
+        // Регрессия (бэклог п.111): на боевом vault 38 из 40 «внимание» были ссылками,
+        // которые сам hub кладёт в скелет ([[report]], [[симптом]]) — настоящие находки
+        // тонули в этом списке.
+        WriteSz("160306", FullSet("160306"));
+        File.WriteAllText(Path.Combine(Sz("160306"), "висновок.md"),
+            "- 🔗 сирий прогін: [[report]]\n**Патерн:** [[симптом]]\n");
+
+        var issues = KbDoctor.Check(_root);
+
+        Assert.DoesNotContain(issues, i => i.Severity == "warn" && i.What.Contains("[[report]]"));
+        Assert.DoesNotContain(issues, i => i.Severity == "warn" && i.What.Contains("[[симптом]]"));
+        Assert.Equal(2, issues.Count(i => i.Severity == "template"));
+    }
+
+    [Fact]
+    public void DanglingEntityLinksInHomeNote_AreTemplate_RealTyposElsewhereStayWarnings()
+    {
+        // Ссылки на ещё не заведённые сущности из <sz>.md ([[номер заказа]], [[модель ПК]])
+        // создаст kb record — это не опечатка. А ссылка в никуда из діагностика.md — опечатка.
+        WriteSz("160306", FullSet("160306"));
+        File.WriteAllText(Path.Combine(Sz("160306"), "160306.md"),
+            "замовлення: [[6114675]]\nпристрій: [[ARTLINE Gaming X43]]\n![[висновок]]\n");
+        File.WriteAllText(Path.Combine(Sz("160306"), "діагностика.md"),
+            "див. [[Симптоми/яких-немає]]\n");
+
+        var issues = KbDoctor.Check(_root);
+
+        Assert.Equal(2, issues.Count(i => i.Severity == "template"));
+        Assert.Contains(issues, i => i.Severity == "warn" && i.What.Contains("яких-немає"));
+    }
+
     public void Dispose()
     {
         try { if (Directory.Exists(_root)) Directory.Delete(_root, recursive: true); } catch { }

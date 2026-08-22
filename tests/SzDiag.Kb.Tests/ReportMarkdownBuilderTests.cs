@@ -36,11 +36,17 @@ public class ReportMarkdownBuilderTests
     }
 
     [Fact]
-    public void Build_ScreenshotStep_EmbedsImage()
+    public void Build_ScreenshotStep_ReferencesFileOutsideVault_NoEmbed()
     {
+        // Регрессия (бэклог п.131): артефакты (скрины, HTML OCCT) больше не живут в vault —
+        // hub кладёт их в pulled\. Эмбед ![[...]] на отсутствующий в vault файл — это ещё и
+        // «Obsidian подставит первый попавшийся» (п.11), поэтому только текстовая ссылка.
         var md = ReportMarkdownBuilder.Build(Report(
             new TestStepResult("Экран", TestStepKind.Screenshot, ScreenshotFile: "screen-1.png")));
-        Assert.Contains("![[screen-1.png]]", md);
+
+        Assert.DoesNotContain("![[", md);
+        Assert.Contains("screen-1.png", md);
+        Assert.Contains("pulled", md);
     }
 
     [Fact]

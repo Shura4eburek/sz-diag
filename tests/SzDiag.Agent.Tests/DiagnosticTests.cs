@@ -119,6 +119,20 @@ public class DiagnosticProbesTests
     }
 
     [Fact]
+    public void SystemProbe_SeparatesSleepFromUptime()
+    {
+        // Регрессия (п.132): «Uptime 11 суток» ушёл в письмо клиенту как «работала 11 діб
+        // без збоїв», а машина проспала в S3 почти всё это время. Uptime не вычитает сон,
+        // и его не сбрасывают ни гибернация, ни fast startup.
+        var run = Body("system");
+
+        Assert.Contains("Kernel-Power", run);       // сумма интервалов сна 42→107
+        Assert.Contains("realnaya rabota", run);
+        Assert.Contains("HiberbootEnabled", run);   // fast startup виден сразу
+        Assert.Contains("PowerOnHours", run);       // отсылка к наработке, а не календарю
+    }
+
+    [Fact]
     public void StorageProbe_ReadsNvmeHealthLogDirectly()
     {
         // Регрессия (п.120/142): на NVMe Get-StorageReliabilityCounter отдаёт пустые

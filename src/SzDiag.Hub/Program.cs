@@ -46,7 +46,9 @@ builder.Services.AddSingleton<IKnowledgeBaseScaffolder>(sp =>
 builder.Services.AddSingleton<IReportStore>(sp =>
 {
     var opts = sp.GetRequiredService<IOptions<HubOptions>>().Value;
-    return new KbReportStore(opts.KnowledgeBaseRoot);
+    // Тяжёлые артефакты прогонов (HTML OCCT, скрины) — вне vault, иначе git-история kb
+    // раздувается необратимо (п.131).
+    return new KbReportStore(opts.KnowledgeBaseRoot, opts.PullRoot);
 });
 builder.Services.AddSingleton<ISzJournal>(sp =>
 {

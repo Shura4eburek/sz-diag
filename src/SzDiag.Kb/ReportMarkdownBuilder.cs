@@ -53,20 +53,22 @@ public static class ReportMarkdownBuilder
                     sb.AppendLine("```");
                     sb.AppendLine();
                 }
+                // Текстовая ссылка вместо ![[…]]: артефакты живут вне vault (hub кладёт их в
+                // pulled\, п.131), а висячий эмбед Obsidian молча резолвит в чужой файл (п.11).
                 sb.AppendLine(s.ScreenshotFile is not null
-                    ? $"![[{s.ScreenshotFile}]]"
+                    ? $"скрин: {s.ScreenshotFile} (вне vault: hub\\pulled\\{report.Sz}\\reports\\)"
                     : "скрин под нагрузкой недоступен");
                 if (s.ArtifactFile is not null)
                 {
                     sb.AppendLine();
-                    sb.AppendLine($"Отчёт: [[{s.ArtifactFile}]]");
+                    sb.AppendLine($"Отчёт: {s.ArtifactFile} (вне vault: hub\\pulled\\{report.Sz}\\reports\\)");
                 }
             }
             else // Screenshot
             {
                 sb.AppendLine(s.Error is not null
                     ? $"скрин недоступен: {s.Error}"
-                    : $"![[{s.ScreenshotFile}]]");
+                    : $"скрин: {s.ScreenshotFile} (вне vault: hub\\pulled\\{report.Sz}\\reports\\)");
             }
             sb.AppendLine();
         }
