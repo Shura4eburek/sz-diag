@@ -138,15 +138,17 @@ public class PullEndToEndTests : IClassFixture<WebApplicationFactory<Program>>, 
     }
 
     [Fact]
-    public async Task Pull_MissingPath_ReportsErrorInsteadOfHanging()
+    public async Task Pull_MissingPath_ReturnsEmptyResultInsteadOfHanging()
     {
+        // «Дампов нет» — штатный исход: пустой список без ошибки, а не Error (бэклог п.105).
+        // Главное, что запрос не виснет и агент отвечает.
         await using var agent = await ConnectAgentAsync("160707");
 
         var resp = await Cli().PostAsJsonAsync("/api/sessions/160707/pull",
             new PullCommandRequest(Path.Combine(_clientDir, "нет-такого-файла.dmp")));
         var body = await resp.Content.ReadFromJsonAsync<PullResponse>();
 
-        Assert.NotNull(body!.Error);
+        Assert.Null(body!.Error);
         Assert.Empty(body.Files);
     }
 

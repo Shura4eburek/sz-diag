@@ -57,6 +57,13 @@ public class PullCommandTests
     public void ExitCode_NothingPulledForRealReason_Fails()
     {
         Assert.NotEqual(0, PullCommand.ExitCodeFor(new[] { Broken("a.dmp") }, anyError: true));
-        Assert.NotEqual(0, PullCommand.ExitCodeFor(Array.Empty<PullSavedFile>(), anyError: false));
+    }
+
+    [Fact]
+    public void ExitCode_EmptyPathWithoutErrors_IsSuccess()
+    {
+        // Отсутствие минидампов — штатный и частый исход диагностики: «дампов нет» не должно
+        // выглядеть как провал команды (бэклог п.105).
+        Assert.Equal(0, PullCommand.ExitCodeFor(Array.Empty<PullSavedFile>(), anyError: false));
     }
 }

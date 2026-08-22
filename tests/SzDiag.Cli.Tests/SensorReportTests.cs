@@ -48,6 +48,21 @@ public class SensorReportTests
     }
 
     [Fact]
+    public void Format_NoLoadedSamples_SaysSoInsteadOfEmptyPlaceholder()
+    {
+        // Регрессия (бэклог п.116): при нуле замеров с CPU ≥ 60 % печаталось
+        // «средний под нагрузкой %;» — пустое место читается как баг разбора.
+        var csv = Csv(
+            "2026-08-04 17:00:00;30;0;40;30",
+            "2026-08-04 17:05:00;25;0;40;30");
+
+        var text = SensorReport.Format(SensorReport.Summarize(SensorReport.Parse(csv)));
+
+        Assert.DoesNotContain("средний под нагрузкой %", text);
+        Assert.Contains("средний под нагрузкой — не было", text);
+    }
+
+    [Fact]
     public void Format_NoStressProcessEverSeen_SaysRunProbablyNeverStarted()
     {
         // Тихая смерть OCCT при перенаправленном stdout выглядит именно так (п.40).

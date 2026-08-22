@@ -60,8 +60,8 @@ public static class FreezeCommand
         // Не рапортуем об успехе по факту записи в реестр: на 160306 всё «применилось», а
         // после ребута wuauserv оказался живым (бэклог п.72). Перечитываем фактическое
         // состояние и говорим правду.
-        var problems = await VerifyAsync(client, sz);
-        if (problems is null)
+        var check = await VerifyAsync(client, sz);
+        if (check is null)
         {
             AnsiConsole.MarkupLine("[yellow]Заморозка применена, но проверить состояние не удалось (агент не ответил).[/]");
             return 1;
@@ -71,18 +71,39 @@ public static class FreezeCommand
         AnsiConsole.MarkupLineInterpolated(
             $"[green]СЗ {sz}: Windows Update заморожен[/] (службы {services}, политика WSUS, задачи оркестратора выключены).");
         AnsiConsole.MarkupLineInterpolated($"[grey]Прежние значения:[/] {path}");
-        if (problems.Count > 0)
+        // Exit code отвечает на вопрос «машина защищена от WU-перезагрузки?», а не «всё ли
+        // из списка применилось»: задачи оркестратора под TrustedInstaller правам не
+        // поддаются, но при стоящих службах они безвредны (бэклог п.175).
+        if (!check.IsProtected)
         {
-            AnsiConsole.MarkupLine("[red]⚠ Проверка показала, что применилось НЕ всё:[/]");
-            foreach (var p in problems) AnsiConsole.MarkupLineInterpolated($"  [red]•[/] {p}");
+            AnsiConsole.MarkupLine("[red]⚠ Машина НЕ защищена — не применилось:[/]");
+            foreach (var p in check.Blocking) AnsiConsole.MarkupLineInterpolated($"  [red]•[/] {p}");
             AnsiConsole.MarkupLine("[yellow]Проверь права и повтори; после ребута состояние сверяется само (агент).[/]");
         }
         else
         {
             AnsiConsole.MarkupLine("[grey]Проверено фактическое состояние: службы и политика на месте.[/]");
+            foreach (var p in check.Cosmetic)
+                AnsiConsole.MarkupLineInterpolated($"[yellow]⚠ не критично (службы стоят):[/] {p}");
         }
         AnsiConsole.MarkupLine("[yellow]Не забудь szcli unfreeze перед отдачей машины клиенту.[/]");
-        return problems.Count == 0 ? 0 : 1;
+        return check.IsProtected ? 0 : 1;
+    }
+
+    /// <summary>Чистое решение по `--status`: код возврата и вердикт. Вынесено из
+    /// <see cref="StatusAsync"/> ради тестов. Нет ни файла на хосте, ни маркера на клиенте —
+    /// заморозки нет и не должно быть: это штатное состояние, а не повод кричать
+    /// «НЕ полная» и советовать заморозить обратно (бэклог п.115).</summary>
+    public static (int Code, string Verdict) StatusVerdict(FreezeCheck check,
+        bool hostStateExists, bool clientMarker)
+    {
+        if (!hostStateExists && !clientMarker)
+            return (0, "заморозка не ставилась (или снята) — состояние штатное");
+        if (check.IsProtected)
+            return (0, check.Cosmetic.Count > 0
+                ? "заморозка держится (задачи оркестратора живы, но службы стоят — не критично)"
+                : "заморозка держится");
+        return (1, "заморозка НЕ полная — машина не защищена от WU-перезагрузки");
     }
 
     /// <summary>`szcli freeze --status <СЗ>` — что на машине на самом деле, без ручного
@@ -106,27 +127,37 @@ public static class FreezeCommand
         AnsiConsole.MarkupLineInterpolated(
             $"  WUServer={values.GetValueOrDefault("pol:WUServer")}  NoAutoUpdate={values.GetValueOrDefault("pol:NoAutoUpdate")}");
 
-        var problems = WindowsUpdateFreeze.CheckApplied(verify.StdOut);
+        var check = WindowsUpdateFreeze.CheckAppliedDetailed(verify.StdOut);
         var hasState = IsFrozen(stateDir, sz);
-        if (problems.Count == 0)
+        var clientMarker = WindowsUpdateFreeze.HasClientMarker(verify.StdOut);
+        var (code, verdict) = StatusVerdict(check, hasState, clientMarker);
+
+        if (code == 0 && check.IsProtected && (hasState || clientMarker))
         {
-            AnsiConsole.MarkupLineInterpolated($"[green]СЗ {sz}: заморозка держится.[/]");
+            AnsiConsole.MarkupLineInterpolated($"[green]СЗ {sz}: {verdict}.[/]");
+            foreach (var p in check.Cosmetic) AnsiConsole.MarkupLineInterpolated($"  [yellow]•[/] {p}");
             if (!hasState)
                 AnsiConsole.MarkupLine("[yellow]Но файла с прежними значениями на хосте нет — unfreeze вернёт службы в Manual.[/]");
             return 0;
         }
+        if (code == 0)
+        {
+            AnsiConsole.MarkupLineInterpolated($"[green]СЗ {sz}: {verdict}.[/]");
+            return 0;
+        }
 
-        AnsiConsole.MarkupLineInterpolated($"[red]СЗ {sz}: заморозка НЕ полная:[/]");
-        foreach (var p in problems) AnsiConsole.MarkupLineInterpolated($"  [red]•[/] {p}");
+        AnsiConsole.MarkupLineInterpolated($"[red]СЗ {sz}: {verdict}:[/]");
+        foreach (var p in check.Blocking) AnsiConsole.MarkupLineInterpolated($"  [red]•[/] {p}");
+        foreach (var p in check.Cosmetic) AnsiConsole.MarkupLineInterpolated($"  [yellow]•[/] {p}");
         AnsiConsole.MarkupLineInterpolated($"[grey]Починить:[/] szcli freeze {sz}");
         return 1;
     }
 
     /// <summary>Фактическое состояние после применения. null — агент не ответил.</summary>
-    private static async Task<IReadOnlyList<string>?> VerifyAsync(IHubApiClient client, string sz)
+    private static async Task<FreezeCheck?> VerifyAsync(IHubApiClient client, string sz)
     {
         var verify = await client.ExecAsync(sz, WindowsUpdateFreeze.BuildVerifyScript(), TimeoutSeconds);
-        return verify is null ? null : WindowsUpdateFreeze.CheckApplied(verify.StdOut);
+        return verify is null ? null : WindowsUpdateFreeze.CheckAppliedDetailed(verify.StdOut);
     }
 
     public static async Task<int> UnfreezeAsync(IHubApiClient client, string sz, string stateDir)

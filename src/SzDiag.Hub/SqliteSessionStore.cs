@@ -40,7 +40,8 @@ public sealed class SqliteSessionStore : ISessionStore
                 uptime_before INTEGER NULL,
                 activity      TEXT    NULL,
                 kind          TEXT    NULL,
-                source        TEXT    NULL
+                source        TEXT    NULL,
+                bugcheck      INTEGER NULL
             );
             CREATE INDEX IF NOT EXISTS ix_reboots_sz ON reboots(sz);
 
@@ -67,7 +68,7 @@ public sealed class SqliteSessionStore : ISessionStore
 
         // Миграция для баз, заведённых до появления классификации (бэклог п.93): у старых
         // записей kind останется NULL и будет читаться как «неизвестно», а не как «кнопка».
-        foreach (var column in new[] { "kind TEXT NULL", "source TEXT NULL" })
+        foreach (var column in new[] { "kind TEXT NULL", "source TEXT NULL", "bugcheck INTEGER NULL" })
         {
             await using var alter = conn.CreateCommand();
             alter.CommandText = $"ALTER TABLE reboots ADD COLUMN {column};";
@@ -116,10 +117,11 @@ public sealed class SqliteSessionStore : ISessionStore
         await conn.OpenAsync(ct);
         await using var cmd = conn.CreateCommand();
         cmd.CommandText = """
-            INSERT INTO reboots (sz, at, prev_boot, new_boot, uptime_before, activity, kind, source)
-            VALUES ($sz, $at, $prev, $new, $uptime, $activity, $kind, $source);
+            INSERT INTO reboots (sz, at, prev_boot, new_boot, uptime_before, activity, kind, source, bugcheck)
+            VALUES ($sz, $at, $prev, $new, $uptime, $activity, $kind, $source, $bugcheck);
             """;
         cmd.Parameters.AddWithValue("$kind", (object?)evt.Kind ?? DBNull.Value);
+        cmd.Parameters.AddWithValue("$bugcheck", (object?)evt.Bugcheck ?? DBNull.Value);
         cmd.Parameters.AddWithValue("$source", evt.Source);
         cmd.Parameters.AddWithValue("$sz", evt.Sz);
         cmd.Parameters.AddWithValue("$at", evt.At.ToUnixTimeSeconds());
@@ -136,7 +138,7 @@ public sealed class SqliteSessionStore : ISessionStore
         await conn.OpenAsync(ct);
         await using var cmd = conn.CreateCommand();
         cmd.CommandText = """
-            SELECT at, prev_boot, new_boot, uptime_before, activity, kind, source
+            SELECT at, prev_boot, new_boot, uptime_before, activity, kind, source, bugcheck
             FROM reboots WHERE sz = $sz ORDER BY at, id;
             """;
         cmd.Parameters.AddWithValue("$sz", sz);
@@ -156,7 +158,8 @@ public sealed class SqliteSessionStore : ISessionStore
                 uptime,
                 reader.IsDBNull(4) ? null : reader.GetString(4),
                 reader.IsDBNull(5) ? null : reader.GetString(5),
-                reader.IsDBNull(6) ? RebootSource.Heartbeat : reader.GetString(6)));
+                reader.IsDBNull(6) ? RebootSource.Heartbeat : reader.GetString(6),
+                reader.IsDBNull(7) ? null : reader.GetInt64(7)));
         }
         await reader.CloseAsync();
 
@@ -272,20 +275,31 @@ public sealed class SqliteSessionStore : ISessionStore
         {
             var at = evt.At.ToUnixTimeSeconds();
             await using var check = conn.CreateCommand();
-            check.CommandText = "SELECT COUNT(*) FROM reboots WHERE sz = $sz AND ABS(at - $at) <= 300;";
+            // Дубль ищем только среди событий, которые hub видел САМ (±5 минут — часы клиента
+            // и hub расходятся), плюс точное совпадение с уже влитым журналом (повторный merge).
+            // Сверка по всей таблице резала настоящие серии: пять вырубонов каждые 2 минуты —
+            // самый показательный симптом — схлопывались до одного (бэклог п.106).
+            check.CommandText = """
+                SELECT COUNT(*) FROM reboots WHERE sz = $sz AND (
+                    (source <> $journal AND ABS(at - $at) <= 300)
+                    OR (source = $journal AND at = $at)
+                );
+                """;
             check.Parameters.AddWithValue("$sz", report.Sz);
             check.Parameters.AddWithValue("$at", at);
+            check.Parameters.AddWithValue("$journal", RebootSource.Journal);
             if (Convert.ToInt64(await check.ExecuteScalarAsync(ct)) > 0) continue;
 
             await using var insert = conn.CreateCommand();
             insert.CommandText = """
-                INSERT INTO reboots (sz, at, prev_boot, new_boot, uptime_before, activity, kind, source)
-                VALUES ($sz, $at, NULL, NULL, NULL, NULL, $kind, $source);
+                INSERT INTO reboots (sz, at, prev_boot, new_boot, uptime_before, activity, kind, source, bugcheck)
+                VALUES ($sz, $at, NULL, NULL, NULL, NULL, $kind, $source, $bugcheck);
                 """;
             insert.Parameters.AddWithValue("$sz", report.Sz);
             insert.Parameters.AddWithValue("$at", at);
             insert.Parameters.AddWithValue("$kind", evt.Kind);
             insert.Parameters.AddWithValue("$source", RebootSource.Journal);
+            insert.Parameters.AddWithValue("$bugcheck", evt.Bugcheck != 0 ? evt.Bugcheck : DBNull.Value);
             await insert.ExecuteNonQueryAsync(ct);
             added++;
         }

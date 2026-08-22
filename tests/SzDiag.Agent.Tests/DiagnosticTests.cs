@@ -82,6 +82,18 @@ public class DiagnosticProbesTests
     }
 
     [Fact]
+    public void ReliabilityProbe_CrashDumpKindLookup_UsesIntKey()
+    {
+        // Регрессия (п.110): ключи хеш-таблицы — int, а лукап шёл строкой
+        // `$kind["$($cc.CrashDumpEnabled)"]` — любое значение печаталось как «unknown»,
+        // включая штатное 3 (small/minidump).
+        var run = Body("reliability");
+
+        Assert.DoesNotContain("$kind[\"$($cc.CrashDumpEnabled)\"]", run);
+        Assert.Contains("$kind[[int]$cc.CrashDumpEnabled]", run);
+    }
+
+    [Fact]
     public void HardwareWindow_Prologue_IsAsciiAndFailsSafe()
     {
         var ps = HardwareWindow.PowerShellPrologue();

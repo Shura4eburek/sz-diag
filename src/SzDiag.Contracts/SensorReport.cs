@@ -376,7 +376,9 @@ public static class SensorReport
         {
             $"Наблюдений: {s.Samples}, период {s.FirstSample:HH:mm:ss}–{s.LastSample:HH:mm:ss} ({s.SpanMinutes:N1} мин)",
             $"Под нагрузкой (CPU ≥ {LoadThreshold:N0}%): {s.LoadedMinutes:N1} мин — {s.LoadedShare * 100:N0}% времени",
-            $"CPU max {s.MaxCpu:N0}%, средний под нагрузкой {s.AvgCpuUnderLoad:N0}%; процессов теста максимум {s.MaxStressProcesses}",
+            // «— не было» вместо пустого места: при нуле замеров под нагрузкой (чисто
+            // GPU-прогон) пустое значение читалось как баг разбора (бэклог п.116).
+            $"CPU max {s.MaxCpu:N0}%, средний под нагрузкой {(s.AvgCpuUnderLoad is { } avg ? $"{avg:N0}%" : "— не было")}; процессов теста максимум {s.MaxStressProcesses}",
         };
 
         // GPU-строка обязательна: FurMark-прогон по CPU-порогу выглядит как «нагрузка шла 2 %

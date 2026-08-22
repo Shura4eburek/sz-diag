@@ -50,7 +50,9 @@ public static class PowerEventsReader
                 : powerButton != 0 ? ShutdownKind.PowerButton
                 : ShutdownKind.HardOff;
 
-            result.Add(new PowerEvent(at, kind));
+            // Код едет дальше: «BSOD ×13» без кодов не разделяет один почерк и три разных
+            // дефекта (бэклог п.121).
+            result.Add(new PowerEvent(at, kind, bugcheck));
         }
         return result;
     }

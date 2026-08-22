@@ -30,6 +30,16 @@ public class PowerEventsReaderTests
     }
 
     [Fact]
+    public void Parse_KeepsBugcheckCode()
+    {
+        // Регрессия (бэклог п.121): код читался из события и тут же выбрасывался —
+        // «BSOD ×13» не разделяет один почерк и три разных дефекта.
+        var events = PowerEventsReader.Parse(Line("2026-07-28T20:35:54.0000000+00:00", "239", "0"));
+
+        Assert.Equal(239, Assert.Single(events).Bugcheck);
+    }
+
+    [Fact]
     public void Parse_GarbageLines_AreSkipped()
     {
         var events = PowerEventsReader.Parse("мусор\n\n2026-08-05T13:00:58.0000000+00:00;0;0\nещё мусор");

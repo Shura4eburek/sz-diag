@@ -33,8 +33,10 @@ if (command is "--help" or "-h" or "help" or "/?")
 // Мусорный ввод раньше молча уезжал в hub и в базу знаний (бэклог п.57).
 var szArgIndex = command switch
 {
-    "close" or "target" or "exec" or "pull" or "reboots" or "freeze" or "unfreeze" or "note"
+    "close" or "target" or "exec" or "pull" or "reboots" or "unfreeze" or "note"
         when args.Length >= 2 => 1,
+    // freeze принимает --status в любой позиции (п.175): номер СЗ — первый не-флаг.
+    "freeze" when args.Length >= 2 => Array.FindIndex(args, 1, a => !a.StartsWith('-')),
     "push" when args.Length >= 2 && !args[1].StartsWith('-') => 1,
     "test" or "diag" when args.Length >= 3 => 2,
     _ => -1
@@ -61,6 +63,11 @@ switch (command)
         break;
 
     case "close" when args.Length >= 2:
+    {
+        // Статус — ДО закрытия: после него сессия уходит из активных, и не понять,
+        // был ли агент жив в момент close (бэклог п.119).
+        var wasOnline = (await client.GetSessionsAsync())
+            .Any(s => s.Sz == args[1] && s.Status == SessionStatus.Online);
         if (await client.CloseAsync(args[1]))
         {
             AnsiConsole.MarkupLineInterpolated($"[green]СЗ {args[1]} закрыта[/] (revert отправлен агенту).");
@@ -73,14 +80,25 @@ switch (command)
             FreezeCommand.WarnIfStillFrozen(AppContext.BaseDirectory, args[1]);
             // Следы прогонов агент чистит сам при откате, но 12 ГБ iotest.bin из папки
             // клиента он не тронет — проверять надо ДО закрытия (бэклог п.56/99).
-            AnsiConsole.MarkupLineInterpolated(
-                $"[grey]Проверить остатки на клиенте (пока агент жив):[/] szcli client info {args[1]}");
+            // По офлайн-СЗ совет «szcli client info» невыполним — агент уже завершён (п.119).
+            if (wasOnline)
+                AnsiConsole.MarkupLineInterpolated(
+                    $"[grey]Проверить остатки на клиенте (пока агент жив):[/] szcli client info {args[1]}");
+            else
+            {
+                AnsiConsole.MarkupLine("[yellow]Агент уже завершён — остатки проверяются только с самой машины. Сверить глазами:[/]");
+                AnsiConsole.MarkupLineInterpolated($"  [grey]•[/] задачи планировщика szdiag* (schtasks /query | findstr szdiag)");
+                AnsiConsole.MarkupLine("  [grey]•[/] драйверы инструментов R0lhmmon / WinRing0 (sc query)");
+                AnsiConsole.MarkupLine("  [grey]•[/] ярлык отката на рабочем столе и учётка svc-diag");
+                AnsiConsole.MarkupLine("  [grey]•[/] папки C:\\ProgramData\\szdiag и tools\\ у агента");
+            }
             // Забытая метка обслуживания скроет реальный дефект — та же ловушка, что с unfreeze.
             await MaintenanceCommand.WarnIfActiveAsync(client, args[1]);
         }
         else
             AnsiConsole.MarkupLineInterpolated($"[red]СЗ {args[1]} не найдена[/] среди активных.");
         break;
+    }
 
     // agent restart <СЗ>: поднять агента заново, не подходя к машине. Агент себя НЕ убивает —
     // он ставит отложенную задачу под SYSTEM, и только она гасит процесс и запускает новый
@@ -171,11 +189,20 @@ switch (command)
     // на хосте рядом с szcli — клиент их потерять не может.
     // freeze --status <СЗ>: держится ли заморозка (после ребута она сама не переживает —
     // бэклог п.72), без ручного exec в реестр.
-    case "freeze" when args.Length >= 3 && args[2].Equals("--status", StringComparison.OrdinalIgnoreCase):
-        return await FreezeCommand.StatusAsync(client, args[1], AppContext.BaseDirectory);
-
+    // Флаг --status принимается в любой позиции: «szcli freeze --status <СЗ>» раньше падал
+    // на разборе номера СЗ (п.175).
     case "freeze" when args.Length >= 2:
-        return await FreezeCommand.FreezeAsync(client, args[1], AppContext.BaseDirectory);
+    {
+        var freezeSz = args.Skip(1).FirstOrDefault(a => !a.StartsWith('-'));
+        if (freezeSz is null)
+        {
+            AnsiConsole.MarkupLine("[red]Не указан номер СЗ.[/]");
+            return 2;
+        }
+        return args.Any(a => a.Equals("--status", StringComparison.OrdinalIgnoreCase))
+            ? await FreezeCommand.StatusAsync(client, freezeSz, AppContext.BaseDirectory)
+            : await FreezeCommand.FreezeAsync(client, freezeSz, AppContext.BaseDirectory);
+    }
 
     case "unfreeze" when args.Length >= 2:
         return await FreezeCommand.UnfreezeAsync(client, args[1], AppContext.BaseDirectory);
@@ -218,6 +245,7 @@ switch (command)
         var rebootTable = new Table().Border(TableBorder.Rounded).BorderColor(Color.Grey);
         rebootTable.AddColumn("Когда");
         rebootTable.AddColumn("Как");
+        rebootTable.AddColumn("Код");
         rebootTable.AddColumn("Откуда");
         rebootTable.AddColumn("Продержалась");
         rebootTable.AddColumn("Была занята");
@@ -229,24 +257,40 @@ switch (command)
             var kind = e.IsFailure
                 ? $"[red]{ShutdownKind.Describe(e.Kind)}[/]"
                 : $"[dim]{ShutdownKind.Describe(e.Kind)}[/]";
+            // Код BSOD: «13 BSOD» без кодов не разделяет один почерк и три дефекта (п.121).
+            var code = RebootCodeSummary.FormatCode(e);
+            var codeCell = code == "—" ? "[dim]—[/]" : Markup.Escape(code);
             // Источник важен: событие из журнала клиента могло случиться до того, как машина
             // вообще попала к нам под наблюдение (бэклог п.97).
             var src = e.Source == RebootSource.Journal ? "[grey]журнал[/]" : "[dim]hub[/]";
-            rebootTable.AddRow($"{e.At.ToLocalTime():dd.MM HH:mm:ss}", kind, src, held, busy);
+            rebootTable.AddRow($"{e.At.ToLocalTime():dd.MM HH:mm:ss}", kind, codeCell, src, held, busy);
         }
         AnsiConsole.Write(rebootTable);
         if (timeline.WatchingSince is { } watching)
             AnsiConsole.MarkupLineInterpolated(
                 $"[grey]Под наблюдением hub с {watching.ToLocalTime():dd.MM HH:mm}; более ранние строки — из журнала клиента.[/]");
+        foreach (var line in RebootCodeSummary.Build(timeline.Events))
+            AnsiConsole.MarkupLineInterpolated($"[grey]BSOD:[/] {line}");
         PrintRebootTotals(timeline);
         break;
     }
 
     case "target" when args.Length >= 2:
+    {
         var t = await client.GetTargetAsync(args[1]);
-        if (t is null) AnsiConsole.MarkupLineInterpolated($"[red]СЗ {args[1]} не найдена.[/]");
-        else AnsiConsole.WriteLine(t.Ssh);
+        if (t is null)
+        {
+            AnsiConsole.MarkupLineInterpolated($"[red]СЗ {args[1]} не найдена.[/]");
+            break;
+        }
+        // Полная строка с -i и опциями host-ключа: голый `ssh user@ip` не подключается,
+        // а рабочую команду раньше собирали тремя попытками и поиском по диску (п.118).
+        var key = TargetSsh.FindKey(options.SshKeyPath, AppContext.BaseDirectory);
+        AnsiConsole.WriteLine(TargetSsh.BuildSshLine(t.User, t.Ip, key));
+        if (key is null)
+            AnsiConsole.MarkupLine("[yellow]⚠ Ключ svc_diag_key не найден (SshKeyPath в appsettings.json) — добавь -i <путь к ключу>.[/]");
         break;
+    }
 
     case "kb" when args.Length >= 2:
         return await KbCommand.RunAsync(args[1..], options.KbRoot);

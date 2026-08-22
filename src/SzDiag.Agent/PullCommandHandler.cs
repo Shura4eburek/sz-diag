@@ -33,9 +33,11 @@ public sealed class PullCommandHandler
             return new PullResult(request.RequestId, Array.Empty<PullFileInfo>(), ex.Message);
         }
 
+        // Пустой результат — НЕ ошибка: «дампов нет» — штатный и частый исход диагностики
+        // (бэклог п.105). Ошибкой остаётся настоящая проблема: нет каталога, нет прав —
+        // её ловит catch вокруг Resolve выше.
         if (matches.Count == 0)
-            return new PullResult(request.RequestId, Array.Empty<PullFileInfo>(),
-                $"не найдено файлов по пути: {request.Path}");
+            return new PullResult(request.RequestId, Array.Empty<PullFileInfo>());
 
         var files = new List<PullFileInfo>();
         foreach (var path in matches)

@@ -22,6 +22,14 @@ namespace SzDiag.Contracts;
 ///
 /// Все прежние значения складываются в state, чтобы `unfreeze` вернул ровно как было:
 /// машина обязана уехать к клиенту с работающими обновлениями безопасности.</summary>
+/// <summary>Итог проверки заморозки: блокирующие расхождения (машина не защищена) отдельно
+/// от косметических (задачи оркестратора живы, но при стоящих службах безвредны).</summary>
+public sealed record FreezeCheck(IReadOnlyList<string> Blocking, IReadOnlyList<string> Cosmetic)
+{
+    /// <summary>Машина защищена от WU-перезагрузки (косметика не в счёт).</summary>
+    public bool IsProtected => Blocking.Count == 0;
+}
+
 public static class WindowsUpdateFreeze
 {
     /// <summary>Службы, которые надо погасить именно через реестр.</summary>
@@ -87,25 +95,37 @@ public static class WindowsUpdateFreeze
         return string.Join("\n", lines);
     }
 
-    /// <summary>Что из заморозки НЕ применилось. Пустой список — всё на месте.</summary>
+    /// <summary>Что из заморозки НЕ применилось. Пустой список — всё на месте.
+    /// Плоский список для мест, где градация не нужна (агентский guard переприменяет всё).</summary>
     public static IReadOnlyList<string> CheckApplied(string verifyStdout)
     {
+        var check = CheckAppliedDetailed(verifyStdout);
+        return check.Blocking.Concat(check.Cosmetic).ToList();
+    }
+
+    /// <summary>Расхождения с разделением на блокирующие (службы/политика — машина НЕ защищена
+    /// от WU-перезагрузки) и косметические (задачи оркестратора не поддались правам, но при
+    /// стоящих службах они безвредны). По плоскому списку нельзя было понять, защищена ли
+    /// машина, и exit 1 приходил при вполне рабочей заморозке (бэклог п.175).</summary>
+    public static FreezeCheck CheckAppliedDetailed(string verifyStdout)
+    {
         var values = ParseCapture(verifyStdout);
-        var problems = new List<string>();
+        var blocking = new List<string>();
+        var cosmetic = new List<string>();
 
         foreach (var svc in Services)
         {
             if (values.TryGetValue($"svc:{svc}", out var start) && start.Trim() != "4")
-                problems.Add($"{svc}: Start={(string.IsNullOrWhiteSpace(start) ? "нет значения" : start)} (ожидалось 4)");
+                blocking.Add($"{svc}: Start={(string.IsNullOrWhiteSpace(start) ? "нет значения" : start)} (ожидалось 4)");
             if (values.TryGetValue($"state:{svc}", out var state)
                 && state.Trim().Equals("Running", StringComparison.OrdinalIgnoreCase))
-                problems.Add($"{svc}: служба ЗАПУЩЕНА");
+                blocking.Add($"{svc}: служба ЗАПУЩЕНА");
         }
 
         if (!values.TryGetValue("pol:NoAutoUpdate", out var noAuto) || noAuto.Trim() != "1")
-            problems.Add("политика NoAutoUpdate не выставлена");
+            blocking.Add("политика NoAutoUpdate не выставлена");
         if (!values.TryGetValue("pol:WUServer", out var wu) || !wu.Contains("127.0.0.1"))
-            problems.Add("политика WUServer не указывает на несуществующий WSUS");
+            blocking.Add("политика WUServer не указывает на несуществующий WSUS");
 
         var enabledTasks = values
             .Where(kv => kv.Key.StartsWith("task:", StringComparison.OrdinalIgnoreCase)
@@ -113,11 +133,15 @@ public static class WindowsUpdateFreeze
             .Select(kv => kv.Key["task:".Length..])
             .ToList();
         if (enabledTasks.Count > 0)
-            problems.Add($"задачи оркестратора включены ({enabledTasks.Count}): "
+            cosmetic.Add($"задачи оркестратора включены ({enabledTasks.Count}): "
                          + string.Join(", ", enabledTasks.Take(5)));
 
-        return problems;
+        return new FreezeCheck(blocking, cosmetic);
     }
+
+    /// <summary>Есть ли на клиенте маркер заморозки (по выводу verify).</summary>
+    public static bool HasClientMarker(string verifyStdout)
+        => (verifyStdout ?? "").Contains("marker:True", StringComparison.OrdinalIgnoreCase);
 
     /// <summary>Скрипт заморозки.</summary>
     public static string BuildFreezeScript()

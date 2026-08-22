@@ -39,15 +39,25 @@ public static class ClientCommand
             return 1;
         }
 
-        var leftovers = ClientTraces.FindLeftovers(CliXml.Decode(res.StdOut));
-        if (leftovers.Count == 0)
+        // Задачи текущей сессии — отдельным блоком: раньше рабочий sshd/watchdog печатались
+        // как «остатки» с советом cleanup, выполнить который значило снести себе доступ (п.107).
+        var report = ClientTraces.FindLeftoversDetailed(CliXml.Decode(res.StdOut), sz);
+        if (report.CurrentSession.Count > 0)
         {
-            AnsiConsole.MarkupLineInterpolated($"[green]СЗ {sz}: следов прогонов не осталось.[/]");
+            AnsiConsole.MarkupLineInterpolated(
+                $"[grey]Задачи текущей сессии ({report.CurrentSession.Count}) — не трогать:[/]");
+            foreach (var item in report.CurrentSession)
+                AnsiConsole.MarkupLineInterpolated($"  [grey]•[/] {item}");
+        }
+
+        if (report.Leftovers.Count == 0)
+        {
+            AnsiConsole.MarkupLineInterpolated($"[green]СЗ {sz}: остатков нет.[/]");
             return 0;
         }
 
         AnsiConsole.MarkupLineInterpolated($"[yellow]СЗ {sz}: на клиенте осталось:[/]");
-        foreach (var item in leftovers) AnsiConsole.MarkupLineInterpolated($"  [yellow]•[/] {item}");
+        foreach (var item in report.Leftovers) AnsiConsole.MarkupLineInterpolated($"  [yellow]•[/] {item}");
         AnsiConsole.MarkupLineInterpolated($"[grey]Убрать:[/] szcli client cleanup {sz}");
         return 1;
     }
@@ -56,8 +66,8 @@ public static class ClientCommand
     /// текущей сессии (sshd/watchdog/автостарт) не трогаются — иначе уборка обрубит канал.</summary>
     public static async Task<int> CleanupAsync(IHubApiClient client, string sz)
     {
-        var keep = new[] { $"szdiag-sshd-{sz}", $"szdiag-watchdog-{sz}", $"szdiag-autostart-{sz}" };
-        var res = await client.ExecAsync(sz, ClientTraces.BuildCleanupScript(keep), TimeoutSeconds);
+        var res = await client.ExecAsync(sz, ClientTraces.BuildCleanupScript(ClientTraces.SessionTasks(sz)),
+            TimeoutSeconds);
         if (res is null)
         {
             AnsiConsole.MarkupLineInterpolated($"[red]СЗ {sz} не найдена[/] среди активных.");

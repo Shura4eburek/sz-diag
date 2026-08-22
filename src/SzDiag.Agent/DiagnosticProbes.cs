@@ -1,3 +1,5 @@
+using SzDiag.Contracts;
+
 namespace SzDiag.Agent;
 
 /// <summary>
@@ -582,7 +584,7 @@ public static class DiagnosticProbes
             try {
                 $cc = Get-ItemProperty 'HKLM:\SYSTEM\CurrentControlSet\Control\CrashControl' -ErrorAction Stop
                 $kind = @{0='net dampov';1='complete';2='kernel';3='small (minidump)';7='automatic'}
-                $k = $kind["$($cc.CrashDumpEnabled)"]
+                $k = $kind[[int]$cc.CrashDumpEnabled]
                 "CrashDumpEnabled={0} ({1}), AutoReboot={2}, DumpFile={3}, MinidumpDir={4}" -f `
                     $cc.CrashDumpEnabled, $(if ($k) { $k } else { 'unknown' }), $cc.AutoReboot, $cc.DumpFile, $cc.MinidumpDir
                 if ($cc.CrashDumpEnabled -eq 0) { "!!! Dampy otklyucheny: 'net dampov' zdes NICHEGO ne dokazyvaet." }

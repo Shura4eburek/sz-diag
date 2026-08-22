@@ -84,10 +84,22 @@ public class PullCommandHandlerTests : IDisposable
     }
 
     [Fact]
-    public async Task Handle_MissingPath_ReturnsErrorNotException()
+    public async Task Handle_MissingFileInExistingDir_IsEmptyResultNotError()
     {
+        // «Дампов нет» — штатный исход: агент ответил, путь просто пуст (бэклог п.105).
+        // Ошибкой остаётся только настоящая проблема (нет каталога, нет прав).
         var result = await Handler().HandleAsync(
             new PullRequest("160705", "req-4", Path.Combine(_dir, "нет-такого.dmp"), 1024));
+
+        Assert.Empty(result.Files);
+        Assert.Null(result.Error);
+    }
+
+    [Fact]
+    public async Task Handle_MissingDirectory_IsStillAnError()
+    {
+        var result = await Handler().HandleAsync(
+            new PullRequest("160705", "req-4b", Path.Combine(_dir, "нет-папки", "*.dmp"), 1024));
 
         Assert.Empty(result.Files);
         Assert.NotNull(result.Error);

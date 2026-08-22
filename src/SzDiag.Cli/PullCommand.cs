@@ -46,14 +46,13 @@ public static class PullCommand
     }
 
     /// <summary>Код возврата по итогу забора. Забрали хоть что-то — 0. Не забрали ничего, но
-    /// всё отсеял лимит — тоже 0: именно этого от лимита и хотели. Ненулевой — когда файлов
-    /// не нашлось вовсе или мешала настоящая ошибка (нет прав, файл побился).</summary>
+    /// всё отсеял лимит — тоже 0: именно этого от лимита и хотели. Пустой путь без ошибок —
+    /// тоже 0: «дампов нет» — штатный исход диагностики (п.105). Ненулевой — только когда
+    /// мешала настоящая ошибка (нет каталога, нет прав, файл побился).</summary>
     public static int ExitCodeFor(IReadOnlyList<PullSavedFile> files, bool anyError)
     {
         if (files.Any(f => !f.Skipped)) return 0;
-        if (anyError) return 1;
-        if (files.Count > 0 && files.All(f => f.OverLimit)) return 0;
-        return 1;
+        return anyError ? 1 : 0;
     }
 
     public static async Task<int> RunAsync(IHubApiClient client, string[] args)
@@ -84,6 +83,10 @@ public static class PullCommand
                 anyError = true;
                 continue;
             }
+
+            if (res.Files.Count == 0)
+                AnsiConsole.MarkupLineInterpolated(
+                    $"[grey]{path}: файлов нет (пустой путь — штатный исход)[/]");
 
             foreach (var f in res.Files)
             {

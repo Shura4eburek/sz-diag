@@ -80,4 +80,51 @@ public class ClientTracesTests
     [Fact]
     public void TaskName_FollowsSingleConvention()
         => Assert.Equal("szdiag-lhmmon-160636", ClientTraces.TaskName("lhmmon", "160636"));
+
+    [Fact]
+    public void FindLeftoversDetailed_SeparatesLiveSessionTasksFromLeftovers()
+    {
+        // Регрессия (бэклог п.107): сразу после подъёма агента `client info` называл
+        // рабочий доступ текущей сессии «остатками» и советовал cleanup — выполнить совет
+        // значило снести себе sshd и watchdog посреди заявки.
+        var stdout = string.Join("\n", new[]
+        {
+            "task:szdiag-sshd-160306=Running",
+            "task:szdiag-watchdog-160306=Ready",
+            "task:szdiag-autostart-160306=Ready",
+            "task:szdiag-lhmmon=Ready",
+        });
+
+        var report = ClientTraces.FindLeftoversDetailed(stdout, "160306");
+
+        Assert.Equal(3, report.CurrentSession.Count);
+        var leftover = Assert.Single(report.Leftovers);
+        Assert.Contains("szdiag-lhmmon", leftover);
+    }
+
+    [Fact]
+    public void FindLeftoversDetailed_FreshSession_HasNoLeftovers()
+    {
+        var stdout = string.Join("\n", new[]
+        {
+            "task:szdiag-sshd-160306=Running",
+            "task:szdiag-watchdog-160306=Ready",
+            "task:szdiag-autostart-160306=Ready",
+            "service:R0lhmmon=none",
+        });
+
+        var report = ClientTraces.FindLeftoversDetailed(stdout, "160306");
+
+        Assert.Empty(report.Leftovers);
+        Assert.Equal(3, report.CurrentSession.Count);
+    }
+
+    [Fact]
+    public void FindLeftoversDetailed_TasksOfOtherSz_AreLeftovers()
+    {
+        var report = ClientTraces.FindLeftoversDetailed("task:szdiag-sshd-159999=Ready", "160306");
+
+        Assert.Empty(report.CurrentSession);
+        Assert.Single(report.Leftovers);
+    }
 }

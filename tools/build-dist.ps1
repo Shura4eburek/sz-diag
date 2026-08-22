@@ -308,11 +308,15 @@ if ((Test-Path dist\host\hub) -and (Should-WriteConfig "dist/host/hub")) {
     Set-Content -Path dist\host\hub\appsettings.json -Value $hubCfg -Encoding utf8
 }
 
+# Абсолютный путь к ключу — чтобы `szcli target` печатал команду, работающую с первого
+# раза, а не `ssh user@ip` без -i (бэклог п.118).
+$sshKeyAbs = (Resolve-Path secrets\svc_diag_key).Path -replace '\\', '\\'
 $cliCfg = @"
 {
   "HubBaseUrl": "http://localhost:$Port",
   "ManagementToken": "$Token",
-  "KbRoot": "$kb"
+  "KbRoot": "$kb",
+  "SshKeyPath": "$sshKeyAbs"
 }
 "@
 if ((Test-Path dist\host\cli) -and (Should-WriteConfig "dist/host/cli")) {

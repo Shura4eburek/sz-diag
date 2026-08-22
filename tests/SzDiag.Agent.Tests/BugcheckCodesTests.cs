@@ -1,4 +1,5 @@
 using SzDiag.Agent;
+using SzDiag.Contracts;
 using Xunit;
 
 namespace SzDiag.Agent.Tests;

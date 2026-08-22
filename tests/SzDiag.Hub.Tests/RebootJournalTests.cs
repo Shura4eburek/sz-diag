@@ -141,6 +141,65 @@ public class RebootJournalTests : IDisposable
     }
 
     [Fact]
+    public async Task Store_MergeKeepsBurstsOfJournalEvents()
+    {
+        // Регрессия (бэклог п.106): дедуп ±5 минут шёл по ВСЕЙ таблице, включая только что
+        // вставленные события того же журнала — серия вырубонов каждые 2 минуты (самый
+        // показательный симптом: перегрев/БЖ/питание) схлопывалась до одной записи.
+        var store = new SqliteSessionStore(Conn);
+        await store.InitializeAsync();
+
+        var added = await store.MergeJournalEventsAsync(new PowerEventsReport("260306", new[]
+        {
+            new PowerEvent(Boot1, ShutdownKind.HardOff),
+            new PowerEvent(Boot1.AddMinutes(2), ShutdownKind.HardOff),
+            new PowerEvent(Boot1.AddMinutes(4), ShutdownKind.HardOff),
+            new PowerEvent(Boot1.AddMinutes(6), ShutdownKind.HardOff),
+        }));
+
+        Assert.Equal(4, added);
+        Assert.Equal(4, (await store.GetRebootsAsync("260306")).Count);
+    }
+
+    [Fact]
+    public async Task Store_MergeKeepsBugcheckCode_AndTimelineReturnsIt()
+    {
+        // Бэклог п.121: `szcli reboots` печатал «BSOD ×13» без кодов — код обязан доехать
+        // от журнала клиента до таймлайна.
+        var store = new SqliteSessionStore(Conn);
+        await store.InitializeAsync();
+
+        await store.MergeJournalEventsAsync(new PowerEventsReport("161346", new[]
+        {
+            new PowerEvent(Boot1, ShutdownKind.Bsod, Bugcheck: 239),   // 0xEF CRITICAL_PROCESS_DIED
+            new PowerEvent(Boot1.AddHours(1), ShutdownKind.HardOff),
+        }));
+
+        var timeline = await store.GetRebootsAsync("161346");
+
+        Assert.Equal(239, timeline.Events.Single(e => e.Kind == ShutdownKind.Bsod).Bugcheck);
+        Assert.Null(timeline.Events.Single(e => e.Kind == ShutdownKind.HardOff).Bugcheck);
+    }
+
+    [Fact]
+    public async Task Store_MergeSameJournalTwice_IsIdempotent()
+    {
+        var store = new SqliteSessionStore(Conn);
+        await store.InitializeAsync();
+        var report = new PowerEventsReport("260306", new[]
+        {
+            new PowerEvent(Boot1, ShutdownKind.HardOff),
+            new PowerEvent(Boot1.AddMinutes(2), ShutdownKind.HardOff),
+        });
+
+        await store.MergeJournalEventsAsync(report);
+        var secondPass = await store.MergeJournalEventsAsync(report);
+
+        Assert.Equal(0, secondPass);
+        Assert.Equal(2, (await store.GetRebootsAsync("260306")).Count);
+    }
+
+    [Fact]
     public async Task Store_MaintenanceWindow_TurnsEventIntoServiceWork()
     {
         // Регрессия (п.100): hard-off в простое переворачивал тактику, хотя питание в этот

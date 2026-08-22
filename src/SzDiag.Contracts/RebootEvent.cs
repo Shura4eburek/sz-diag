@@ -24,6 +24,9 @@ namespace SzDiag.Contracts;
 /// смену boot-time; <see cref="RebootSource.Journal"/> — агент принёс запись из журнала
 /// клиента. Всё, что случилось до подключения агента, hub не видел вовсе, и `reboots` уверенно
 /// печатал «вырубонов не зафиксировано» там, где они были (бэклог п.97).</param>
+/// <param name="Bugcheck">Стоп-код BSOD из Kernel-Power 41 (decimal, как в событии); null
+/// или 0 — BSOD не было. «13 BSOD» без кодов не разделяет один почерк и три разных дефекта
+/// (бэклог п.121).</param>
 public sealed record RebootEvent(
     string Sz,
     DateTimeOffset At,
@@ -32,7 +35,8 @@ public sealed record RebootEvent(
     long? UptimeBeforeSeconds,
     string? ActivityBefore,
     string? Kind = null,
-    string Source = RebootSource.Heartbeat)
+    string Source = RebootSource.Heartbeat,
+    long? Bugcheck = null)
 {
     public TimeSpan? UptimeBefore =>
         UptimeBeforeSeconds is { } s ? TimeSpan.FromSeconds(s) : null;
@@ -72,7 +76,8 @@ public sealed record MaintenanceWindow(
 
 /// <summary>Событие питания из журнала клиента — то, что агент приносит hub при регистрации.</summary>
 /// <param name="Kind">Классификация по полям события (<see cref="ShutdownKind"/>).</param>
-public sealed record PowerEvent(DateTimeOffset At, string Kind);
+/// <param name="Bugcheck">Стоп-код BSOD (decimal из события; 0 — BSOD не было).</param>
+public sealed record PowerEvent(DateTimeOffset At, string Kind, long Bugcheck = 0);
 
 /// <summary>Пачка событий из журнала клиента.</summary>
 public sealed record PowerEventsReport(string Sz, IReadOnlyList<PowerEvent> Events);

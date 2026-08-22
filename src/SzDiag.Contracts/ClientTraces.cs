@@ -100,10 +100,24 @@ public static class ClientTraces
             """;
     }
 
-    /// <summary>Разбор вывода инвентаря в список проблем. Пустой список — следов нет.</summary>
+    /// <summary>Разбор вывода инвентаря в список проблем. Пустой список — следов нет.
+    /// Плоский вариант без знания текущей СЗ — всё считается остатками.</summary>
     public static IReadOnlyList<string> FindLeftovers(string inventoryStdout)
+        => FindLeftoversDetailed(inventoryStdout, sz: null).Leftovers;
+
+    /// <summary>Задачи рабочего доступа текущей сессии по её номеру СЗ.</summary>
+    public static string[] SessionTasks(string sz)
+        => new[] { $"szdiag-sshd-{sz}", $"szdiag-watchdog-{sz}", $"szdiag-autostart-{sz}" };
+
+    /// <summary>Разбор инвентаря с разделением на «текущая сессия (не трогать)» и «остатки».
+    /// Без этого `client info` сразу после подъёма агента называл рабочий sshd/watchdog
+    /// «остатками» и советовал cleanup — снести себе доступ посреди заявки (бэклог п.107).</summary>
+    public static TraceReport FindLeftoversDetailed(string inventoryStdout, string? sz)
     {
-        var problems = new List<string>();
+        var session = sz is null ? Array.Empty<string>() : SessionTasks(sz);
+        var current = new List<string>();
+        var leftovers = new List<string>();
+
         foreach (var raw in (inventoryStdout ?? "").Split('\n'))
         {
             var line = raw.Trim();
@@ -115,19 +129,27 @@ public static class ClientTraces
             if (key.StartsWith("task:", StringComparison.OrdinalIgnoreCase))
             {
                 var name = key["task:".Length..];
+                if (session.Contains(name, StringComparer.OrdinalIgnoreCase))
+                {
+                    current.Add($"задача {name}: {value}");
+                    continue;
+                }
                 var orphan = !name.Any(char.IsDigit) ? " (без номера СЗ — чей хвост, неизвестно)" : "";
-                problems.Add($"задача {name}: {value}{orphan}");
+                leftovers.Add($"задача {name}: {value}{orphan}");
             }
             else if (key.StartsWith("service:", StringComparison.OrdinalIgnoreCase)
                      && !value.Equals("none", StringComparison.OrdinalIgnoreCase))
             {
-                problems.Add($"драйвер {key["service:".Length..]}: {value}");
+                leftovers.Add($"драйвер {key["service:".Length..]}: {value}");
             }
             else if (key.StartsWith("big:", StringComparison.OrdinalIgnoreCase))
             {
-                problems.Add($"крупный файл {key["big:".Length..]}: {value} ГБ");
+                leftovers.Add($"крупный файл {key["big:".Length..]}: {value} ГБ");
             }
         }
-        return problems;
+        return new TraceReport(current, leftovers);
     }
 }
+
+/// <summary>Итог осмотра клиента: рабочий доступ текущей сессии отдельно от остатков.</summary>
+public sealed record TraceReport(IReadOnlyList<string> CurrentSession, IReadOnlyList<string> Leftovers);

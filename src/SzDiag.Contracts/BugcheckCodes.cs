@@ -1,6 +1,6 @@
 using System.Text;
 
-namespace SzDiag.Agent;
+namespace SzDiag.Contracts;
 
 /// <summary>Расшифровка стоп-кодов BSOD. Windows кладёт в Kernel-Power 41 поле
 /// <c>BugcheckCode</c> в <b>десятичном</b> виде (<c>190</c>, <c>340</c>), а вся литература

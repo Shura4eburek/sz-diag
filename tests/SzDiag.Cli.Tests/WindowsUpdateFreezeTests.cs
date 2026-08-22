@@ -53,6 +53,90 @@ public class WindowsUpdateFreezeTests
         Assert.Equal("", parsed["pol:NoAutoUpdate"]);
     }
 
+    // Полностью применённая заморозка: службы стоят (Start=4), политики на месте.
+    private const string FrozenVerify =
+        "svc:wuauserv=4\nstate:wuauserv=Stopped\nsvc:UsoSvc=4\nstate:UsoSvc=Stopped\n" +
+        "svc:WaaSMedicSvc=4\nstate:WaaSMedicSvc=Stopped\n" +
+        "pol:NoAutoUpdate=1\npol:WUServer=http://127.0.0.1:8530\nmarker:True\n";
+
+    [Fact]
+    public void CheckDetailed_TasksOnly_IsCosmeticNotBlocking()
+    {
+        // Регрессия (бэклог п.175): 11 задач оркестратора под TrustedInstaller не поддались —
+        // а службы стоят и политика на месте, машина от WU-перезагрузки ЗАЩИЩЕНА. Это не
+        // повод для exit 1.
+        var stdout = FrozenVerify +
+            @"task:\Microsoft\Windows\UpdateOrchestrator\Schedule Scan=Ready" + "\n";
+
+        var check = WindowsUpdateFreeze.CheckAppliedDetailed(stdout);
+
+        Assert.Empty(check.Blocking);
+        Assert.Single(check.Cosmetic);
+        Assert.True(check.IsProtected);
+    }
+
+    [Fact]
+    public void CheckDetailed_RunningService_IsBlocking()
+    {
+        var stdout = FrozenVerify.Replace("svc:wuauserv=4", "svc:wuauserv=3")
+            .Replace("state:wuauserv=Stopped", "state:wuauserv=Running");
+
+        var check = WindowsUpdateFreeze.CheckAppliedDetailed(stdout);
+
+        Assert.NotEmpty(check.Blocking);
+        Assert.False(check.IsProtected);
+    }
+
+    [Fact]
+    public void StatusVerdict_NoMarkersAnywhere_IsNormalStateNotFailure()
+    {
+        // Регрессия (бэклог п.115): после честного unfreeze `freeze --status` кричал
+        // «заморозка НЕ полная» и советовал заморозить обратно. Нет маркеров — нет и
+        // заморозки, состояние штатное.
+        var check = WindowsUpdateFreeze.CheckAppliedDetailed("svc:wuauserv=3\nmarker:False\n");
+
+        var (code, verdict) = FreezeCommand.StatusVerdict(check,
+            hostStateExists: false, clientMarker: false);
+
+        Assert.Equal(0, code);
+        Assert.Contains("штатное", verdict);
+    }
+
+    [Fact]
+    public void StatusVerdict_ActiveFreezeWithBlockingIssues_Fails()
+    {
+        var check = WindowsUpdateFreeze.CheckAppliedDetailed("svc:wuauserv=3\nstate:wuauserv=Running\n");
+
+        var (code, _) = FreezeCommand.StatusVerdict(check, hostStateExists: true, clientMarker: true);
+
+        Assert.Equal(1, code);
+    }
+
+    [Fact]
+    public void StatusVerdict_FrozenElsewhere_StillEvaluated()
+    {
+        // Замораживали с другого хоста: файла у нас нет, но маркер на клиенте есть —
+        // это активная заморозка, а не «штатное состояние».
+        var check = WindowsUpdateFreeze.CheckAppliedDetailed("svc:wuauserv=3\nstate:wuauserv=Running\nmarker:True\n");
+
+        var (code, _) = FreezeCommand.StatusVerdict(check, hostStateExists: false, clientMarker: true);
+
+        Assert.Equal(1, code);
+    }
+
+    [Fact]
+    public void StatusVerdict_HeldFreeze_IsSuccessEvenWithCosmetic()
+    {
+        var stdout = FrozenVerify +
+            @"task:\Microsoft\Windows\UpdateOrchestrator\Schedule Scan=Ready" + "\n";
+        var check = WindowsUpdateFreeze.CheckAppliedDetailed(stdout);
+
+        var (code, verdict) = FreezeCommand.StatusVerdict(check, hostStateExists: true, clientMarker: true);
+
+        Assert.Equal(0, code);
+        Assert.Contains("держится", verdict);
+    }
+
     [Fact]
     public void HasPendingTransaction_DetectsPendingXml()
     {
