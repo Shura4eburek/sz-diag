@@ -12,12 +12,17 @@
 # запускать нет, скрипт это проверяет и останавливается.
 #
 #   szcli exec <СЗ> -f tools\recipes\client\start-occt-first.ps1
-$Sz       = '161190'              # ← номер СЗ
-$Schedule = 'schedule-gpu.json'   # ← какое расписание гнать
-$Suffix   = 'gpu'                 # ← в имя задачи: szdiag-occt<Suffix>-<СЗ>
+$Sz       = '161716'              # ← номер СЗ
+$Schedule = 'schedule-combined.json'   # ← какое расписание гнать
+$Suffix   = 'comb'               # ← в имя задачи: szdiag-occt<Suffix>-<СЗ>
 
 $proc = Get-CimInstance Win32_Process -Filter "Name='SzDiag.Agent.exe'" | Select-Object -First 1
-$occt = Join-Path (Split-Path $proc.ExecutablePath -Parent) 'tools\occt'
+# Агент из облачной папки (OneDrive) → push кладёт тулы в ProgramData (161716): проверяем оба места.
+$occt = @(
+    (Join-Path (Split-Path $proc.ExecutablePath -Parent) 'tools\occt'),
+    (Join-Path $env:ProgramData 'szdiag\tools\occt')
+) | Where-Object { Test-Path $_ } | Select-Object -First 1
+if (-not $occt) { 'tools\occt нет ни рядом с агентом, ни в ProgramData — сначала szcli push <СЗ> occt'; return }
 $sched = Join-Path $occt $Schedule
 if (-not (Test-Path $sched)) { "нет расписания $sched — сначала make-gpu-schedule.ps1"; return }
 
@@ -30,7 +35,13 @@ $sid = (New-Object Security.Principal.NTAccount($owner.Domain, $owner.User)).Tra
 "сессия: $user (SID $sid), explorer pid=$($expl.ProcessId)"
 
 $task = "szdiag-occt$Suffix-$Sz"
-$args = '/c start "OCCT ' + $Sz + ' ' + $Suffix + '" /min "' + $occt + '\OCCTCmd.exe" test --schedule="' + $sched + '" --auto-start'
+# Окно НЕ сворачиваем: у машины в сервисе кто-то стоит рядом, и свёрнутая консоль читается
+# как «комп простаивает» — видимое окно с прогрессом есть часть работы (161716).
+# Нужно наоборот спрятать (машина у клиента, идёт удалённый прогон) — верни ' /min' в строку.
+$args = ('/c start "OCCT ' + $Sz + ' ' + $Suffix + '" "' + $occt + '\OCCTCmd.exe" test --schedule="' + $sched + '" --auto-start')
+
+# Старый экземпляр держит и окно, и расписание — иначе новый стартует поверх и оба врут в лог.
+Get-Process OCCTCmd, OCCT -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
 $xml = @"
 <?xml version="1.0" encoding="UTF-16"?>
 <Task version="1.2" xmlns="http://schemas.microsoft.com/windows/2004/02/mit/task">

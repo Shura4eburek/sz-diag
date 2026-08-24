@@ -9,11 +9,17 @@
 # грузился ли GPU.
 #   szcli exec <СЗ> -f tools\recipes\client\make-combined-schedule.ps1
 
-$Duration = '00:45:00'   # ← сколько гнать
+$Duration = '01:00:00'   # ← сколько гнать
 
 $proc = Get-CimInstance Win32_Process -Filter "Name='SzDiag.Agent.exe'" | Select-Object -First 1
 if (-not $proc) { throw 'агент не найден — не от чего считать путь к tools\occt' }
-$occt = Join-Path (Split-Path $proc.ExecutablePath -Parent) 'tools\occt'
+# Агент запущен из облачной папки (OneDrive) → push уводит раздачу в ProgramData (161716):
+# ищем расписание в обоих местах, иначе рецепт падает «нет эталона» при живых тулах.
+$occt = @(
+    (Join-Path (Split-Path $proc.ExecutablePath -Parent) 'tools\occt'),
+    (Join-Path $env:ProgramData 'szdiag\tools\occt')
+) | Where-Object { Test-Path $_ } | Select-Object -First 1
+if (-not $occt) { throw 'tools\occt нет ни рядом с агентом, ни в ProgramData — сначала szcli push <СЗ> occt' }
 
 $donorFile = @('schedule-long.json', 'schedule.json') |
     ForEach-Object { Join-Path $occt $_ } |
