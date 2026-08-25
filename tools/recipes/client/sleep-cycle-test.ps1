@@ -12,6 +12,10 @@
 # C:\OCCT\sleep-cycle.ps1, откуда его дальше дёргает самоперевзводящаяся задача под SYSTEM.
 # Под SYSTEM, а не из сессии агента: процесс сессии умирает вместе с ней (грабля lhmmon).
 #
+# ВАЖНО (161498): StartWhenAvailable=false обязателен. С true просроченная задача срабатывает
+# при СЛЕДУЮЩЕМ включении машины: если она легла во сне и её включили через сутки, то через
+# 90 секунд она снова уснёт, а человек у корпуса не поймёт почему. Задача цикла обязана
+# умирать вместе с пропущенным окном, а не воскресать.
 # Стоп: szcli exec <СЗ> -f tools\recipes\client\sleep-cycle-stop.ps1
 #   szcli exec <СЗ> -f tools\recipes\client\sleep-cycle-test.ps1
 if (-not (Test-Path 'C:\OCCT')) { New-Item -ItemType Directory 'C:\OCCT' | Out-Null }
@@ -61,7 +65,7 @@ $xml = @"
     <DisallowStartIfOnBatteries>false</DisallowStartIfOnBatteries>
     <StopIfGoingOnBatteries>false</StopIfGoingOnBatteries>
     <AllowHardTerminate>true</AllowHardTerminate>
-    <StartWhenAvailable>true</StartWhenAvailable>
+    <StartWhenAvailable>false</StartWhenAvailable>
     <RunOnlyIfNetworkAvailable>false</RunOnlyIfNetworkAvailable>
     <IdleSettings><StopOnIdleEnd>false</StopOnIdleEnd><RestartOnIdle>false</RestartOnIdle></IdleSettings>
     <AllowStartOnDemand>true</AllowStartOnDemand>

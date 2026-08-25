@@ -14,7 +14,7 @@
 #   szcli exec <СЗ> -f tools\recipes\client\start-furmark.ps1
 $Sz      = '161190'          # ← номер СЗ
 $Demo    = 'furmark-gl'      # ← furmark-gl | furmark-vk | furmark-knot-gl | furmark-knot-vk
-$MaxTime = 2400              # ← секунд
+$MaxTime = 1200              # ← секунд
 
 $proc = Get-CimInstance Win32_Process -Filter "Name='SzDiag.Agent.exe'" | Select-Object -First 1
 $fm = Join-Path (Split-Path $proc.ExecutablePath -Parent) 'tools\furmark\furmark.exe'
