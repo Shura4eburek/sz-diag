@@ -23,6 +23,7 @@ if ($expl) {
     $userHome = Join-Path 'C:\Users' $owner.User
     $roots += (Join-Path $userHome 'Documents\OCCT')
     $roots += (Join-Path $userHome 'OneDrive\Documents\OCCT')   # Documents бывает перенаправлен в OneDrive
+    $roots += (Join-Path $userHome 'AppData\Local\Temp\OCCT')   # 161716: реально OCCT пишет СЮДА (Documents\OCCT вообще нет)
     "пользователь: $($owner.Domain)\$($owner.User)"
 }
 $roots += 'C:\OCCT'

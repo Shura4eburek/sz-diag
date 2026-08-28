@@ -21,6 +21,15 @@
 if (-not (Test-Path 'C:\OCCT')) { New-Item -ItemType Directory 'C:\OCCT' | Out-Null }
 Remove-Item 'C:\OCCT\stop-sleep-test' -Force -ErrorAction SilentlyContinue
 
+# ПРЕДОХРАНИТЕЛЬ (161498, 26.08): забытый цикл живёт вечно и делает машину недоступной —
+# окно бодрствования 90 с, за него не успевает доехать ни szcli exec, ни стоп-рецепт.
+# На 161498 цикл от 24.08 воскрес 26.08 при включении машины и снова уложил её спать;
+# снимать пришлось офлайн из WinPE. Дедлайн пишем файлом: payload сверяется с ним
+# на каждом WAKE и по истечении сам снимает задачу.
+$MaxHours = 8
+[IO.File]::WriteAllText('C:\OCCT\sleep-cycle-deadline', (Get-Date).AddHours($MaxHours).ToString('o'))
+"предохранитель: цикл сам умрёт после {0:dd.MM HH:mm:ss}" -f (Get-Date).AddHours($MaxHours)
+
 $payload = @'
 $Sz            = '161498'
 $SleepMinutes  = 4
@@ -48,6 +57,17 @@ if ($w) { Say ('    события сна: ' + (($w | Sort-Object TimeCreated | 
 Say ('    lastwake: ' + ((powercfg /lastwake) -join ' ').Trim())
 
 if (Test-Path $stop) { Say 'СТОП-файл на месте — цикл окончен'; schtasks /delete /tn $task /f 2>$null | Out-Null; return }
+
+$dl = 'C:\OCCT\sleep-cycle-deadline'
+$expired = $true
+if (Test-Path $dl) {
+    try { $expired = ([datetime]::Parse((Get-Content $dl -Raw).Trim()) -lt (Get-Date)) } catch { $expired = $true }
+}
+if ($expired) {
+    Say 'ПРЕДОХРАНИТЕЛЬ: срок цикла истёк (или файл дедлайна потерян) — снимаем задачу и выходим'
+    schtasks /delete /tn $task /f 2>$null | Out-Null
+    return
+}
 
 Say "    ждём $AwakeSeconds с (агент реконнектится к hub)"
 Start-Sleep -Seconds $AwakeSeconds

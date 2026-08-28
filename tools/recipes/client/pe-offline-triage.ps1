@@ -7,11 +7,23 @@
 #
 # Параметр $Sys — літера тому з Windows клієнта (за замовчуванням шукає сам).
 
-param([string]$Sys = '')
+# УВАГА: `param()` тут бути НЕ може — перший рядок скрипта вже займає $OutputEncoding,
+# а PowerShell вимагає param першим виразом (на 161669 це впало з
+# "The term 'param' is not recognized"). Том задається змінною нижче.
+$Sys = ''
 
 if (-not $Sys) {
-    foreach ($l in [char[]]'CDEFGHIJ') {
+    foreach ($l in [char[]]'CDEFGHIJKLMN') {
         if (Test-Path "${l}:\Windows\System32\config\SYSTEM") { $Sys = "${l}:"; break }
+    }
+}
+# У PE том клієнта часто взагалі БЕЗ літери (161669: диск 0 розділ 3, 930 ГБ, letter порожня) —
+# тоді монтуємо його самі у W: і шукаємо ще раз.
+if (-not $Sys) {
+    foreach ($p in (Get-Partition -ErrorAction SilentlyContinue | Where-Object { -not $_.DriveLetter -and $_.Size -gt 40GB })) {
+        try { Set-Partition -DiskNumber $p.DiskNumber -PartitionNumber $p.PartitionNumber -NewDriveLetter W -ErrorAction Stop } catch { continue }
+        Start-Sleep -Seconds 2
+        if (Test-Path 'W:\Windows\System32\config\SYSTEM') { $Sys = 'W:'; break }
     }
 }
 if (-not $Sys) { 'Том з Windows не знайдено'; exit 1 }

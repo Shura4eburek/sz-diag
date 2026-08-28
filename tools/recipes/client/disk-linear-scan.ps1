@@ -61,8 +61,12 @@ $swChunk    = [Diagnostics.Stopwatch]::StartNew()
 
 while ($read -lt $total) {
     if ((Get-Date) -gt $deadline) { Say "STOP: ischerpan limit vremeni ${MaxMinutes} min"; break }
+    # Хвост устройства: размер диска не обязан быть кратен блоку (СЗ 161972, 28.08 —
+    # Kingston 2048 ГБ, последний блок вылезал за конец и давал ложную "READ ERROR ...
+    # cannot find the sector requested" в самом конце чистого прогона).
+    $want = [int][math]::Min([int64]$blockBytes, $total - $read)
     try {
-        $n = $fs.Read($buf, 0, $blockBytes)
+        $n = $fs.Read($buf, 0, $want)
     } catch {
         $lba = [math]::Round($read/1MB)
         $msg = "READ ERROR na smeschenii ${lba} MB: " + $_.Exception.Message
