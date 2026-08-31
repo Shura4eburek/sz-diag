@@ -20,9 +20,9 @@
 #   szcli exec <СЗ> -f tools\recipes\client\start-occt-interactive.ps1
 #   szcli exec <СЗ> -f tools\recipes\client\check-occt-result.ps1
 
-$Sz       = '161346'
+$Sz       = '161538'
 $Schedule = 'schedule-combined.json'
-$Tag      = 'EXPO6000'
+$Tag      = 'EXPO6000-asis'
 $Suffix   = 'int'
 
 $proc = Get-CimInstance Win32_Process -Filter "Name='SzDiag.Agent.exe'" | Select-Object -First 1
