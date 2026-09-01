@@ -6,7 +6,15 @@
 # уходом в сон/гибернацию, а не дефектом.
 
 Write-Output '===== Сессии ====='
-(query user 2>&1 | Out-String).Trim()
+# Грабля (161538, 01.09): `query` и `quser` НЕ в PATH процесса агента — рецепт падал
+# «The term 'query' is not recognized», и секция сессий молча пропадала. Зовём по полному пути,
+# а владельца explorer.exe печатаем всегда: именно он отвечает на вопрос «под кем пойдут GPU-подтесты».
+$q = Join-Path $env:SystemRoot 'System32\query.exe'
+if (Test-Path $q) { (& $q user 2>&1 | Out-String).Trim() } else { 'query.exe не найден' }
+Get-CimInstance Win32_Process -Filter "Name='explorer.exe'" | ForEach-Object {
+    $o = Invoke-CimMethod -InputObject $_ -MethodName GetOwner
+    ('explorer: {0}\{1} (session {2})' -f $o.Domain, $o.User, $_.SessionId)
+}
 
 Write-Output ''
 Write-Output '===== Активная схема питания ====='

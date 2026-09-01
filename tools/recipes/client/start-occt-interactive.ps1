@@ -17,8 +17,12 @@
 # минуту, значит опять гоним половину теста и не знаем об этом.
 #
 #   szcli exec <СЗ> -f tools\recipes\client\make-combined-schedule.ps1
-#   szcli exec <СЗ> -f tools\recipes\client\start-occt-interactive.ps1
+#   szcli exec <СЗ> -f tools\recipes\client\start-occt-interactive.ps1 --detach
 #   szcli exec <СЗ> -f tools\recipes\client\check-occt-result.ps1
+#
+# Запускать ТОЛЬКО с --detach: внутри Start-Sleep 60 на приёмку, и синхронный exec ловит таймаут.
+# Тест при этом уже идёт, но весь вывод — включая единственную строку про GPU-подтесты — теряется,
+# и запуск выглядит неудавшимся (161538, 01.09). Результат: szcli exec <СЗ> --result <jobId>.
 
 $Sz       = '161538'
 $Schedule = 'schedule-combined.json'
