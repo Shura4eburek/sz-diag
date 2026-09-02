@@ -474,18 +474,18 @@ public class ErpJsonTests
     }
 
     [Fact]
-    public void Устройство_берётся_только_из_единственной_товарной_строки()
+    public void Единственная_товарная_строка_даёт_название_а_несколько_нет()
     {
         var one = Fixture.Of("""
             {"request":{"number":"160800","fields":{},"components":[],"discussion":[],"order_number":"1951256"},
-             "order":{"number":"1951256","fields":{},"products":[{"Код":"1","Товар":"ПК Ігровий","Кіл-ть":"1"}],
+             "order":{"number":"1951256","fields":{},"products":[{"Код":"1","Товар":"ПК Ігровий","Шт.":"1"}],
              "service_requests":[]},"assembly":null}
             """);
         var many = Fixture.Of("""
             {"request":{"number":"160800","fields":{},"components":[],"discussion":[],"order_number":"1951256"},
              "order":{"number":"1951256","fields":{},"products":[
-               {"Код":"1","Товар":"Материнська плата","Кіл-ть":"1"},
-               {"Код":"2","Товар":"Процесор","Кіл-ть":"1"}],
+               {"Код":"1","Товар":"Материнська плата","Шт.":"1"},
+               {"Код":"2","Товар":"Процесор","Шт.":"1"}],
              "service_requests":[]},"assembly":null}
             """);
 
@@ -494,7 +494,7 @@ public class ErpJsonTests
     }
 
     [Fact]
-    public void Состав_берётся_из_сборки_если_она_есть_иначе_из_комплектации()
+    public void Состав_берётся_из_сборки_если_она_есть()
     {
         var withAssembly = Fixture.Of("""
             {"request":{"number":"160800","fields":{},
@@ -505,6 +505,41 @@ public class ErpJsonTests
             """);
 
         Assert.Equal("Зі збірки", Assert.Single(ErpJson.ParseSzFetch(withAssembly).Configuration).Name);
+    }
+
+    [Fact]
+    public void Без_сборки_состав_берётся_из_комплектации_заявки()
+    {
+        var data = Fixture.Of("""
+            {"request":{"number":"160800","fields":{},
+             "components":[{"code":"K1","name":"З заявки","serial":"SN1","quantity":"1"}],
+             "discussion":[],"order_number":null},"order":null,"assembly":null}
+            """);
+
+        Assert.Equal("З заявки", Assert.Single(ErpJson.ParseSzFetch(data).Configuration).Name);
+    }
+
+    [Fact]
+    public void Пустые_сборка_и_комплектация_дают_состав_из_заказа()
+    {
+        // Так было на ОБЕИХ живых заявках: комплектация и збірка пустые, весь состав
+        // лежит в строках заказа. Это основной путь, а не запасной.
+        var data = Fixture.Of("""
+            {"request":{"number":"160800","fields":{},"components":[],"discussion":[],
+             "order_number":"1951256"},
+             "order":{"number":"1951256","fields":{},"products":[
+               {"Код":"1","Товар":"Процесор","Шт.":"1"},
+               {"Код":"2","Товар":"ОЗП","Шт.":"2"}],"service_requests":[]},
+             "assembly":null}
+            """);
+
+        var configuration = ErpJson.ParseSzFetch(data).Configuration;
+
+        Assert.Equal(2, configuration.Count);
+        Assert.Equal("Процесор", configuration[0].Name);
+        Assert.Equal("2", configuration[1].Quantity);
+        // Серийников в строках заказа нет — и это не повод падать.
+        Assert.Equal("", configuration[0].Serial);
     }
 }
 ```
@@ -541,8 +576,9 @@ public sealed record ErpOrder(
     IReadOnlyList<IReadOnlyDictionary<string, string>> Products)
 {
     /// <summary>
-    /// Название устройства выводимо, только если товарная строка одна. Кастомная сборка —
-    /// это россыпь комплектующих, из которой «устройство» однозначно не следует.
+    /// Фоллбэк для `пристрій`, когда в заявке пустое поле `Назва`. Работает только на
+    /// заказе из одной строки: в живых заказах рядом с машиной лежат услуги, монитор и
+    /// термопаста, и по строкам устройство не выводится.
     /// </summary>
     public string? SingleProductName =>
         Products.Count == 1
@@ -560,11 +596,26 @@ public sealed record ErpAssembly(
 public sealed record SzFetchResult(ErpRequest Request, ErpOrder? Order, ErpAssembly? Assembly)
 {
     /// <summary>
-    /// Что стоит в машине: состав сборки, если это готовое решение, иначе комплектация
-    /// заявки. Именно этот список потом сверяется с тем, что видит `diag run`.
+    /// Что стоит в машине: збірка → комплектация заявки → строки заказа. Последнее звено
+    /// не запасное, а основное: на обеих живых заявках комплектация и збірка пришли
+    /// пустыми, и весь состав лежал в заказе. Именно этот список потом сверяется с тем,
+    /// что видит `diag run`.
     /// </summary>
     public IReadOnlyList<ErpComponent> Configuration =>
-        Assembly is { Components.Count: > 0 } ? Assembly.Components : Request.Components;
+        Assembly is { Components.Count: > 0 } ? Assembly.Components
+        : Request.Components.Count > 0 ? Request.Components
+        : OrderAsComponents();
+
+    /// <summary>Строки заказа в виде компонентов. Серийников там нет — заказ их не несёт.</summary>
+    private IReadOnlyList<ErpComponent> OrderAsComponents() => Order is null
+        ? Array.Empty<ErpComponent>()
+        : Order.Products
+            .Select(row => new ErpComponent(
+                Value(row, "Код"), Value(row, "Товар"), "", Value(row, "Шт.")))
+            .ToList();
+
+    private static string Value(IReadOnlyDictionary<string, string> row, string key)
+        => row.TryGetValue(key, out var value) ? value : "";
 }
 ```
 
@@ -1405,7 +1456,7 @@ public class SzFetchWriterTests : IDisposable
              "components":[{"code":"K1","name":"Відеокарта X","serial":"SN000000000001","quantity":"1"}],
              "discussion":[],"order_number":"{{orderNumber}}"},
              "order":{"number":"{{orderNumber}}","fields":{},
-             "products":[{"Код":"1","Товар":"{{product}}","Кіл-ть":"1"}],"service_requests":[]},
+             "products":[{"Код":"1","Товар":"{{product}}","Шт.":"1"}],"service_requests":[]},
              "assembly":null}
             """));
 
@@ -1475,19 +1526,39 @@ public class SzFetchWriterTests : IDisposable
     }
 
     [Fact]
-    public void Устройство_не_ставится_если_в_заказе_несколько_позиций()
+    public void Устройство_берётся_из_поля_Назва_а_не_из_строк_заказа()
     {
-        var custom = ErpJson.ParseSzFetch(Fixture.Of("""
-            {"request":{"number":"160800","fields":{},"components":[],"discussion":[],"order_number":"1951256"},
+        // На живой заявке в заказе 12 позиций (услуги, монитор, термопаста), а предмет
+        // заявки назван в поле «Назва». Считать строки бессмысленно.
+        var data = ErpJson.ParseSzFetch(Fixture.Of("""
+            {"request":{"number":"160800","fields":{"Назва":"Готова СВО Arctic"},
+             "components":[],"discussion":[],"order_number":"1951256"},
              "order":{"number":"1951256","fields":{},"products":[
-               {"Код":"1","Товар":"Материнська плата","Кіл-ть":"1"},
-               {"Код":"2","Товар":"Процесор","Кіл-ть":"1"}],"service_requests":[]},"assembly":null}
+               {"Код":"1","Товар":"Материнська плата","Шт.":"1"},
+               {"Код":"2","Товар":"Процесор","Шт.":"1"}],"service_requests":[]},"assembly":null}
             """));
 
-        var result = Writer().Write("160800", custom, "{}", force: false);
+        var result = Writer().Write("160800", data, "{}", force: false);
+
+        Assert.True(result.DeviceSet);
+        var home = FrontmatterEditor.Load(File.ReadAllText(_paths.HomeNote("160800")));
+        Assert.Equal("Готова СВО Arctic", home.GetScalar("пристрій")?.Trim('"'));
+    }
+
+    [Fact]
+    public void Без_Назви_и_с_несколькими_позициями_устройство_не_ставится()
+    {
+        var data = ErpJson.ParseSzFetch(Fixture.Of("""
+            {"request":{"number":"160800","fields":{},"components":[],"discussion":[],"order_number":"1951256"},
+             "order":{"number":"1951256","fields":{},"products":[
+               {"Код":"1","Товар":"Материнська плата","Шт.":"1"},
+               {"Код":"2","Товар":"Процесор","Шт.":"1"}],"service_requests":[]},"assembly":null}
+            """));
+
+        var result = Writer().Write("160800", data, "{}", force: false);
 
         Assert.False(result.DeviceSet);
-        Assert.Contains("2", result.DeviceSkipReason);
+        Assert.False(string.IsNullOrWhiteSpace(result.DeviceSkipReason));
     }
 
     [Fact]
@@ -1568,8 +1639,8 @@ public sealed class SzFetchWriter
         var existing = File.Exists(requestPath) ? File.ReadAllText(requestPath) : "";
         File.WriteAllText(requestPath, MarkedBlock.Upsert(existing, ErpBlockBuilder.Build(data, _now())));
 
-        var (deviceSet, skipReason) = UpdateFrontmatter(sz, data, force);
-        WriteEntities(data, deviceSet);
+        var (device, deviceSet, skipReason) = UpdateFrontmatter(sz, data, force);
+        WriteEntities(data, device, deviceSet);
 
         new SzJournal(_paths).Append(sz, new JournalEntry(
             _now(), JournalSource.Command, "дані підтягнуто з обліку (sz fetch)"));
@@ -1577,7 +1648,8 @@ public sealed class SzFetchWriter
         return new SzFetchWriteResult(jsonPath, requestPath, deviceSet, skipReason);
     }
 
-    private (bool DeviceSet, string? SkipReason) UpdateFrontmatter(string sz, SzFetchResult data, bool force)
+    private (string? Device, bool DeviceSet, string? SkipReason) UpdateFrontmatter(
+        string sz, SzFetchResult data, bool force)
     {
         var homePath = _paths.HomeNote(sz);
         var home = FrontmatterEditor.Load(File.ReadAllText(homePath));
@@ -1588,13 +1660,13 @@ public sealed class SzFetchWriter
 
         var deviceSet = false;
         string? skipReason = null;
-        var device = data.Order?.SingleProductName;
+        // `Назва` — предмет заявки, готовое название. Счёт строк заказа не годится:
+        // рядом с машиной лежат услуги, монитор и термопаста (видели 3 и 12 позиций).
+        var device = Blank(data.Request.Fields.GetValueOrDefault("Назва"))
+                     ?? data.Order?.SingleProductName;
         if (device is null)
         {
-            var count = data.Order?.Products.Count ?? 0;
-            skipReason = count == 0
-                ? "у заявці немає замовлення"
-                : $"у замовленні {count} позицій — складання під замовлення";
+            skipReason = "немає ні поля «Назва» в заявці, ні єдиної товарної позиції в замовленні";
         }
         else if (force || IsBlank(home.GetScalar("пристрій")))
         {
@@ -1607,10 +1679,10 @@ public sealed class SzFetchWriter
         }
 
         File.WriteAllText(homePath, home.Serialize());
-        return (deviceSet, skipReason);
+        return (device, deviceSet, skipReason);
     }
 
-    private void WriteEntities(SzFetchResult data, bool deviceSet)
+    private void WriteEntities(SzFetchResult data, string? device, bool deviceSet)
     {
         var entities = new EntityNoteWriter(_paths);
 
@@ -1619,8 +1691,12 @@ public sealed class SzFetchWriter
 
         // Компоненты заметками не заводим: каждая сборка дала бы 8-10 однодневок,
         // и поиск по vault утонул бы в них.
-        if (deviceSet && data.Order?.SingleProductName is { } device) entities.EnsureDevice(device);
+        if (deviceSet && device is not null) entities.EnsureDevice(device);
     }
+
+    /// <summary>Непустое значение либо null — чтобы склеивать через `??`.</summary>
+    private static string? Blank(string? value)
+        => string.IsNullOrWhiteSpace(value) ? null : value;
 
     /// <summary>Скаффолдер пишет пустые значения как `""` — это тоже «пусто».</summary>
     private static bool IsBlank(string? raw)
