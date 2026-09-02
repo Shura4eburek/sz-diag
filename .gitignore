@@ -43,3 +43,6 @@ build/
 # Claude Code: локальные разрешения и рабочие worktree-каталоги (личные, у каждого свои)
 .claude/settings.local.json
 .claude/worktrees/
+
+# Локальная дока по API учётной системы — держим вне репо (он публичный)
+docs/erp-api.md
