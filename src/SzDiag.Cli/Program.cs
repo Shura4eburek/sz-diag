@@ -55,6 +55,8 @@ var szArgIndex = command switch
     // freeze принимает --status в любой позиции (п.175): номер СЗ — первый не-флаг.
     "freeze" when args.Length >= 2 => Array.FindIndex(args, 1, a => !a.StartsWith('-')),
     "push" when args.Length >= 2 && !args[1].StartsWith('-') => 1,
+    // szcli sz fetch <СЗ>: номер третий. У `sz release` номера нет — ветка не сработает.
+    "sz" when args.Length >= 3 && args[1].Equals("fetch", StringComparison.OrdinalIgnoreCase) => 2,
     "test" or "diag" when args.Length >= 3 => 2,
     _ => -1
 };
@@ -311,6 +313,9 @@ switch (command)
 
     case "kb" when args.Length >= 2:
         return await KbCommand.RunAsync(args[1..], options.KbRoot);
+
+    case "sz" when args.Length >= 2:
+        return await ErpCommand.RunAsync(args[1..], options);
 
     case "hw" when args.Length >= 2:
         await HwCommand.RunAsync(args[1..], ResolveLocal(options.GpuDbPath), ResolveLocal(options.PciIdsPath));
@@ -576,6 +581,10 @@ static void PrintUsage()
               [yellow]szcli reboots[/] [blue]<СЗ>[/]       таймлайн вырубонов (по смене boot-time)
               [yellow]szcli note[/] [blue]<СЗ>[/] [grey]<текст>[/]  ручной шаг в журнал СЗ (свап железа, BIOS, осмотр)
                 [grey]принимается и когда машина offline или СЗ закрыта[/]
+              [yellow]szcli sz fetch[/] [blue]<СЗ>[/] [grey][[--force]][/]  подтянуть заявку из учётной системы в kb
+                [grey]поля, состав и номер заказа; блок под маркерами, ручной текст не трогается[/]
+                [grey]идёт несколько минут и кликает по чужому интерфейсу — мышь не трогать[/]
+              [yellow]szcli sz release[/]        отпустить залипший захват учётной программы
               [yellow]szcli sensors[/] [grey]start|status|stop <СЗ> | report <csv>[/]
                 [grey]наблюдатель нагрузки (CSV построчно, переживает вырубон) и его разбор[/]
               [yellow]szcli freeze[/] [blue]<СЗ>[/] [grey][[--status]][/]  заморозить Windows Update (или проверить, держится ли)

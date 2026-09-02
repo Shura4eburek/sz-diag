@@ -1,4 +1,4 @@
-using System.Reflection;
+﻿using System.Reflection;
 
 namespace SzDiag.Cli;
 
@@ -13,7 +13,7 @@ public static class CliCommands
     {
         "watch", "list", "close", "target", "exec", "pull", "push", "reboots",
         "freeze", "unfreeze", "note", "sensors", "test", "diag", "kb", "hw",
-        "client", "maintenance", "agent",
+        "client", "maintenance", "agent", "sz",
     };
 
     public static bool IsKnown(string command)
