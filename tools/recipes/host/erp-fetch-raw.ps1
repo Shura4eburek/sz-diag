@@ -18,7 +18,10 @@ param(
     [Parameter(Mandatory)] [int]$Port,
     [Parameter(Mandatory)] [string]$TokenFile,
     [Parameter(Mandatory)] [string]$TokenHeader,
-    [Parameter(Mandatory)] [string]$Out
+    [Parameter(Mandatory)] [string]$Out,
+    # 180 с не хватает: обход дерева вкладок стоит 10+ с на раздел, и полный
+    # sz.fetch на живой заявке в 180 с не уложился.
+    [int]$TimeoutSec = 600
 )
 
 $ErrorActionPreference = "Stop"
@@ -31,14 +34,17 @@ $headers = @{ $TokenHeader = $token }
 function Invoke-Tool([string]$Name, $Arguments) {
     $body = @{ name = $Name; arguments = $Arguments } | ConvertTo-Json -Depth 6
     return Invoke-RestMethod -Uri "$base/call" -Method Post -Headers $headers `
-        -ContentType "application/json; charset=utf-8" -Body $body -TimeoutSec 180
+        -ContentType "application/json; charset=utf-8" -Body $body -TimeoutSec $TimeoutSec
 }
 
 Write-Host "== захват учётной программы: НЕ ТРОГАЙ МЫШЬ, ~1 минута ==" -ForegroundColor Yellow
 Invoke-Tool "session.begin" @{} | Out-Null
 try {
     $response = Invoke-Tool "sz.fetch" @{ number = $Sz }
-    $response.result | ConvertTo-Json -Depth 12 | Set-Content -Path $Out -Encoding utf8
+    # Без BOM: Set-Content -Encoding utf8 в PowerShell 5.1 пишет его, и строгие
+    # JSON-парсеры (System.Text.Json, json.load) на таком файле падают.
+    $json = $response.result | ConvertTo-Json -Depth 12
+    [System.IO.File]::WriteAllText($Out, $json, (New-Object System.Text.UTF8Encoding $false))
     Write-Host "Ответ сохранён: $Out" -ForegroundColor Green
 }
 finally {
