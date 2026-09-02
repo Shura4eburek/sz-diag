@@ -37,6 +37,22 @@ public sealed record ErpAssembly(
     string Summary,
     IReadOnlyList<ErpComponent> Components);
 
+/// <summary>Откуда взялся состав — от этого зависит, какие колонки вообще есть.</summary>
+public enum ConfigurationSource
+{
+    /// <summary>Ни збірки, ни комплектации, ни заказа.</summary>
+    None,
+
+    /// <summary>Состав збірки: есть серийники.</summary>
+    Assembly,
+
+    /// <summary>Комплектация заявки: есть серийники и след замен.</summary>
+    Request,
+
+    /// <summary>Строки заказа: серийников нет, зато есть цена и гарантия.</summary>
+    Order,
+}
+
 public sealed record SzFetchResult(ErpRequest Request, ErpOrder? Order, ErpAssembly? Assembly)
 {
     /// <summary>
@@ -49,6 +65,16 @@ public sealed record SzFetchResult(ErpRequest Request, ErpOrder? Order, ErpAssem
         Assembly is { Components.Count: > 0 } ? Assembly.Components
         : Request.Components.Count > 0 ? Request.Components
         : OrderAsComponents();
+
+    /// <summary>
+    /// Откуда взят <see cref="Configuration"/>. Нужен потребителю, чтобы не рисовать
+    /// колонку серийников там, где их не бывает.
+    /// </summary>
+    public ConfigurationSource Source =>
+        Assembly is { Components.Count: > 0 } ? ConfigurationSource.Assembly
+        : Request.Components.Count > 0 ? ConfigurationSource.Request
+        : Order is { Products.Count: > 0 } ? ConfigurationSource.Order
+        : ConfigurationSource.None;
 
     /// <summary>Строки заказа как компоненты. Серийников там нет — заказ их не несёт.</summary>
     private IReadOnlyList<ErpComponent> OrderAsComponents() => Order is null
