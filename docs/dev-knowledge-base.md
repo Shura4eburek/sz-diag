@@ -5,7 +5,7 @@
 > ежедневной работы — [../CLAUDE.md](../CLAUDE.md). Здесь — протокол, точки расширения,
 > таблицы параметров и рецепты. Обновлено 2026-07-21.
 
-## Проекты (7 в `src/` + зеркальные тесты в `tests/`)
+## Проекты (9 в `src/` + зеркальные тесты в `tests/`)
 
 | Проект | Роль | Ключевые типы |
 |---|---|---|
@@ -16,6 +16,7 @@
 | `SzDiag.Updater` | точка входа на клиенте: самообновление агента с hub | `HttpUpdateClient`, `PackageApplier`, `AgentLauncher` |
 | `SzDiag.Hardware` | резолвер видях по PCI ID | `GpuResolver`, `VgaBiosScraper`, `GpuRepository` |
 | `SzDiag.Kb` | Obsidian-vault базы знаний | `KbPaths`, `KnowledgeBaseScaffolder`, `ReportMarkdownBuilder` |
+| `SzDiag.Erp` | локальный API учётной системы → база знаний | `ErpApiClient`, `ErpSession`, `ErpJson`, `ErpBlockBuilder`, `SzFetchWriter` |
 
 ## Протокол (единственный источник имён — `SzDiag.Contracts/HubRoutes.cs`)
 
@@ -216,6 +217,14 @@ staging) → `AgentLauncher.LaunchAndWait` (запуск `agent.exe` в насл
 - `list` · `close <СЗ>` · `target <СЗ>` · `test run <СЗ> [фильтр]` · `diag run <СЗ> [секции]` — к соответствующим `/api`.
 - `kb record/summary/search …` — локальная ФС через `SzDiag.Kb` (без HTTP).
 - `hw import [path] / update / resolve "<PCI ID>"` — локальная БД + `VgaBiosScraper`.
+- `sz fetch <СЗ> [--force]` · `sz release` — локальный API учётной системы через `SzDiag.Erp`
+  (без hub). Конфиг — секция `Erp` (`BaseUrl`, `TokenFile`, `TimeoutSeconds`=600).
+  Артефакты: `kb/СЗ/<номер>/erp.json` + блок под маркерами `erp:початок`/`erp:кінець`
+  в `запит.md` + пустые поля frontmatter + заметки заказа и устройства + строка в журнал.
+  Коды возврата: `0` успех · `1` прочее · `2` кривой номер или аргументы · `3` сервис не
+  поднят либо нет токена · `4` учётная программа не запущена или без логина · `5` захват
+  занят (лечится `sz release`) · `6` не найдено либо неоднозначно · `7` интерфейс не
+  распознан (обычно поверх висит окно с описанием обновления).
 
 ## KB (`SzDiag.Kb`, Obsidian-vault, корень `kb/` — в .gitignore)
 

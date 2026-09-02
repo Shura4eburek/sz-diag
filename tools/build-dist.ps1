@@ -36,7 +36,12 @@ param(
     [int]$Port = 5099,
     [string]$Token = "dev-token",
     [string]$ToolsRoot = "",
-    [double]$WatchdogHours = 6
+    [double]$WatchdogHours = 6,
+    # Доступ к локальному API учётной системы для `szcli sz fetch`. Порта по умолчанию нет
+    # намеренно: репозиторий публичный, конкретика живёт в docs\erp-api.md вне git.
+    # Пустой ErpPort = команда честно скажет «адрес не задан», а не будет стучаться в никуда.
+    [int]$ErpPort = 0,
+    [string]$ErpTokenFile = ""
 )
 
 $ErrorActionPreference = "Stop"
@@ -311,12 +316,19 @@ if ((Test-Path dist\host\hub) -and (Should-WriteConfig "dist/host/hub")) {
 # Абсолютный путь к ключу — чтобы `szcli target` печатал команду, работающую с первого
 # раза, а не `ssh user@ip` без -i (бэклог п.118).
 $sshKeyAbs = (Resolve-Path secrets\svc_diag_key).Path -replace '\\', '\\'
+$erpBaseUrl = if ($ErpPort -gt 0) { "http://127.0.0.1:$ErpPort" } else { "" }
+$erpToken = $ErpTokenFile -replace '\\', '\\'
 $cliCfg = @"
 {
   "HubBaseUrl": "http://localhost:$Port",
   "ManagementToken": "$Token",
   "KbRoot": "$kb",
-  "SshKeyPath": "$sshKeyAbs"
+  "SshKeyPath": "$sshKeyAbs",
+  "Erp": {
+    "BaseUrl": "$erpBaseUrl",
+    "TokenFile": "$erpToken",
+    "TimeoutSeconds": 600
+  }
 }
 "@
 if ((Test-Path dist\host\cli) -and (Should-WriteConfig "dist/host/cli")) {
