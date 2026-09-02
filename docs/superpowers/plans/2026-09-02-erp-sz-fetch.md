@@ -1677,6 +1677,7 @@ public class ErpExitCodeTests
     [InlineData("busy", 5)]
     [InlineData("not_found", 6)]
     [InlineData("ambiguous", 6)]
+    [InlineData("anchor_missing", 7)]
     [InlineData("timeout", 1)]
     [InlineData("internal", 1)]
     [InlineData("что-то новое", 1)]
@@ -1748,6 +1749,9 @@ public static class ErpCommand
         "client_not_running" or "client_not_logged_in" => 4,
         "busy" => 5,
         "not_found" or "ambiguous" => 6,
+        // Ловили на первом же живом съёме: захват берётся, логин на месте, а навигация по
+        // разделам не находится. Сбой не наш и лечится не так, как «не запущено» — свой код.
+        "anchor_missing" => 7,
         _ => 1,
     };
 
@@ -1862,6 +1866,9 @@ public static class ErpCommand
             4 => "Запусти учётную программу и войди в неё, потом повтори.",
             5 => "Захват занят — отпусти его: szcli sz release",
             6 => "Заявка не найдена либо совпадений больше одного.",
+            7 => "Интерфейс учётной программы не распознан: разверни её главное окно "
+                 + "на главном экране навигации и повтори. Если не помогло — правка на "
+                 + "стороне сервиса API, не здесь.",
             _ => "",
         };
         AnsiConsole.MarkupLineInterpolated($"[red]Сбой обращения к учётной системе[/] ({e.Code}): {e.Message}");
@@ -2028,7 +2035,7 @@ Get-Content dist\host\cli\appsettings.json | ConvertFrom-Json | Select-Object -E
 ```
 
 В `docs/dev-knowledge-base.md` — добавить раздел про команду `sz` рядом с описанием
-остальных команд CLI: подкоманды, коды возврата 0/1/2/3/4/5/6, где лежат артефакты.
+остальных команд CLI: подкоманды, коды возврата 0/1/2/3/4/5/6/7, где лежат артефакты.
 
 - [ ] **Step 6: Прогнать всё**
 
