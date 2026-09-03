@@ -6739,7 +6739,11 @@ P1: 141
 последний — 17.07, и **не даёт повода** написать «сыпется прямо сейчас». Рецепт
 `tools/recipes/client/tdr-unique.ps1` (пересчёт по уникальным отчётам) становится не нужен.
 
-### 200. `hw-fingerprint` схлопывал планки памяти: на ASUS у обеих `DeviceLocator = "DIMM 1"`
+### 200. ✅ СДЕЛАНО (2026-09-04) — `hw-fingerprint` схлопывал планки памяти: на ASUS у обеих `DeviceLocator = "DIMM 1"`
+
+**Сделано.** Секция `memory` RunDiag ключует по `BankLabel, DeviceLocator, SerialNumber` (не
+по одному `DeviceLocator`) и печатает `ИТОГО: N планок, X GB` со сверкой против
+`Win32_ComputerSystem.TotalPhysicalMemory` — при расхождении явное предупреждение.
 
 **Боль (СЗ 161211, 21.08.2026).** Паспорт железа напечатал **одну планку 32 ГБ** на машине, где
 стоят **две по 32**. Ключом словаря был `DeviceLocator`, а ASUS TUF B850-PLUS WIFI репортит обе

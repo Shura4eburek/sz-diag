@@ -87,11 +87,26 @@ public static class DiagnosticProbes
         Probe("memory", "Память (ОЗУ и модули)", """
             $os = Get-CimInstance Win32_OperatingSystem -ErrorAction SilentlyContinue
             "Total: {0:N1} GB, Free: {1:N1} GB" -f ($os.TotalVisibleMemorySize/1MB), ($os.FreePhysicalMemory/1MB)
-            Get-CimInstance Win32_PhysicalMemory -ErrorAction SilentlyContinue |
-                Select-Object DeviceLocator, @{n='GB';e={[math]::Round($_.Capacity/1GB,1)}},
+
+            # Klyuch po odnomu DeviceLocator skhlopyvaet raznye planki: na ASUS TUF B850-PLUS
+            # WIFI obe planki reportyat DeviceLocator='DIMM 1', razlichayutsya tolko BankLabel.
+            # Na 161211 eto stoilo poteryannoy planki v pasporte (2x32 -> 1x32, backlog p.200).
+            # Kazhdyy fizicheskiy modul - svoya stroka, bez skhlopyvaniya po odnomu polyu.
+            $mems = @(Get-CimInstance Win32_PhysicalMemory -ErrorAction SilentlyContinue |
+                Sort-Object BankLabel, DeviceLocator, SerialNumber)
+            $mems | Select-Object BankLabel, DeviceLocator, SerialNumber,
+                    @{n='GB';e={[math]::Round($_.Capacity/1GB,1)}},
                     Speed, ConfiguredClockSpeed, ConfiguredVoltage, MinVoltage, MaxVoltage,
                     Manufacturer, PartNumber |
                 Format-Table -Auto | Out-String
+
+            $totalGb = [math]::Round(($mems | Measure-Object Capacity -Sum).Sum / 1GB)
+            $winGb = [math]::Round(((Get-CimInstance Win32_ComputerSystem -ErrorAction SilentlyContinue).TotalPhysicalMemory / 1GB))
+            "ITOGO: {0} planok, {1} GB summarno (Windows (TotalPhysicalMemory) vidit {2} GB)" -f $mems.Count, $totalGb, $winGb
+            if ([math]::Abs($totalGb - $winGb) -gt 1) {
+                "VNIMANIE: raskhozhdenie summy planok i togo, chto vidit Windows - proverit, ne skhlopnulis li planki po odinakovomu DeviceLocator (sm. BankLabel vyshe)."
+            }
+
             "Speed = pasportnaya (JEDEC), ConfiguredClockSpeed = fakticheskaya; ConfiguredClockSpeed > Speed => vklyuchen XMP/EXPO (razgon pamyati)."
             "ConfiguredVoltage (mV): ~1100 = JEDEC (stok), ~1350-1400 = EXPO/XMP profil vklyuchen. VSOC (AM5) etoy probay ne snimaetsya - sm. lhmmon otdelnym zahodom DO stressa (HVCI ego blokiruet, backlog p.8)."
             """),

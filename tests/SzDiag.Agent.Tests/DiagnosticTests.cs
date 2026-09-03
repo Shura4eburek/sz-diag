@@ -147,6 +147,22 @@ public class DiagnosticProbesTests
     }
 
     [Fact]
+    public void MemoryProbe_CountsModulesAndComparesWithWindowsTotal()
+    {
+        // Регрессия (бэклог п.200, СЗ 161211): на ASUS TUF B850-PLUS WIFI обе планки
+        // репортят DeviceLocator='DIMM 1' (различаются только BankLabel) - словарь по
+        // DeviceLocator схлопывал вторую планку поверх первой, и паспорт печатал "1x32"
+        // вместо "2x32". Ключ по BankLabel+DeviceLocator+SN не схлопывает, плюс ИТОГО
+        // сверяется с Win32_ComputerSystem.TotalPhysicalMemory.
+        var run = Body("memory");
+
+        Assert.Contains("BankLabel", run);
+        Assert.Contains("ITOGO:", run);
+        Assert.Contains("TotalPhysicalMemory", run);
+        Assert.Contains("planok", run);
+    }
+
+    [Fact]
     public void StorageProbe_ReadsNvmeHealthLogDirectly()
     {
         // Регрессия (п.120/142): на NVMe Get-StorageReliabilityCounter отдаёт пустые
