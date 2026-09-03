@@ -30,9 +30,12 @@ if (command is "--help" or "-h" or "help" or "/?")
 }
 
 // Версия и дата сборки: протухший бинарь в dist виден сразу, а не по археологии (п.198).
+// Версия hub — рядом: «cli свежий, hub протух неделю назад» иначе не видно вовсе (п.165).
 if (command is "--version" or "-v" or "version")
 {
     Console.WriteLine(CliCommands.Describe());
+    var hubVersion = await client.GetHubVersionAsync();
+    Console.WriteLine(hubVersion is null ? "hub: не ответил" : hubVersion);
     return 0;
 }
 
@@ -87,7 +90,8 @@ switch (command)
         // был ли агент жив в момент close (бэклог п.119).
         var wasOnline = (await client.GetSessionsAsync())
             .Any(s => s.Sz == args[1] && s.Status == SessionStatus.Online);
-        if (await client.CloseAsync(args[1]))
+        var closeOutcome = await client.CloseAsync(args[1]);
+        if (closeOutcome.Closed)
         {
             AnsiConsole.MarkupLineInterpolated($"[green]СЗ {args[1]} закрыта[/] (revert отправлен агенту).");
             // Сводка по вырубонам при закрытии — чтобы вердикт «не воспроизвели» нельзя было
@@ -97,10 +101,24 @@ switch (command)
             // Заморозка обязана сниматься до отдачи машины клиенту — иначе она уедет
             // без обновлений безопасности (бэклог п.34b).
             FreezeCommand.WarnIfStillFrozen(AppContext.BaseDirectory, args[1]);
+            // Итог отката, присланный агентом ДО отключения канала (бэклог п.119) — если он
+            // долетел, полнота отката подтверждена без похода к машине, и гадать не нужно.
+            if (closeOutcome.Revert is { } revert)
+            {
+                if (revert.AllClean)
+                    AnsiConsole.MarkupLineInterpolated(
+                        $"[grey]Откат подтверждён агентом:[/] выполнен полностью ({revert.Done.Count} шагов).");
+                else
+                {
+                    var failedSteps = string.Join(", ", revert.Failed.Select(f => f.Step));
+                    AnsiConsole.MarkupLineInterpolated(
+                        $"[red]Откат подтверждён агентом ЧАСТИЧНО:[/] {revert.Done.Count} шагов ок, {revert.Failed.Count} с ошибкой ({failedSteps}) — szcli client info {args[1]}");
+                }
+            }
             // Следы прогонов агент чистит сам при откате, но 12 ГБ iotest.bin из папки
             // клиента он не тронет — проверять надо ДО закрытия (бэклог п.56/99).
             // По офлайн-СЗ совет «szcli client info» невыполним — агент уже завершён (п.119).
-            if (wasOnline)
+            else if (wasOnline)
                 AnsiConsole.MarkupLineInterpolated(
                     $"[grey]Проверить остатки на клиенте (пока агент жив):[/] szcli client info {args[1]}");
             else
@@ -236,12 +254,22 @@ switch (command)
 
         // Кавычки вокруг текста необязательны: всё, что после номера, — одна заметка.
         var noteText = string.Join(' ', args[2..]);
-        if (await client.AddNoteAsync(noteSz, noteText))
-            AnsiConsole.MarkupLineInterpolated($"[green]СЗ {noteSz}: записано в журнал[/]");
-        else
+        var noteResult = await client.AddNoteAsync(noteSz, noteText);
+        switch (noteResult)
         {
-            AnsiConsole.MarkupLineInterpolated($"[red]СЗ {noteSz}: hub не принял заметку[/]");
-            return 1;
+            case NoteResult.Ok:
+                AnsiConsole.MarkupLineInterpolated($"[green]СЗ {noteSz}: записано в журнал[/]");
+                break;
+            // 404 на этом эндпоинте не значит «СЗ не найдена» (он принимает любую) — значит
+            // hub не знает такого маршрута вообще, то есть старее CLI (бэклог п.191: раньше
+            // это выглядело так же, как обычный отказ, и причину искали руками на живой заявке).
+            case NoteResult.HubTooOld:
+                AnsiConsole.MarkupLineInterpolated(
+                    $"[red]СЗ {noteSz}: hub не знает такой команды[/] [grey](похоже, hub старее CLI — перезапусти hub после build-dist)[/]");
+                return 1;
+            default:
+                AnsiConsole.MarkupLineInterpolated($"[red]СЗ {noteSz}: hub не принял заметку[/]");
+                return 1;
         }
         break;
     }
@@ -359,14 +387,25 @@ switch (command)
         }
 
         var diagSections = parsedSections is null ? null : string.Join(",", parsedSections);
+        var diagStartedAt = DateTime.Now;
         if (await client.TriggerDiagAsync(diagSz, diagSections))
         {
             var scope = diagSections is null ? "все секции" : $"секции: {diagSections}";
-            // Путь печатаем сразу: файл ложится не в корень СЗ, а в reports\<timestamp>\, и
-            // ждать его «где-то в kb» приходилось вслепую (бэклог п.60).
-            var reportPath = Path.Combine(new KbPaths(options.KbRoot).ReportsDir(diagSz), "<YYYYMMDD-HHMMSS>", "diag.md");
+            var reportsDir = new KbPaths(options.KbRoot).ReportsDir(diagSz);
             AnsiConsole.MarkupLineInterpolated($"[green]СЗ {diagSz}: диагностика запущена[/] ({scope}) на агенте.");
-            AnsiConsole.MarkupLineInterpolated($"[grey]Отчёт появится здесь:[/] {reportPath}");
+            // Ждём фактического отчёта (снапшот обычно занимает секунды-десятки секунд) —
+            // раньше CLI либо показывал шаблонный путь с плейсхолдером таймстампа, либо вообще
+            // не сообщал о завершении, и «появится в kb» приходилось ждать вслепую (бэклог п.60).
+            var found = await DiagCompletionWatcher.WaitAsync(reportsDir, diagStartedAt, TimeSpan.FromSeconds(20));
+            if (found is { } f)
+                AnsiConsole.MarkupLineInterpolated(
+                    $"[green]Готово:[/] {f.Path} ({f.Bytes / 1024d:N1} КБ)");
+            else
+            {
+                var reportPath = Path.Combine(reportsDir, "<YYYYMMDD-HHMMSS>", "diag.md");
+                AnsiConsole.MarkupLineInterpolated(
+                    $"[grey]Ещё не готово (секции events/reliability могут занять дольше) — появится здесь:[/] {reportPath}");
+            }
         }
         else
             AnsiConsole.MarkupLineInterpolated($"[red]СЗ {diagSz} не найдена[/] среди активных.");
@@ -529,6 +568,12 @@ switch (command)
 
         var detach = args.Any(a => a.Equals("--detach", StringComparison.OrdinalIgnoreCase));
 
+        // До старта, а не после потери данных: синхронный exec копит вывод целиком и отдаёт
+        // его только в конце — обрыв хоста/сети на длинном прогоне уносит всё разом (п.220).
+        if (ExecLongRunHint.ShouldWarn(execTimeout, detach))
+            AnsiConsole.MarkupLineInterpolated(
+                $"[yellow]⚠ таймаут {execTimeout} с без --detach:[/] вывод придёт только по завершении целиком — обрыв по пути хост↔hub↔агент унесёт его весь. Для длинных прогонов — szcli exec <СЗ> ... --detach");
+
         var execRes = await client.ExecAsync(execSz, script, execTimeout, default, detach);
         if (execRes is null)
         {
@@ -657,7 +702,9 @@ static string ResolveLocal(string path)
 static async Task WatchAsync(IHubApiClient client)
 {
     AnsiConsole.Write(new Rule("[bold]sz-diag[/] — онлайн-СЗ").LeftJustified());
-    AnsiConsole.MarkupLine("[grey]Ctrl+C для выхода.[/]\n");
+    // Дата сборки в шапке — протухший CLI в dist иначе виден только по --version, который
+    // никто не догадывается набрать посреди заявки (бэклог п.198/205/211).
+    AnsiConsole.MarkupLineInterpolated($"[grey]{Markup.Escape(CliCommands.Describe())}[/] · Ctrl+C для выхода.\n");
 
     var table = SessionTableRenderer.Render(Array.Empty<SzDiag.Contracts.SessionInfo>());
     await AnsiConsole.Live(table)

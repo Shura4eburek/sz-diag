@@ -18,7 +18,7 @@ public class AgentSessionTests
         public RevertOutcome Revert(RevertState state)
         {
             RevertCalls++;
-            return new RevertOutcome(Array.Empty<string>(), Array.Empty<RevertStepFailure>());
+            return new RevertOutcome(new[] { "sshd", "учётка svc-diag" }, Array.Empty<RevertStepFailure>());
         }
         public void Resume(RevertState state, AccessSpec spec) => ResumeCalls++;
     }
@@ -60,6 +60,14 @@ public class AgentSessionTests
         }
         public Task ReportActivityAsync(string sz, string activity, DateTimeOffset? since, CancellationToken ct = default)
             => Task.CompletedTask;
+        public List<SzDiag.Contracts.RevertResult> RevertResults { get; } = new();
+        public Task SendRevertResultAsync(SzDiag.Contracts.RevertResult result, CancellationToken ct = default)
+        {
+            // Отправка ДО DisposeAsync — иначе итог отката теряется вместе с каналом (п.119).
+            Assert.False(Disposed);
+            RevertResults.Add(result);
+            return Task.CompletedTask;
+        }
         public ValueTask DisposeAsync() { Disposed = true; return ValueTask.CompletedTask; }
 
         public Task FireRevert(string sz) => _onRevert!(sz);
@@ -163,6 +171,24 @@ public class AgentSessionTests
 
         Assert.Equal(1, mgr.RevertCalls);
         Assert.True(link.Disposed);
+    }
+
+    [Fact]
+    public async Task RevertFromHub_SendsRevertResultBeforeDisposingLink()
+    {
+        // Регрессия (бэклог п.119): итог отката раньше нигде не отправлялся — «close» по
+        // офлайн-СЗ не мог подтвердить полноту отката иначе как походом к машине.
+        var mgr = new FakeManager();
+        var link = new FakeHubLink();
+        var session = new AgentSession(mgr, link, Spec(), "PC-1");
+        await session.StartAsync();
+
+        await link.FireRevert("156864");
+
+        var result = Assert.Single(link.RevertResults);
+        Assert.Equal("156864", result.Sz);
+        Assert.Equal(new[] { "sshd", "учётка svc-diag" }, result.Done);
+        Assert.True(result.AllClean);
     }
 
     [Fact]

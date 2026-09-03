@@ -31,7 +31,7 @@ public class HubApiClientTests
         }
     }
 
-    private static HubApiClient NewClient(StubHandler handler)
+    private static HubApiClient NewClient(HttpMessageHandler handler)
     {
         var http = new HttpClient(handler) { BaseAddress = new Uri("http://hub") };
         return new HubApiClient(http, "mgmt-token");
@@ -61,7 +61,7 @@ public class HubApiClientTests
 
         var ok = await client.AddNoteAsync("160697", "поставив тестовий Corsair RM850x");
 
-        Assert.True(ok);
+        Assert.Equal(NoteResult.Ok, ok);
         Assert.Equal(HttpMethod.Post, handler.LastRequest!.Method);
         Assert.Equal("/api/sessions/160697/journal", handler.LastRequest.RequestUri!.AbsolutePath);
         // Тело разбираем обратно, а не ищем подстроку: System.Text.Json экранирует кириллицу
@@ -72,11 +72,23 @@ public class HubApiClientTests
     }
 
     [Fact]
-    public async Task AddNoteAsync_WhenHubRejects_ReturnsFalse()
+    public async Task AddNoteAsync_WhenHubRejects_ReturnsRejected()
     {
         var client = NewClient(new StubHandler(HttpStatusCode.BadRequest));
 
-        Assert.False(await client.AddNoteAsync("160697", "текст"));
+        Assert.Equal(NoteResult.Rejected, await client.AddNoteAsync("160697", "текст"));
+    }
+
+    [Fact]
+    public async Task AddNoteAsync_WhenRouteMissing_ReturnsHubTooOld()
+    {
+        // Регрессия (бэклог п.191): journal-эндпоинт принимает любую валидную СЗ без проверки
+        // сессии, поэтому 404 здесь означает не «СЗ не найдена», а «hub не знает такой
+        // маршрут» — старый hub без journal-эндпоинта. Раньше оба случая выглядели одинаково
+        // как «hub не принял заметку», и на живой заявке (161190) причину искали руками.
+        var client = NewClient(new StubHandler(HttpStatusCode.NotFound));
+
+        Assert.Equal(NoteResult.HubTooOld, await client.AddNoteAsync("160697", "текст"));
     }
 
     [Fact]
@@ -115,17 +127,35 @@ public class HubApiClientTests
     }
 
     [Fact]
-    public async Task Close_Ok_ReturnsTrue()
+    public async Task Close_Ok_ReturnsClosedTrue()
     {
-        var client = NewClient(new StubHandler(HttpStatusCode.OK));
-        Assert.True(await client.CloseAsync("156864"));
+        var client = NewClient(new StubHandler(HttpStatusCode.OK, """{"closed":true,"revert":null}"""));
+        Assert.True((await client.CloseAsync("156864")).Closed);
     }
 
     [Fact]
-    public async Task Close_NotFound_ReturnsFalse()
+    public async Task Close_NotFound_ReturnsClosedFalse()
     {
         var client = NewClient(new StubHandler(HttpStatusCode.NotFound));
-        Assert.False(await client.CloseAsync("000000"));
+        Assert.False((await client.CloseAsync("000000")).Closed);
+    }
+
+    [Fact]
+    public async Task Close_WithRevertResult_ParsesItToo()
+    {
+        // Регрессия (бэклог п.119): «close» должен получить итог отката, если агент успел
+        // прислать его до отключения канала, чтобы не советовать поход к машине зря.
+        var json = """
+        {"closed":true,"revert":{"sz":"156864","done":["sshd","учётка svc-diag"],"failed":[]}}
+        """;
+        var client = NewClient(new StubHandler(HttpStatusCode.OK, json));
+
+        var outcome = await client.CloseAsync("156864");
+
+        Assert.True(outcome.Closed);
+        Assert.NotNull(outcome.Revert);
+        Assert.True(outcome.Revert!.AllClean);
+        Assert.Equal(2, outcome.Revert.Done.Count);
     }
 
     [Fact]
@@ -202,6 +232,35 @@ public class HubApiClientTests
 
         Assert.Contains("/api/sessions/156864/diag", handler.LastRequest!.RequestUri!.AbsolutePath);
         Assert.Contains("sections=storage", handler.LastRequest!.RequestUri!.Query);
+    }
+
+    [Fact]
+    public async Task GetHubVersion_Ok_ReturnsText()
+    {
+        var handler = new StubHandler(HttpStatusCode.OK, "hub 1.0.0, сборка 2026-09-04 12:00");
+        var client = NewClient(handler);
+
+        var version = await client.GetHubVersionAsync();
+
+        Assert.Equal("/api/version", handler.LastRequest!.RequestUri!.AbsolutePath);
+        Assert.Equal("hub 1.0.0, сборка 2026-09-04 12:00", version);
+    }
+
+    [Fact]
+    public async Task GetHubVersion_HubUnreachable_ReturnsNullInsteadOfThrowing()
+    {
+        // Регрессия (бэклог п.165): протухший/недоступный hub не должен ронять `--version` —
+        // операторy нужна хотя бы своя версия CLI.
+        var handler = new ThrowingHandler();
+        var client = NewClient(handler);
+
+        Assert.Null(await client.GetHubVersionAsync());
+    }
+
+    private sealed class ThrowingHandler : HttpMessageHandler
+    {
+        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken ct)
+            => throw new HttpRequestException("hub недоступен");
     }
 
     [Fact]

@@ -16,10 +16,12 @@ public sealed class AgentHub : Microsoft.AspNetCore.SignalR.Hub
     private readonly PullCoordinator _pull;
     private readonly PushCoordinator _push;
     private readonly JournalWriter _journal;
+    private readonly RevertResultStore _revertResults;
 
     public AgentHub(SessionRegistry registry, ISessionStore store,
         IKnowledgeBaseScaffolder kb, IReportStore reports, ExecCoordinator exec,
-        PullCoordinator pull, PushCoordinator push, JournalWriter journal)
+        PullCoordinator pull, PushCoordinator push, JournalWriter journal,
+        RevertResultStore revertResults)
     {
         _registry = registry;
         _store = store;
@@ -29,6 +31,7 @@ public sealed class AgentHub : Microsoft.AspNetCore.SignalR.Hub
         _pull = pull;
         _push = push;
         _journal = journal;
+        _revertResults = revertResults;
     }
 
     public async Task Register(RegisterRequest request)
@@ -133,6 +136,21 @@ public sealed class AgentHub : Microsoft.AspNetCore.SignalR.Hub
     public Task ReportActivity(string sz, string activity, DateTimeOffset? since)
     {
         _registry.SetActivity(sz, activity, since);
+        return Task.CompletedTask;
+    }
+
+    /// <summary>Итог отката, присланный ДО отключения канала. `close` подхватывает его,
+    /// пока ждёт; журнал СЗ получает запись независимо от того, кто инициировал откат
+    /// (close, watchdog, клавиша C на клиенте) — раньше сводка терялась вместе с процессом
+    /// агента (бэклог п.119).</summary>
+    public Task RevertResult(RevertResult result)
+    {
+        _revertResults.Set(result);
+        var text = result.AllClean
+            ? $"відкат: виконано повністю ({result.Done.Count} кроків)"
+            : $"відкат: **ЧАСТКОВО** ({result.Done.Count} ок, {result.Failed.Count} з помилкою: " +
+              $"{string.Join(", ", result.Failed.Select(f => f.Step))})";
+        _journal.Machine(result.Sz, text);
         return Task.CompletedTask;
     }
 

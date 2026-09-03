@@ -32,6 +32,32 @@ public sealed class KbReportStore : IReportStore
         Directory.CreateDirectory(dir);
         var full = Path.Combine(dir, safeName);
         File.WriteAllBytes(full, content);
+
+        // `діагностика.md` иначе так и остаётся пустой заглушкой на 42 байта — файл, который
+        // логично открыть первым, не содержит ничего, хотя прогон давно завершился и отчёт
+        // лежит в reports\<timestamp>\ (бэклог п.60). Маркеры — чтобы не съесть ручные правки
+        // мастера, если он позже дописал в этот файл что-то своё.
+        if (safeName.Equals("diag.md", StringComparison.OrdinalIgnoreCase))
+            UpdateFindings(sz, timestamp, content.Length);
+
         return full;
+    }
+
+    private const string DiagBegin = "<!-- diag:початок -->";
+    private const string DiagEnd = "<!-- diag:кінець -->";
+
+    private void UpdateFindings(string sz, string timestamp, int bytes)
+    {
+        var path = _paths.Findings(sz);
+        var existing = File.Exists(path) ? File.ReadAllText(path) : $"# Діагностика — СЗ {sz}\n\n";
+        var block = $"{DiagBegin}\n**Останній прогін діагностики:** " +
+                    $"[diag.md](reports/{timestamp}/diag.md) — {bytes / 1024d:N1} КБ, {DateTime.Now:dd.MM HH:mm}\n{DiagEnd}";
+
+        var start = existing.IndexOf(DiagBegin, StringComparison.Ordinal);
+        var end = existing.IndexOf(DiagEnd, StringComparison.Ordinal);
+        var updated = start >= 0 && end > start
+            ? existing[..start] + block + existing[(end + DiagEnd.Length)..]
+            : existing.TrimEnd('\n', ' ') + "\n\n" + block + "\n";
+        File.WriteAllText(path, updated);
     }
 }

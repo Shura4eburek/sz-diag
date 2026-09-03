@@ -117,7 +117,7 @@ public class SessionTableRendererTests
 
         Assert.Contains("Активность", text);
         Assert.Contains("Тест OCCT", text);
-    }
+    }
 
     [Fact]
     public void Render_OfflineSession_FreezesUptimeAndShowsSilence()
@@ -136,6 +136,57 @@ public class SessionTableRendererTests
         Assert.Contains("2ч 48мин", text);        // заморожено на моменте последнего контакта
         Assert.Contains("нет связи", text);
         Assert.DoesNotContain("3ч 0мин", text);
+    }
+
+    [Fact]
+    public void Render_RecentlyOffline_ShowsLagLabel_NotBareOffline()
+    {
+        // Регрессия (бэклог п.42): «offline» под нагрузкой не значит вырубон — exec может не
+        // отвечать минутами, пока машина жива. Короткое молчание должно читаться как лаг.
+        var now = new DateTimeOffset(2026, 9, 4, 12, 0, 0, TimeSpan.Zero);
+        var lastSeen = now - TimeSpan.FromMinutes(3);
+        var sessions = new List<SessionInfo>
+        {
+            new("160636", "10.0.0.42", "PC-1", SessionStatus.Offline, lastSeen, lastSeen),
+        };
+
+        var text = RenderToText(SessionTableRenderer.Render(sessions, now));
+
+        Assert.Contains("лаг?", text);
+        Assert.DoesNotContain("ВЫРУБОН", text);
+    }
+
+    [Fact]
+    public void Render_LongOffline_ShowsLikelyFailureLabel()
+    {
+        // После 10+ минут молчания «лаг» — уже неправдоподобное объяснение (бэклог п.42).
+        var now = new DateTimeOffset(2026, 9, 4, 12, 0, 0, TimeSpan.Zero);
+        var lastSeen = now - TimeSpan.FromMinutes(15);
+        var sessions = new List<SessionInfo>
+        {
+            new("160636", "10.0.0.42", "PC-1", SessionStatus.Offline, lastSeen, lastSeen),
+        };
+
+        var text = RenderToText(SessionTableRenderer.Render(sessions, now));
+
+        Assert.Contains("ВЫРУБОН", text);
+        Assert.DoesNotContain("лаг?", text);
+    }
+
+    [Fact]
+    public void Render_Online_ShowsPlainOnline_NoLagOrFailureLabel()
+    {
+        var now = new DateTimeOffset(2026, 9, 4, 12, 0, 0, TimeSpan.Zero);
+        var sessions = new List<SessionInfo>
+        {
+            new("160636", "10.0.0.42", "PC-1", SessionStatus.Online, now, now),
+        };
+
+        var text = RenderToText(SessionTableRenderer.Render(sessions, now));
+
+        Assert.Contains("online", text);
+        Assert.DoesNotContain("лаг?", text);
+        Assert.DoesNotContain("ВЫРУБОН", text);
     }
 
     [Fact]

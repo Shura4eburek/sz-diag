@@ -5,10 +5,10 @@ namespace SzDiag.Cli;
 public interface IHubApiClient
 {
     Task<IReadOnlyList<SessionInfo>> GetSessionsAsync(CancellationToken ct = default);
-    Task<bool> CloseAsync(string sz, CancellationToken ct = default);
+    Task<CloseOutcome> CloseAsync(string sz, CancellationToken ct = default);
 
     /// <summary>Ручной шаг у машины в журнал СЗ. Принимается и когда сессии нет.</summary>
-    Task<bool> AddNoteAsync(string sz, string text, CancellationToken ct = default);
+    Task<NoteResult> AddNoteAsync(string sz, string text, CancellationToken ct = default);
     Task<TargetInfo?> GetTargetAsync(string sz, CancellationToken ct = default);
     Task<TriggerResult> TriggerTestAsync(string sz, string? filter, string? config,
         bool sameConfig, CancellationToken ct = default);
@@ -29,8 +29,18 @@ public interface IHubApiClient
     Task<RebootTimeline?> GetRebootsAsync(string sz, CancellationToken ct = default);
     Task<bool> AddMaintenanceAsync(MaintenanceWindow window, CancellationToken ct = default);
     Task<IReadOnlyList<MaintenanceWindow>> GetMaintenanceAsync(string sz, CancellationToken ct = default);
+
+    /// <summary>Версия/дата сборки hub — null, если hub не ответил (протух молча — бэклог п.165).</summary>
+    Task<string?> GetHubVersionAsync(CancellationToken ct = default);
 }
 
 /// <summary>Итог запуска прогона: hub возвращает текст причины, и CLI обязан его показать —
 /// иначе подсказка про `--same-config` до пользователя не доедет.</summary>
 public sealed record TriggerResult(bool Ok, string? Error);
+
+/// <summary>Итог `AddNoteAsync`. Эндпоинт журнала принимает любую валидную СЗ без проверки
+/// существования сессии — 404 там означает не «СЗ не найдена», а «hub не знает такой
+/// маршрут вообще», то есть hub старее CLI. Раньше оба случая давали одинаковое безликое
+/// «hub не принял заметку», и на живой заявке (161190) причину пришлось искать вручную
+/// (бэклог п.191).</summary>
+public enum NoteResult { Ok, Rejected, HubTooOld }

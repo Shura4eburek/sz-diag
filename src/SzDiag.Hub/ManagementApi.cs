@@ -24,12 +24,17 @@ public static class ManagementApi
 
         group.MapGet("/sessions", (SessionRegistry reg) => Results.Ok(reg.GetActive()));
 
+        // Версия/дата сборки hub — `szcli --version` печатает рядом со своей, чтобы
+        // рассинхрон («cli свежий, hub протух неделю назад») был виден сразу (бэклог п.165).
+        group.MapGet("/version", () => Results.Text(HubBuildInfo.Describe()));
+
         group.MapPost("/sessions/{sz}/close", async (string sz, SessionCloser closer,
             JournalWriter journal) =>
         {
-            if (!await closer.CloseAsync(sz)) return Results.NotFound();
+            var outcome = await closer.CloseAsync(sz);
+            if (!outcome.Closed) return Results.NotFound();
             journal.Command(sz, "`close` — доступ згорнуто, сесію закрито");
-            return Results.Ok();
+            return Results.Ok(outcome);
         });
 
         // Заметку принимаем даже когда сессии нет: мастер отходит от машины, агент может быть

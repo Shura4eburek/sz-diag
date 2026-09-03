@@ -54,6 +54,51 @@ if (-not (Test-Path $package)) {
     }
 }
 
+# 1b. CLI/Hub на самом боксе: протухший szcli молча печатал usage вместо ошибки на
+# неизвестной команде (`note`), и диагноз занимал минуты — код с ней давно ушёл вперёд,
+# а build-dist после этого не гоняли (бэклог п.198/205/211/без номера-165).
+function Test-ComponentFreshness([string]$ExePath, [string[]]$Paths, [string]$Label) {
+    if (-not (Test-Path $ExePath)) { Bad "$Label не собран ($ExePath)"; return }
+    $exeTime = (Get-Item $ExePath).LastWriteTime
+    $lastCommit = & git -C $Root log -1 --format="%cI|%h|%s" -- $Paths 2>$null
+    if (-not $lastCommit) { Info "$Label — git не ответил, свежесть не проверить"; return }
+    $parts = $lastCommit -split '\|', 3
+    $commitTime = [datetime]::Parse($parts[0])
+    if ($commitTime -gt $exeTime) {
+        Bad ("{0} собран {1:dd.MM HH:mm}, а код менялся {2:dd.MM HH:mm}" -f $Label, $exeTime, $commitTime)
+        Write-Host "       отстал, последний коммит: $($parts[1]) $($parts[2])" -ForegroundColor Red
+        Write-Host "       -> .\tools\build-dist.ps1" -ForegroundColor Yellow
+    } else {
+        Ok ("{0} свежий (собран {1:dd.MM HH:mm}, код — {2:dd.MM HH:mm})" -f $Label, $exeTime, $commitTime)
+    }
+}
+Test-ComponentFreshness (Join-Path $Root "dist\host\cli\SzDiag.Cli.exe") @("src/SzDiag.Cli", "src/SzDiag.Contracts") "szcli"
+Test-ComponentFreshness (Join-Path $Root "dist\host\hub\SzDiag.Hub.exe") @("src/SzDiag.Hub", "src/SzDiag.Contracts") "hub"
+
+# 1c. Непринятая сборка рядом: build-dist.ps1 публикует во временную папку `<out>.new` и
+# переименовывает её в `<out>` атомарно ПОСЛЕ успеха — но если целевая папка залочена
+# (запущен szcli/hub), переименование может не пройти, и рядом навсегда остаётся свежий
+# `cli.new`/`hub.new`, которым никто не пользуется, пока рабочая копия тем временем
+# протухает молча (бэклог п.211: `cli` от 07.08, `cli.new` от 19.08, `szcli.cmd`
+# по-прежнему указывает на старый `cli`).
+foreach ($pair in @(
+    @{ Old = "dist\host\cli"; New = "dist\host\cli.new" },
+    @{ Old = "dist\host\hub"; New = "dist\host\hub.new" }
+)) {
+    $newPath = Join-Path $Root $pair.New
+    if (-not (Test-Path $newPath)) { continue }
+    $oldPath = Join-Path $Root $pair.Old
+    $newTime = (Get-ChildItem $newPath -Recurse -File -ErrorAction SilentlyContinue |
+        Sort-Object LastWriteTime -Descending | Select-Object -First 1).LastWriteTime
+    $oldTime = if (Test-Path $oldPath) {
+        (Get-ChildItem $oldPath -Recurse -File -ErrorAction SilentlyContinue |
+            Sort-Object LastWriteTime -Descending | Select-Object -First 1).LastWriteTime
+    } else { $null }
+    $oldLabel = if ($oldTime) { "рабочая от {0:dd.MM HH:mm}" -f $oldTime } else { "рабочей нет" }
+    Bad ("рядом лежит непринятая сборка {0} (от {1:dd.MM HH:mm}) — {2}" -f $pair.New, $newTime, $oldLabel)
+    Write-Host "       закрой процесс, который держал файлы (szcli/hub), и перезапусти build-dist.ps1" -ForegroundColor Yellow
+}
+
 # 2. Каталог инструментов: из него hub раздаёт тулы клиенту (бэклог п.67)
 $hubCfgPath = Join-Path $Root "dist\host\hub\appsettings.json"
 if (-not (Test-Path $hubCfgPath)) {

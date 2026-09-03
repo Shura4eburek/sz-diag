@@ -63,4 +63,8 @@ public static class HubRoutes
 
     // Агент -> hub: сообщить текущую активность (метка + время старта).
     public const string ReportActivity = nameof(ReportActivity);
+
+    // Агент -> hub: итог отката ДО отключения канала — иначе полноту отката можно
+    // подтвердить только придя к машине руками (бэклог п.119).
+    public const string RevertResult = nameof(RevertResult);
 }

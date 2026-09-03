@@ -193,9 +193,16 @@ public static class SensorReport
         var iCpuTemp = Find("Temperature|", "Tctl");
         if (iCpuTemp < 0) iCpuTemp = Find("Temperature|", "CPU Package");
         var iCpuPower = Find("Power|", "Package");
-        var iGpuLoad = Find("Load|", "GPU Core");
-        var iGpuTemp = Find("Temperature|", "GPU Core");
-        var iGpuPower = Find("Power|", "GPU Package");
+
+        // Несколько GPU в одном CSV (APU + дискретная карта) — берём дискретную, а не первую
+        // попавшуюся: на машине с Ryzen 7700 первой в перечислении шла простаивающая
+        // "AMD Radeon(TM) Graphics" (0%), а реально нагруженная RTX 5070 Ti (97%) оставалась
+        // незамеченной — отчёт врал «GPU 0%» при живых температуре/мощности (бэклог п.217).
+        var (iGpuLoad, gpuHardware) = FindGpuColumn(cols, "GPU Core");
+        var iGpuTemp = gpuHardware is null ? -1 : FindOnHardware(cols, gpuHardware, "Temperature|", "GPU Core");
+        if (iGpuTemp < 0) iGpuTemp = Find("Temperature|", "GPU Core");
+        var iGpuPower = gpuHardware is null ? -1 : FindOnHardware(cols, gpuHardware, "Power|", "GPU Package");
+        if (iGpuPower < 0) iGpuPower = Find("Power|", "GPU Package");
         var iRam = Find("Load|", "Memory");
         var i12 = Find("Voltage|", "+12");
         var i5 = Find("Voltage|", "+5");
@@ -232,6 +239,57 @@ public static class SensorReport
                 At(i33)));
         }
         return samples;
+    }
+
+    /// <summary>Имена, по которым узнаём встроенную графику APU — она почти всегда простаивает
+    /// на сборке с дискретной картой, но перечисляется в CSV первой (бэклог п.217).</summary>
+    private static readonly string[] IntegratedGpuMarkers =
+    {
+        "radeon(tm) graphics", "radeon graphics", "vega graphics",
+        "uhd graphics", "iris", "hd graphics",
+    };
+
+    private static bool LooksIntegrated(string hardwareName)
+    {
+        var lower = hardwareName.ToLowerInvariant();
+        return IntegratedGpuMarkers.Any(lower.Contains);
+    }
+
+    /// <summary>Индекс колонки нужного GPU-датчика (<paramref name="sensorNeedle"/> вместе с
+    /// <c>Load|</c>) и имя оборудования, к которому она относится. Среди нескольких GPU в
+    /// заголовке (`&lt;hardware&gt;|Load|GPU Core|...`) предпочитает не встроенную графику —
+    /// а если карт несколько дискретных или сборка чисто с APU, берёт первую по порядку,
+    /// как и раньше.</summary>
+    private static (int Index, string? Hardware) FindGpuColumn(IReadOnlyList<string> cols, string sensorNeedle)
+    {
+        var candidates = new List<(int Index, string Hardware)>();
+        for (var i = 0; i < cols.Count; i++)
+        {
+            var name = cols[i];
+            if (!name.Contains("Load|", StringComparison.OrdinalIgnoreCase)) continue;
+            if (!name.Contains(sensorNeedle, StringComparison.OrdinalIgnoreCase)) continue;
+            candidates.Add((i, name.Split('|')[0].Trim()));
+        }
+        if (candidates.Count == 0) return (-1, null);
+
+        foreach (var c in candidates)
+            if (!LooksIntegrated(c.Hardware)) return c;
+        return candidates[0];   // все встроенные (или сборка вообще без дискретной карты)
+    }
+
+    /// <summary>Тот же <c>Find</c>, но только среди колонок конкретного оборудования — иначе
+    /// температура/мощность дискретной GPU могла бы подхватиться со встроенной, если у той
+    /// сенсор называется точно так же.</summary>
+    private static int FindOnHardware(IReadOnlyList<string> cols, string hardware, params string[] needles)
+    {
+        var prefix = hardware + "|";
+        for (var i = 0; i < cols.Count; i++)
+        {
+            var name = cols[i];
+            if (!name.StartsWith(prefix, StringComparison.OrdinalIgnoreCase)) continue;
+            if (needles.All(n => name.Contains(n, StringComparison.OrdinalIgnoreCase))) return i;
+        }
+        return -1;
     }
 
     /// <summary>Разбор строки CSV с учётом кавычек: имена датчиков содержат запятые.</summary>

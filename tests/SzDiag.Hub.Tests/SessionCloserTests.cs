@@ -9,9 +9,15 @@ public class SessionCloserTests
     private sealed class SpyCommandSender : IAgentCommandSender
     {
         public List<(string conn, string sz)> Sent { get; } = new();
+
+        /// <summary>Имитирует агента, который отвечает итогом отката сразу по получении
+        /// Revert — как это реально устроено (см. AgentSession.DoRevertAsync).</summary>
+        public Action? OnSendRevert { get; set; }
+
         public Task SendRevertAsync(string connectionId, string sz, CancellationToken ct = default)
         {
             Sent.Add((connectionId, sz));
+            OnSendRevert?.Invoke();
             return Task.CompletedTask;
         }
         public Task SendRunTestsAsync(string connectionId, string sz, string? filter, CancellationToken ct = default) => Task.CompletedTask;
@@ -55,11 +61,11 @@ public class SessionCloserTests
         reg.Register("156864", "10.0.0.42", "PC-1", "conn-1");
         var sender = new SpyCommandSender();
         var store = new SpyStore();
-        var closer = new SessionCloser(reg, store, sender);
+        var closer = new SessionCloser(reg, store, sender, new RevertResultStore(), TimeSpan.FromMilliseconds(50));
 
-        var ok = await closer.CloseAsync("156864");
+        var outcome = await closer.CloseAsync("156864");
 
-        Assert.True(ok);
+        Assert.True(outcome.Closed);
         Assert.Equal(("conn-1", "156864"), sender.Sent.Single());
         Assert.Equal("156864", store.Closed.Single());
         Assert.Empty(reg.GetActive());
@@ -71,11 +77,11 @@ public class SessionCloserTests
         var reg = new SessionRegistry();
         var sender = new SpyCommandSender();
         var store = new SpyStore();
-        var closer = new SessionCloser(reg, store, sender);
+        var closer = new SessionCloser(reg, store, sender, new RevertResultStore());
 
-        var ok = await closer.CloseAsync("000000");
+        var outcome = await closer.CloseAsync("000000");
 
-        Assert.False(ok);
+        Assert.False(outcome.Closed);
         Assert.Empty(sender.Sent);
         Assert.Empty(store.Closed);
     }
@@ -88,12 +94,36 @@ public class SessionCloserTests
         reg.MarkOfflineByConnection("conn-1"); // сессия офлайн, но connectionId ещё в реестре
         var sender = new SpyCommandSender();
         var store = new SpyStore();
-        var closer = new SessionCloser(reg, store, sender);
+        var closer = new SessionCloser(reg, store, sender, new RevertResultStore());
 
-        var ok = await closer.CloseAsync("156864");
+        var outcome = await closer.CloseAsync("156864");
 
-        Assert.True(ok);
+        Assert.True(outcome.Closed);
+        Assert.Null(outcome.Revert);   // офлайн-агент уже не ответит — ждать нечего (п.119)
         Assert.Equal("156864", store.Closed.Single());
         Assert.Empty(reg.GetActive());
+    }
+
+    [Fact]
+    public async Task Close_OnlineSz_PicksUpRevertResultReportedByAgent()
+    {
+        // Регрессия (бэклог п.119): `close` должен подхватить итог отката, если агент успел
+        // прислать его до отключения канала — иначе полноту отката подтвердить нечем.
+        var reg = new SessionRegistry();
+        reg.Register("156864", "10.0.0.42", "PC-1", "conn-1");
+        var store = new SpyStore();
+        var revertResults = new RevertResultStore();
+        var sender = new SpyCommandSender
+        {
+            OnSendRevert = () => revertResults.Set(
+                new RevertResult("156864", new[] { "sshd" }, Array.Empty<RevertResultFailure>()))
+        };
+        var closer = new SessionCloser(reg, store, sender, revertResults, TimeSpan.FromSeconds(1));
+
+        var outcome = await closer.CloseAsync("156864");
+
+        Assert.True(outcome.Closed);
+        Assert.NotNull(outcome.Revert);
+        Assert.True(outcome.Revert!.AllClean);
     }
 }

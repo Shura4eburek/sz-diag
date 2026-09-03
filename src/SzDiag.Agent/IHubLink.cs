@@ -44,5 +44,9 @@ public interface IHubLink
     /// <summary>Агент -> hub: текущая активность (метка + время старта; since=null — простой).</summary>
     Task ReportActivityAsync(string sz, string activity, DateTimeOffset? since, CancellationToken ct = default);
 
+    /// <summary>Агент -> hub: итог отката, ДО отключения канала — иначе close по офлайн-СЗ
+    /// не может подтвердить полноту отката иначе как походом к машине (бэклог п.119).</summary>
+    Task SendRevertResultAsync(SzDiag.Contracts.RevertResult result, CancellationToken ct = default);
+
     ValueTask DisposeAsync();
 }

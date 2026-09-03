@@ -39,19 +39,25 @@ public sealed class HubApiClient : IHubApiClient
         return await _http.GetFromJsonAsync<List<SessionInfo>>("/api/sessions", cts.Token) ?? new();
     }
 
-    public async Task<bool> CloseAsync(string sz, CancellationToken ct = default)
+    public async Task<CloseOutcome> CloseAsync(string sz, CancellationToken ct = default)
     {
         using var cts = Short(ct);
         var resp = await _http.PostAsync($"/api/sessions/{sz}/close", null, cts.Token);
-        return resp.StatusCode == HttpStatusCode.OK;
+        if (resp.StatusCode != HttpStatusCode.OK) return new CloseOutcome(false, null);
+        // Итог отката — не обязательное поле старого протокола: hub мог не успеть его
+        // получить от агента, и тело ответа тогда просто {"closed":true,"revert":null}.
+        return await resp.Content.ReadFromJsonAsync<CloseOutcome>(cts.Token) ?? new CloseOutcome(true, null);
     }
 
-    public async Task<bool> AddNoteAsync(string sz, string text, CancellationToken ct = default)
+    public async Task<NoteResult> AddNoteAsync(string sz, string text, CancellationToken ct = default)
     {
         using var cts = Short(ct);
         var resp = await _http.PostAsJsonAsync($"/api/sessions/{sz}/journal",
             new JournalNoteRequest(text), cts.Token);
-        return resp.StatusCode == HttpStatusCode.OK;
+        if (resp.StatusCode == HttpStatusCode.OK) return NoteResult.Ok;
+        // Эндпоинт принимает любую валидную СЗ без проверки сессии — 404 тут не «не нашли
+        // СЗ», а «такого маршрута на hub нет вовсе» (старый hub без journal-эндпоинта).
+        return resp.StatusCode == HttpStatusCode.NotFound ? NoteResult.HubTooOld : NoteResult.Rejected;
     }
 
     public async Task<TargetInfo?> GetTargetAsync(string sz, CancellationToken ct = default)
@@ -221,5 +227,17 @@ public sealed class HubApiClient : IHubApiClient
         using var cts = Short(ct);
         var resp = await _http.PostAsync(url, null, cts.Token);
         return resp.StatusCode == HttpStatusCode.OK;
+    }
+
+    public async Task<string?> GetHubVersionAsync(CancellationToken ct = default)
+    {
+        try
+        {
+            using var cts = Short(ct);
+            var resp = await _http.GetAsync("/api/version", cts.Token);
+            if (resp.StatusCode != HttpStatusCode.OK) return null;
+            return await resp.Content.ReadAsStringAsync(cts.Token);
+        }
+        catch { return null; }   // hub недоступен — --version не должен падать из-за этого
     }
 }
