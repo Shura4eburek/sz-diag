@@ -50,6 +50,11 @@ public sealed class HubOptions
 
     /// <summary>Оффсайт-бэкап базы знаний в git-remote.</summary>
     public KbBackupOptions KbBackup { get; set; } = new();
+
+    /// <summary>Порог числа потоков процесса, после которого <see cref="ThreadPoolWatchdog"/>
+    /// пишет «THREAD POOL STARVATION» в лог. На живой заявке (СЗ 160306, бэклог п.50) здоровый
+    /// hub сразу после рестарта держал 26 потоков, залипший — 3674. 0 — сторож выключен.</summary>
+    public int ThreadPoolWarnThreshold { get; set; } = 300;
 }
 
 public sealed class KbBackupOptions

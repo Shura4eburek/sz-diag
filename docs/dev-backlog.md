@@ -2127,7 +2127,14 @@ USB-Ethernet донглы — они сейчас в `Others`, т.е. на фл�
   оффсетом), а `szcli` при выводе приводит к поясу хоста; в PE ещё и `wpeutil SetTimeZone`
   на старте не помешает.
 
-### 50. Hub залипает в thread pool starvation — «онлайн», но не отвечает, и понять это нечем
+### 50. 🟡 ЧАСТИЧНО (2026-09-04) — Hub залипает в thread pool starvation — «онлайн», но не отвечает, и понять это нечем
+
+**Сделано:** `/healthz` (без токена, вне `/api`/`/agents`) отдаёт снимок ThreadPool
+(`ThreadCount`/`AvailableWorkerThreads`/`AvailableCompletionPortThreads`/`PendingWorkItemCount`);
+`ThreadPoolWatchdog` каждые 30 с сравнивает число потоков с `Hub.ThreadPoolWarnThreshold`
+(300 по умолчанию) и при первом переходе пишет «THREAD POOL STARVATION» в консоль/лог-файл.
+**Не сделано:** поиск конкретного sync-over-async и `dotnet-dump`/`clrstack -all` по дампу —
+нужно живое повторное залипание, вне CODE-скоупа; `dotnet-dump` в список ПО на боксе не занесён.
 
 Живая 160306, 05.08. Hub «работал»: процесс жив, порт 5099 слушает, TCP-коннект проходит,
 `Responding=True` — а **ни один HTTP-запрос не обслуживается**. `szcli` и `Invoke-RestMethod`
