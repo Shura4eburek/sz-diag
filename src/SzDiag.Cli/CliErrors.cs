@@ -28,16 +28,27 @@ public static class CliErrors
             "Таймаут: hub не ответил вовремя — агент, скорее всего, задавлен нагрузкой. "
             + "Проверь szcli list (heartbeat/boot-time) и повтори позже.",
 
+        // StatusCode заполнен — значит hub ОТВЕТИЛ (пусть и не тем, что мы ждали): это разные
+        // диагнозы с «сеть/hub недоступны» (бэклог п.212, СЗ 161498). 405 от `--result ""`
+        // (запрос без jobId) при живом hub раньше читался как «Hub недоступен» и уводил
+        // диагностику не туда — hub стоял и отвечал секунда в секунду.
+        HttpRequestException { StatusCode: { } code } h =>
+            $"Hub ответил {(int)code} {code}: {h.Message} — hub жив, это не «недоступен», а неверный запрос/маршрут CLI.",
+
         HttpRequestException h =>
             $"Hub недоступен{(string.IsNullOrWhiteSpace(hubUrl) ? "" : $" ({hubUrl})")}: {h.Message}",
 
         _ => ex.Message,
     };
 
+    /// <summary>Hub ответил (пусть и отказом) — отдельный код от «до hub не достучались».</summary>
+    public const int HubRejected = 5;
+
     /// <summary>Код возврата: всегда ненулевой, чтобы обёртки в скриптах видели сбой.</summary>
     public static int ExitCode(Exception ex) => ex switch
     {
         TimeoutException or TaskCanceledException or OperationCanceledException => 3,
+        HttpRequestException { StatusCode: { } } => HubRejected,
         HttpRequestException => 4,
         _ => 1,
     };

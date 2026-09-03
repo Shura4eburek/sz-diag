@@ -468,6 +468,14 @@ switch (command)
     // запрос — проходит даже под полной нагрузкой, когда обычный exec уже не проходит.
     case "exec" when args.Length >= 4 && args[2].Equals("--result", StringComparison.OrdinalIgnoreCase):
     {
+        // Пустой jobId не должен уходить в hub: там он превращается в неоднозначный маршрут
+        // и 405, который CliErrors раньше рендерил как «Hub недоступен» при живом hub
+        // (бэклог п.212, СЗ 161498).
+        if (ExecResultGuard.IsMissingJobId(args[3]))
+        {
+            AnsiConsole.MarkupLine("[red]Не передан jobId[/] — укажи `szcli exec --result <jobId>`.");
+            return 2;
+        }
         var tailIdx = Array.FindIndex(args, a => a.Equals("--tail", StringComparison.OrdinalIgnoreCase));
         var tailLines = tailIdx >= 0 && args.Length > tailIdx + 1 && int.TryParse(args[tailIdx + 1], out var tl)
             ? tl : ExecLimits.DefaultTailLines;
@@ -507,6 +515,11 @@ switch (command)
     // коротким каналом, что и --result — проходит под полной нагрузкой (п.134/172/176).
     case "exec" when args.Length >= 4 && args[2].Equals("--cancel", StringComparison.OrdinalIgnoreCase):
     {
+        if (ExecResultGuard.IsMissingJobId(args[3]))
+        {
+            AnsiConsole.MarkupLine("[red]Не передан jobId[/] — укажи `szcli exec --cancel <jobId>`.");
+            return 2;
+        }
         var status = await client.ExecCancelAsync(args[1], args[3]);
         if (status is null)
         {
@@ -594,6 +607,14 @@ switch (command)
         }
         // CLIXML разворачиваем на своей стороне: ошибка PowerShell должна читаться как
         // ошибка, а не как XML-дамп с _x000D__x000A_ вместо переносов (бэклог п.28).
+        // --detach без JobId — отказ агента, а не пустая строка, уходящая дальше по
+        // конвейеру (бэклог п.212): раньше такой исход можно было принять за нормальный.
+        if (ExecResultGuard.DetachMissingJobId(detach, execRes.JobId))
+        {
+            AnsiConsole.MarkupLineInterpolated(
+                $"[red]--detach не вернул jobId:[/] {(string.IsNullOrEmpty(execRes.StdErr) ? "агент не подтвердил фоновый запуск" : CliXml.Decode(execRes.StdErr).TrimEnd())}");
+            return ExecExitCode.AgentFailure;
+        }
         if (!string.IsNullOrEmpty(execRes.StdOut)) Console.WriteLine(CliXml.Decode(execRes.StdOut).TrimEnd());
         if (!string.IsNullOrEmpty(execRes.StdErr))
             AnsiConsole.MarkupLineInterpolated($"[yellow]stderr:[/] {CliXml.Decode(execRes.StdErr).TrimEnd()}");
