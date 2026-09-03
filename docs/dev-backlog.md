@@ -6450,7 +6450,7 @@ WHEA/BSOD, то есть косвенное.
 **Критерий готовности.** «Вырубоны без BSOD и без WHEA» больше не заканчиваются выводом
 «причина не видна»: LiveKernelEvent-таймлайн печатается одной командой.
 
-### 192. Мелочи PE-окружения: нет `Get-PnpDevice`, `Get-StorageReliabilityCounter` пустой (СЗ 161556)
+### 192. 🟡 ЧАСТИЧНО (2026-09-04) — Мелочи PE-окружения: нет `Get-PnpDevice`, `Get-StorageReliabilityCounter` пустой (СЗ 161556)
 
 **Боль.** В WinPE нет модуля PnpDevice (`Get-PnpDevice` — `CommandNotFoundException`), пришлось
 переписывать на `Get-CimInstance Win32_PnPEntity`. `Get-StorageReliabilityCounter` в PE отдал
@@ -6463,6 +6463,14 @@ WHEA/BSOD, то есть косвенное.
 
 **Критерий готовности.** PE-рецепты не падают на отсутствующих командлетах, наработка накопителя
 читается из PE.
+
+**Сделано (2026-09-04).** Список ограничений сведён в шапку `pe-offline-triage.ps1` (нема
+`Get-PnpDevice`/замена `Win32_PnPEntity`, дыра `Get-StorageReliabilityCounter`, таймзона
+логов из б.227) и продублирован коротким указателем в шапке остальных `pe-*.ps1`.
+**Частично** — живой прогон `nvme-smart.ps1` из PE не делался (нужна машина в PE): по коду
+он не зависит ни от модуля Storage, ни от `Get-PnpDevice` (голый `IOCTL_STORAGE_QUERY_
+PROPERTY` + `Get-PhysicalDisk`), поэтому теоретически должен работать, но это не
+приборная проверка — отмечено в README как открытый пункт.
 
 ### 189. Апдейтер падает с необработанным исключением, когда политика Application Control (WDAC) блокирует агента
 

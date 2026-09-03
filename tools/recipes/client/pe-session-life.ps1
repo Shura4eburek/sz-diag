@@ -1,4 +1,7 @@
 ﻿$OutputEncoding = [Console]::OutputEncoding = [Text.UTF8Encoding]::new()
+# Обмеження WinPE (нема Get-PnpDevice, Get-StorageReliabilityCounter частково пустий тощо) —
+# зведений список у шапці pe-offline-triage.ps1 (бэклог п.192).
+#
 # Скільки прожив кожен сеанс, що закінчився вимкноном — по офлайн-журналу з WinPE (СЗ 161556).
 #
 # Грабля: `szcli reboots` працює з живим агентом, а коли машина в PE (ОС не пускає, лаунчер клубу,

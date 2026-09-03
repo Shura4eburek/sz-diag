@@ -1,4 +1,7 @@
 ﻿$OutputEncoding = [Console]::OutputEncoding = [Text.UTF8Encoding]::new()
+# Обмеження WinPE (нема Get-PnpDevice, Get-StorageReliabilityCounter частково пустий тощо) —
+# зведений список у шапці pe-offline-triage.ps1 (бэклог п.192).
+#
 # Розбір WER (`ReportArchive`/`ReportQueue`) офлайн-тому клієнта — LiveKernelEvent і BSOD (СЗ 161556).
 #
 # Грабля: на 161556 у System.evtx було 35 × Kernel-Power 41 і **нуль** BugCheck 1001, нуль WHEA,

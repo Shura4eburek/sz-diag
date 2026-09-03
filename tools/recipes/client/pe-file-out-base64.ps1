@@ -1,4 +1,7 @@
 ﻿$OutputEncoding = [Console]::OutputEncoding = [Text.UTF8Encoding]::new()
+# Обмеження WinPE (нема Get-PnpDevice, Get-StorageReliabilityCounter частково пустий тощо) —
+# зведений список у шапці pe-offline-triage.ps1 (бэклог п.192).
+#
 # Віддати файл з клієнта на хост через stdout `szcli exec`, коли `pull` і SMB не працюють (СЗ 161946).
 #
 # Грабля: у WinPE `szcli pull` висне до таймауту (бэклог п.215), а SMB не піднятий — і при цьому

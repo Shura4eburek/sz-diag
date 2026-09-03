@@ -1,4 +1,7 @@
 ﻿$OutputEncoding = [Console]::OutputEncoding = [Text.Encoding]::UTF8
+# Обмеження WinPE (нема Get-PnpDevice, Get-StorageReliabilityCounter частково пустий тощо) -
+# зведений список у шапці pe-offline-triage.ps1 (бэклог п.192).
+#
 # Грабля 162938: offline-mount-windows.ps1 хардкодит "диск 0, партиция 3" - на другой
 # машине раскладка другая (NVMe единственный, но номер партиции плавает; бывает второй
 # диск с чужой виндой). Этот рецепт СНАЧАЛА показывает раскладку и сам находит том,

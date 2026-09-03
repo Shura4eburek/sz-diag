@@ -1,4 +1,7 @@
 ﻿$OutputEncoding = [Console]::OutputEncoding = [Text.UTF8Encoding]::new()
+# Обмеження WinPE (нема Get-PnpDevice, Get-StorageReliabilityCounter частково пустий тощо) —
+# зведений список у шапці pe-offline-triage.ps1 (бэклог п.192).
+#
 # Офлайн-розбір WHEA / термалки / відеогілки з WinPE (СЗ 161946).
 #
 # Грабля: `pe-offline-events.ps1` дивиться лише System.evtx, а там секція WHEA буває порожня —
