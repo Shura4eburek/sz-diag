@@ -446,9 +446,15 @@ switch (command)
         var state = status.Running
             ? $"[yellow]выполняется[/] ({SessionTableRenderer.FormatElapsed(DateTimeOffset.Now - status.StartedAt)})"
             : $"[green]завершена[/] (exit {status.ExitCode})";
+        // Пока задача выполняется — когда out.txt последний раз дописывался: молчащий файл
+        // минутами и «работает медленно, просто вывод раз в N секунд» неотличимы на глаз без
+        // этой цифры (бэклог п.208, СЗ 161716) — тот же вопрос, ради которого делался ack.
+        var freshness = status.Running && status.LastOutputAt is { } lastAt
+            ? $", последняя строка {SessionTableRenderer.FormatElapsed(DateTimeOffset.Now - lastAt)} назад"
+            : "";
         // MarkupLine, а не MarkupLineInterpolated: последний экранирует вставленные значения,
         // и разметка из $state печаталась как текст «[green]завершена[/]» (260306).
-        AnsiConsole.MarkupLine($"Задача {Markup.Escape(args[3])}: {state}, вывода {status.OutputBytes} б");
+        AnsiConsole.MarkupLine($"Задача {Markup.Escape(args[3])}: {state}, вывода {status.OutputBytes} б{Markup.Escape(freshness)}");
         if (!string.IsNullOrEmpty(status.Tail)) Console.WriteLine(status.Tail);
         // Ошибка скрипта (например, parse-ошибка из err.txt) — отдельно от хвоста: раньше
         // «завершена (exit 1), вывода 0 б» была неотличима от упавшего агента (п.177).

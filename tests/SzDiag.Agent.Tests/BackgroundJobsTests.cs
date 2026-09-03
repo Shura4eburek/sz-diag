@@ -144,6 +144,25 @@ public class BackgroundJobsTests : IDisposable
     }
 
     [Fact]
+    public async Task Status_WhileRunning_ReportsLastOutputTimestamp()
+    {
+        // Регрессия (бэклог п.208, СЗ 161716): «выполняется (7мин), вывода 0 б» не отличить
+        // на глаз от зависшего скрипта — а именно за этим ack и делался (п.43). Молчащий файл
+        // теперь виден по метке времени последней дозаписи, а не только по счётчику байт.
+        var jobs = Jobs;
+        var job = jobs.Start(Req("'pervaya'; Start-Sleep -Seconds 20"));
+        var before = DateTimeOffset.UtcNow;
+
+        var status = await WaitUntilAsync(jobs, job.JobId!, s => s.Tail.Contains("pervaya"));
+
+        Assert.True(status.Running);
+        Assert.NotNull(status.LastOutputAt);
+        Assert.True(status.LastOutputAt >= before.AddSeconds(-2),
+            $"метка времени должна быть свежей: {status.LastOutputAt} vs {before}");
+        jobs.Stop(job.JobId!);
+    }
+
+    [Fact]
     public async Task Start_Detached_IgnoresRequestTimeout_JobOutlivesIt()
     {
         // Регрессия (бэклог п.180): `--detach` без явного `--timeout` рубил задачу на 120с —

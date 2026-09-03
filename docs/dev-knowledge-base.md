@@ -63,7 +63,7 @@ CLI-токен — заголовок `X-SzDiag-Mgmt-Token` (`ManagementApi.Toke
 | `POST /api/sessions/{sz}/diag?sections=` | `DiagRunTrigger.TriggerAsync` | `Ok`/`NotFound` |
 | `GET /api/sessions/{sz}/target` | реестр + `ServiceAccount` | `TargetInfo{Sz,Ip,User,Ssh}`/`NotFound` |
 | `POST /api/sessions/{sz}/exec` (тело `ExecCommandRequest{Script,TimeoutSeconds,Detached,Isolated}`) | `ExecCoordinator.RunAsync` | `ExecResult`/`NotFound`/`504`; без явного `TimeoutSeconds` дефолт зависит от `Activity` сессии (`ExecLimits.StressDefaultTimeoutSeconds`, если идёт стресс-прогон — бэклог п.35a) |
-| `GET /api/sessions/{sz}/exec/{jobId}?tail=` | `ExecCoordinator.StatusAsync` | `ExecJobStatus` (+`Error` из `err.txt` при parse-ошибке скрипта) |
+| `GET /api/sessions/{sz}/exec/{jobId}?tail=` | `ExecCoordinator.StatusAsync` | `ExecJobStatus` (+`Error` из `err.txt` при parse-ошибке скрипта; `LastOutputAt` — mtime `out.txt`, `szcli exec --result` печатает по нему «последняя строка N сек назад», пока задача выполняется — бэклог п.208) |
 | `GET /api/sessions/{sz}/exec` | `StatusAsync(sz, "*")` | список фоновых задач (сводка в `Tail`) |
 | `DELETE /api/sessions/{sz}/exec/{jobId}` | `StatusAsync(cancel: true)` | отмена задачи; `Cancelled=true` в ответе |
 

@@ -222,6 +222,13 @@ public sealed class BackgroundJobs
         var started = job?.StartedAt
             ?? (Directory.Exists(dir) ? new DirectoryInfo(dir).CreationTime : DateTime.Now);
 
+        // Когда out.txt последний раз дописывался: молчащий файл во время «выполняется»
+        // неотличим на глаз от зависшего скрипта — «работает медленно» от «встало намертво»
+        // отличить нечем было, пока не появился этот таймстамп (бэклог п.208).
+        DateTimeOffset? lastOutputAt = null;
+        try { if (File.Exists(outPath)) lastOutputAt = new DateTimeOffset(File.GetLastWriteTimeUtc(outPath), TimeSpan.Zero); }
+        catch { /* пишется прямо сейчас — покажем в следующий раз */ }
+
         // Parse-ошибка скрипта лежит в err.txt (см. Start): без неё «завершена (exit 199),
         // вывода 0 б» неотличима от упавшего агента или задавленной машины (п.177).
         string? error = null;
@@ -238,7 +245,7 @@ public sealed class BackgroundJobs
         }
 
         return new ExecJobStatus(request.RequestId, request.JobId, running, exitCode, tail,
-            started, size, error);
+            started, size, error, LastOutputAt: lastOutputAt);
     }
 
     /// <summary>Список всех фоновых задач: живые из памяти + завершённые/осиротевшие с диска.

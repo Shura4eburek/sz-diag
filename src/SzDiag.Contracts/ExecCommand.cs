@@ -32,6 +32,10 @@ public sealed record ExecStatusRequest(string Sz, string RequestId, string JobId
 /// <param name="Running">Ещё выполняется.</param>
 /// <param name="Tail">Последние строки вывода — «шо там» во время часового прогона.</param>
 /// <param name="Cancelled">Задача была снята по запросу (Cancel в ExecStatusRequest).</param>
+/// <param name="LastOutputAt">Когда `out.txt` последний раз дописывался. Молчащий файл во
+/// время «выполняется» неотличим на глаз от зависшего скрипта — именно та развилка, ради
+/// которой делался ack (бэклог п.208): пробник состояния сенсоров провисел 3,5 минуты с нулём
+/// вывода, и понять «работает медленно» vs «встало намертво» было нечем.</param>
 public sealed record ExecJobStatus(
     string RequestId,
     string JobId,
@@ -41,7 +45,8 @@ public sealed record ExecJobStatus(
     DateTimeOffset StartedAt,
     long OutputBytes,
     string? Error = null,
-    bool Cancelled = false);
+    bool Cancelled = false,
+    DateTimeOffset? LastOutputAt = null);
 
 /// <summary>Агент → hub: результат выполнения <see cref="ExecRequest"/>.</summary>
 /// <param name="TimedOut">Скрипт не уложился в таймаут и был убит.</param>
