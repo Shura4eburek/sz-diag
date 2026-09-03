@@ -192,6 +192,20 @@ public class DiagnosticProbesTests
     }
 
     [Fact]
+    public void DriversProbe_FiltersToPresentDevicesAndCollapsesGhosts()
+    {
+        // Регрессия (бэклог п.167, СЗ 161190): без -PresentOnly секция печатала 300+ строк
+        // устройств ДРУГИХ сборок (9800X3D/7800X3D/7500F и т.п.), на которых гонялся тот же
+        // переносной образ сервиса — вывод читался как "на машине куча проблемных устройств".
+        var run = Body("drivers");
+
+        Assert.Contains("-PresentOnly", run);
+        Assert.Contains("prizrakov proshlogo zheleza", run);
+        // Пустой Status - это "нет данных", а не "Unknown"/проблема.
+        Assert.Contains("$_.Status -and $_.Status -ne 'OK'", run);
+    }
+
+    [Fact]
     public void ReliabilityProbe_CrashDumpKindLookup_UsesIntKey()
     {
         // Регрессия (п.110): ключи хеш-таблицы — int, а лукап шёл строкой

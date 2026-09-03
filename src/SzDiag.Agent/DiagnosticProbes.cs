@@ -266,11 +266,25 @@ public static class DiagnosticProbes
             } catch { "ACPI thermal zones unavailable (common on desktops): $($_.Exception.Message)" }
             """),
 
+        // Get-PnpDevice БЕЗ -PresentOnly возвращает ВСЮ историю устройств, когда-либо
+        // подключавшихся под этой ОС — на 161190 (Ryzen 5 3600 + RTX 3050) секция напечатала
+        // 300+ строк, среди них 9800X3D x16, 7800X3D x16, 7500F x12, ASUS AURA, Gigabyte
+        // A620M: железо ДРУГИХ сборок, на которых гонялся тот же переносной образ сервиса
+        // (тот же hostname DESKTOP-5GUF215 встречается на 160697 и 160587). Вывод читался
+        // как "на машине куча проблемных устройств" (бэклог п.167).
         Probe("drivers", "Проблемные устройства / драйверы", """
-            $bad = Get-PnpDevice -ErrorAction SilentlyContinue | Where-Object { $_.Status -ne 'OK' }
-            if ($bad) {
+            $all = @(Get-PnpDevice -ErrorAction SilentlyContinue)
+            $present = @(Get-PnpDevice -PresentOnly -ErrorAction SilentlyContinue)
+            # Ustroystvo bez Status voobshe (ne 'OK', ne 'Error' - pusto) - eto ne 'Unknown'
+            # problema, a otsutstvie dannyh; pechatat ego kak problemnoe nelzya.
+            $bad = @($present | Where-Object { $_.Status -and $_.Status -ne 'OK' })
+            if ($bad.Count -gt 0) {
                 $bad | Select-Object Status, Class, FriendlyName, InstanceId | Format-Table -Auto | Out-String
-            } else { "No problem devices (all Status=OK)." }
+            } else { "No problem devices among devices present now (all Status=OK)." }
+            $ghosts = $all.Count - $present.Count
+            if ($ghosts -gt 0) {
+                "prizrakov proshlogo zheleza: {0} (ustroystva otsutstvuyut seychas - istoriya DRUGOY sborki, na kotoroy gonyalsya etot obraz)" -f $ghosts
+            }
             """),
 
         // Никогда не мешаем шумные и редкие события в одной выборке с общим MaxEvents: на
