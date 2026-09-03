@@ -278,16 +278,17 @@ public static class DiagnosticProbes
         // Id=55 (Kernel-Processor-Power пишет по штуке на поток CPU), а Kernel-Power 41 не
         // попал вообще — и диагноз уехал на 180 градусов (бэклог п.31).
         Probe("events", "События: критические/ошибки + счётчики по Id",
-            TimeZoneNote.PowerShellPrologue() + """
+            EventWindow.PowerShellPrologue() + TimeZoneNote.PowerShellPrologue() + """
             Write-TzNote
-            $since = (Get-Date).AddDays(-7)
-            "=== Schetchiki po Id (System, Critical/Error, 7 dney) ==="
+            Write-EventWindowNote
+            $since = (Get-Date).AddDays(-$SZ_EVENT_WINDOW_DAYS)
+            "=== Schetchiki po Id (System, Critical/Error, $SZ_EVENT_WINDOW_DAYS dney) ==="
             $sys = @(Get-WinEvent -FilterHashtable @{ LogName='System'; Level=1,2; StartTime=$since } -ErrorAction SilentlyContinue)
             if ($sys.Count -gt 0) {
                 "TOTAL: {0}" -f $sys.Count
                 $sys | Group-Object ProviderName, Id | Sort-Object Count -Descending | Select-Object -First 20 |
                     ForEach-Object { "{0}: {1}" -f $_.Name, $_.Count }
-            } else { "System: 0 sobytiy urovnya Critical/Error za 7 dney (yavnyy nol, a ne molchanie)" }
+            } else { "System: 0 sobytiy urovnya Critical/Error za $SZ_EVENT_WINDOW_DAYS dney (yavnyy nol, a ne molchanie)" }
 
             "=== System (Critical/Error, poslednie 40) ==="
             $sys | Sort-Object TimeCreated -Descending | Select-Object -First 40 |
@@ -295,14 +296,14 @@ public static class DiagnosticProbes
                 Format-Table -Auto | Out-String
             if ($sys.Count -gt 40) { "... {0} earlier events not listed (schetchiki vyshe)" -f ($sys.Count - 40) }
 
-            "=== Application (Critical/Error, 3 dnya) ==="
-            $app = @(Get-WinEvent -FilterHashtable @{ LogName='Application'; Level=1,2; StartTime=(Get-Date).AddDays(-3) } -ErrorAction SilentlyContinue)
+            "=== Application (Critical/Error, $SZ_EVENT_WINDOW_DAYS dney) ==="
+            $app = @(Get-WinEvent -FilterHashtable @{ LogName='Application'; Level=1,2; StartTime=$since } -ErrorAction SilentlyContinue)
             if ($app.Count -gt 0) {
                 "TOTAL: {0}" -f $app.Count
                 $app | Sort-Object TimeCreated -Descending | Select-Object -First 25 |
                     Select-Object TimeCreated, Id, ProviderName, @{n='Message';e={($_.Message -split "`r?`n")[0]}} |
                     Format-Table -Auto | Out-String
-            } else { "Application: 0 sobytiy urovnya Critical/Error za 3 dnya" }
+            } else { "Application: 0 sobytiy urovnya Critical/Error za $SZ_EVENT_WINDOW_DAYS dney" }
 
             "=== Redkie kritichnye Id - BEZ limita, za vsyu istoriyu ==="
             # There are only a few of them, nothing to trim; absence must be an explicit zero.
@@ -329,9 +330,10 @@ public static class DiagnosticProbes
         // установки ОС) читался как «сломалось в процессе эксплуатации». Событий этого типа
         // единицы-десятки, читать их все дёшево.
         Probe("reboots", "Перезагрузки: Kernel-Power 41 + dirty shutdown + BSOD-коды",
-            TimeZoneNote.PowerShellPrologue() + BugcheckCodes.PowerShellPrologue() +
+            EventWindow.PowerShellPrologue() + TimeZoneNote.PowerShellPrologue() + BugcheckCodes.PowerShellPrologue() +
             HardwareWindow.PowerShellPrologue() + NvmeSmart.PowerShellPrologue() + """
             Write-TzNote
+            Write-JournalDepthNote
             "=== Okno etogo zheleza ==="
             Write-HwWindow
 
@@ -448,8 +450,9 @@ public static class DiagnosticProbes
         // Поля MCA (банк, MciStat, тип ошибки) раньше приходилось доставать отдельным exec
         // из EventData XML — теперь они в отчёте (п.18).
         Probe("whea", "Аппаратные ошибки железа (WHEA-Logger, все уровни)",
-            TimeZoneNote.PowerShellPrologue() + CperDecoder.PowerShellPrologue() + HardwareWindow.PowerShellPrologue() + """
+            EventWindow.PowerShellPrologue() + TimeZoneNote.PowerShellPrologue() + CperDecoder.PowerShellPrologue() + HardwareWindow.PowerShellPrologue() + """
             Write-TzNote
+            Write-JournalDepthNote
             "=== Okno etogo zheleza ==="
             Write-HwWindow
             $whea = @()

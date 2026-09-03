@@ -367,6 +367,31 @@ public class DiagnosticProbesTests
     }
 
     [Fact]
+    public void EventsProbe_UsesUnifiedThirtyDayWindowAndPrintsJournalDepth()
+    {
+        // Регрессия (бэклог п.123, СЗ 161346): машина приехала в сервис через две недели
+        // после последнего вырубона, а зашитое в рецепте окно в 14 дней вернуло пустоту
+        // там, где в журнале лежало 25 событий. Окно унифицировано на 30 дней (как в
+        // kp41-detail.ps1/whea-storage-detail.ps1) и печатается явно, вместе с глубиной
+        // журнала — «пусто» не должно читаться как «дефекта нет».
+        var run = Body("events");
+
+        Assert.Contains("SZ_EVENT_WINDOW_DAYS = 30", run);
+        Assert.Contains("Write-EventWindowNote", run);
+        Assert.DoesNotContain("AddDays(-7)", run);
+        Assert.DoesNotContain("AddDays(-3)", run);
+    }
+
+    [Fact]
+    public void RebootsAndWheaProbes_PrintJournalDepth()
+    {
+        // Те же секции читают историю ЦЕЛИКОМ без окна ("FULL HISTORY") — но "0 событий"
+        // там тоже нельзя отличить от "журнал короче, чем кажется" без явной глубины.
+        foreach (var section in new[] { "reboots", "whea" })
+            Assert.Contains("Write-JournalDepthNote", Body(section));
+    }
+
+    [Fact]
     public void EventsProbe_PrintsTimeZoneLabelForOfflineComparisons()
     {
         // Регрессия (п.31/49): WinPE и хост живут в разных поясах (159948: -08:00 vs +03:00,
