@@ -111,12 +111,62 @@ public static class DiagnosticProbes
             "ConfiguredVoltage (mV): ~1100 = JEDEC (stok), ~1350-1400 = EXPO/XMP profil vklyuchen. VSOC (AM5) etoy probay ne snimaetsya - sm. lhmmon otdelnym zahodom DO stressa (HVCI ego blokiruet, backlog p.8)."
             """),
 
-        Probe("gpu", "Видеокарта (PCI ID для резолвера + драйвер)", """
+        // Pasport dlya zayavki v ASC: SUBSYS i part number vBIOS ne otdavala ni odna
+        // sektsiya (backlog p.146, SZ 160705) - snimali otdelnym retseptom uzhe pod progonom.
+        // HardwareInformation.* v reestre - REG_BINARY s ASCII vnutri: bez dekodirovaniya
+        // poluchish prostynyu trehznachnyh chisel vmesto '115-D754BP0-101'.
+        Probe("gpu", "Видеокарта (паспорт: SUBSYS/vBIOS/PCIe для заявки в АСЦ)", """
             Get-CimInstance Win32_VideoController -ErrorAction SilentlyContinue |
                 Select-Object Name, PNPDeviceID, DriverVersion, DriverDate,
                     @{n='VRAM_MB';e={[math]::Round($_.AdapterRAM/1MB)}},
                     @{n='Resolution';e={"$($_.CurrentHorizontalResolution)x$($_.CurrentVerticalResolution)"}} |
                 Format-List | Out-String
+
+            "=== SUBSYS (dlya zayavki v ASC - otlichaet partnerskuyu platu ot referensa) ==="
+            Get-CimInstance Win32_VideoController -ErrorAction SilentlyContinue | ForEach-Object {
+                if ($_.PNPDeviceID -match 'SUBSYS_([0-9A-Fa-f]{8})') {
+                    $s = $matches[1]
+                    "SUBSYS_$s (subvendor=$($s.Substring(4,4)) subdevice=$($s.Substring(0,4)))"
+                } else { "SUBSYS ne nayden v PNPDeviceID: $($_.PNPDeviceID)" }
+            }
+
+            "=== vBIOS / tochnaya plata (registr HardwareInformation.*) ==="
+            function Convert-HwBytes($v) {
+                if ($null -eq $v) { return $null }
+                if ($v -is [string]) { return $v }
+                ((($v | ForEach-Object { [char][int]$_ }) -join '') -replace "`0", '').Trim()
+            }
+            Get-ChildItem 'HKLM:\SYSTEM\CurrentControlSet\Control\Class\{4d36e968-e325-11ce-bfc1-08002be10318}' -ErrorAction SilentlyContinue |
+                Where-Object { $_.PSChildName -match '^\d{4}$' } | ForEach-Object {
+                    $p = Get-ItemProperty $_.PSPath -ErrorAction SilentlyContinue
+                    if ($p.DriverDesc) {
+                        "DriverDesc: $($p.DriverDesc)"
+                        foreach ($k in @('AdapterString','BiosString','ChipType','DacType','MemorySize')) {
+                            $val = Convert-HwBytes $p."HardwareInformation.$k"
+                            if ($val) { "  $k = $val" }
+                        }
+                        if ($p.MatchingDeviceId) { "  MatchingDeviceId = $($p.MatchingDeviceId)" }
+                    }
+                }
+
+            "=== PCIe: shirina i skorost linii (tekushaya / maksimalnaya) ==="
+            Get-PnpDevice -Class Display -ErrorAction SilentlyContinue | ForEach-Object {
+                $d = $_
+                "Device: $($d.FriendlyName) [$($d.Status)]"
+                foreach ($k in @('DEVPKEY_PciDevice_CurrentLinkSpeed','DEVPKEY_PciDevice_CurrentLinkWidth','DEVPKEY_PciDevice_MaxLinkSpeed','DEVPKEY_PciDevice_MaxLinkWidth')) {
+                    $v = (Get-PnpDeviceProperty -InstanceId $d.InstanceId -KeyName $k -ErrorAction SilentlyContinue).Data
+                    if ($null -ne $v) { "  $($k -replace 'DEVPKEY_PciDevice_','') = $v" }
+                }
+            }
+
+            "=== TDR / padeniya videodrayvera (sobytiya 4101, 4098, 14, 13) ==="
+            $tdr = @(Get-WinEvent -FilterHashtable @{ LogName='System'; Id=4101,4098,14,13 } -MaxEvents 200 -ErrorAction SilentlyContinue |
+                Where-Object { $_.ProviderName -match 'Display|amdkmdap|nvlddmkm|amdwddmg' })
+            if ($tdr.Count -eq 0) { "TDR/padenij videodrayvera net" }
+            else {
+                "TOTAL TDR: $($tdr.Count)"
+                $tdr | Select-Object -First 10 TimeCreated, Id, ProviderName | Format-Table -Auto | Out-String
+            }
             """),
 
         // Секция отвечает на вопрос «на каком физическом диске лежит pagefile и здоров ли он».

@@ -163,6 +163,23 @@ public class DiagnosticProbesTests
     }
 
     [Fact]
+    public void GpuProbe_PrintsPassportForAscApplication()
+    {
+        // Регрессия (бэклог п.146, СЗ 160705): в заявку АСЦ понадобились SUBSYS
+        // (партнёрская плата, не референс) и part number vBIOS ('115-D754BP0-101') -
+        // ни одна секция их не отдавала, снимали отдельным рецептом уже под прогоном.
+        var run = Body("gpu");
+
+        Assert.Contains("SUBSYS_", run);
+        Assert.Contains("BiosString", run);
+        Assert.Contains("Convert-HwBytes", run);          // декодирование REG_BINARY, не простыня чисел
+        Assert.Contains("CurrentLinkSpeed", run);
+        Assert.Contains("CurrentLinkWidth", run);
+        Assert.Contains("MaxLinkSpeed", run);
+        Assert.Contains("TDR", run);
+    }
+
+    [Fact]
     public void StorageProbe_ReadsNvmeHealthLogDirectly()
     {
         // Регрессия (п.120/142): на NVMe Get-StorageReliabilityCounter отдаёт пустые

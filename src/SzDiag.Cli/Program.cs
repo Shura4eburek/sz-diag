@@ -345,6 +345,31 @@ switch (command)
     case "sz" when args.Length >= 2:
         return await ErpCommand.RunAsync(args[1..], options);
 
+    // hw passport: паспорт видеокарты для заявки в АСЦ одной командой (SUBSYS, part number
+    // vBIOS, PCIe, TDR) — вместо ручного рецепта после того, как машина уже ушла под прогон
+    // (бэклог п.146, СЗ 160705).
+    case "hw" when args.Length >= 3 && args[1].Equals("passport", StringComparison.OrdinalIgnoreCase):
+    {
+        var scope = args.Length >= 4 ? args[3] : "gpu";
+        var script = GpuPassport.ScriptFor(scope);
+        if (script is null)
+        {
+            AnsiConsole.MarkupLineInterpolated($"[red]Неизвестная область паспорта:[/] {scope} (пока только gpu)");
+            return 1;
+        }
+        var hwSz = args[2];
+        var passportRes = await client.ExecAsync(hwSz, script, 60);
+        if (passportRes is null)
+        {
+            AnsiConsole.MarkupLineInterpolated($"[red]СЗ {hwSz} не найдена[/] среди активных.");
+            return 1;
+        }
+        if (!string.IsNullOrEmpty(passportRes.StdOut)) Console.WriteLine(CliXml.Decode(passportRes.StdOut).TrimEnd());
+        if (!string.IsNullOrEmpty(passportRes.StdErr))
+            AnsiConsole.MarkupLineInterpolated($"[yellow]stderr:[/] {CliXml.Decode(passportRes.StdErr).TrimEnd()}");
+        return ExecExitCode.From(passportRes);
+    }
+
     case "hw" when args.Length >= 2:
         await HwCommand.RunAsync(args[1..], ResolveLocal(options.GpuDbPath), ResolveLocal(options.PciIdsPath));
         break;
