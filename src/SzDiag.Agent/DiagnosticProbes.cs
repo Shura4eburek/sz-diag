@@ -689,7 +689,13 @@ public static class DiagnosticProbes
                 $evts = foreach ($e in $wer) {
                     $p1 = ''
                     if ($e.Message -match 'P1:\s*([0-9a-fA-Fx]+)') { $p1 = $matches[1] }
-                    [PSCustomObject]@{ Time = $e.TimeCreated; P1 = $p1; Code = (Fmt-P1 $p1) }
+                    # Report Id / "Identifikator otcheta" (RU) / etc - zagolovok zavisit ot
+                    # yazyka Windows, a GUID-format - net. Lovim signaturu, a ne zagolovok.
+                    $rid = ''
+                    if ($e.Message -match '([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})') { $rid = $matches[1] }
+                    $dmp = ''
+                    if ($e.Message -match '([A-Za-z0-9_.-]+\.dmp)') { $dmp = $matches[1] }
+                    [PSCustomObject]@{ Time = $e.TimeCreated; P1 = $p1; Code = (Fmt-P1 $p1); ReportId = $rid; Dmp = $dmp }
                 }
                 $evts = @($evts | Sort-Object Time -Descending)
                 "TOTAL: {0}, first {1:yyyy-MM-dd HH:mm:ss}, last {2:yyyy-MM-dd HH:mm:ss}" -f `
@@ -747,6 +753,43 @@ public static class DiagnosticProbes
                     $withDump, $ownActivity, $artifacts, $evts.Count
                 if (($withDump + $ownActivity) -eq 0 -and $evts.Count -gt 0) {
                     "VNIMANIE: ni odno sobytie ne podtverzhdeno dampom - schitat 'videopodsistema sypetsya' po etim cifram NELZYA (p.94)."
+                }
+
+                # Glavnaya oshibka na 161211 (p.199): 8572 sobytiya prochitali kak "8572 raza
+                # slomalos", hotya WER beskonechno retraint ochered ReportQueue - odin real'nyy
+                # incident daet desyatki povtorov odnogo i togo zhe otcheta. Schitat nado
+                # UNIKALNYE otchety (Report Id), a ne stroki zhurnala.
+                "--- UNIKALNYE OTCHETY (Report Id, a ne stroki zhurnala - WER retraint ochered) ---"
+                $withId = @($evts | Where-Object { $_.ReportId })
+                if ($withId.Count -gt 0) {
+                    $reports = @($withId | Group-Object ReportId | ForEach-Object {
+                        $g = $_.Group | Sort-Object Time
+                        [PSCustomObject]@{ ReportId = $_.Name; Code = $g[0].Code; First = $g[0].Time; EventCount = $_.Count }
+                    })
+                    "vsego unikalnyh otchetov: {0} (iz {1} sobytiy zhurnala)" -f $reports.Count, $evts.Count
+                    $reports | Group-Object Code | Sort-Object Count -Descending | ForEach-Object {
+                        $evCount = ($_.Group | Measure-Object EventCount -Sum).Sum
+                        "{0}: {1} incidentov ({2} sobytiy - eto retrai WER, ne novye sobytiya)" -f $_.Name, $_.Count, $evCount
+                    }
+                    if ($reports.Count -lt $evts.Count) {
+                        "VAZHNO: {0} sobytiy zhurnala - eto vsego {1} unikalnyh incidentov; sudit o chastote defekta po SOBYTIYAM (a ne otchetam) NELZYA." -f $evts.Count, $reports.Count
+                    }
+                } else {
+                    "Report Id ne izvlechen iz Message - schet ostaetsya po sobytiyam zhurnala (nizhe)."
+                }
+
+                $queueCount = @(Get-ChildItem 'C:\ProgramData\Microsoft\Windows\WER\ReportQueue' -Directory -ErrorAction SilentlyContinue).Count
+                "razmer ocheredi WER (ReportQueue): {0} papok - bolshaya ochered sama po sebe obyasnyaet tysyachi sobytiy-retraev." -f $queueCount
+
+                if ($lk.Count -gt 0) {
+                    $lastReal = ($lk | Sort-Object LastWriteTime -Descending | Select-Object -First 1).LastWriteTime
+                    $daysAgo = [math]::Floor(((Get-Date) - $lastReal).TotalDays)
+                    "POSLEDNIJ REALNYJ INCIDENT (data fayla dampa v LiveKernelReports): {0:yyyy-MM-dd}, {1} dney nazad." -f $lastReal, $daysAgo
+                    if ($daysAgo -ge 1) {
+                        "Eto NE 'sypetsya prjamo seychas' - realnyh dampov za poslednie {0} dney net, dazhe esli sobytiy WER v zhurnale mnogo." -f $daysAgo
+                    }
+                } else {
+                    "POSLEDNIJ REALNYJ INCIDENT: faylov dampov v LiveKernelReports net (sm. sektsiyu vyshe)."
                 }
             } else { "none" }
 

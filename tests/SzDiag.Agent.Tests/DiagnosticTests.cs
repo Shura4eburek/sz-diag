@@ -291,6 +291,33 @@ public class DiagnosticProbesTests
     }
 
     [Fact]
+    public void LiveKernelProbe_CountsUniqueReportsNotRawEvents()
+    {
+        // Регрессия (бэклог п.199, СЗ 161211): «8572 события, пачка 0x141 x30 сегодня» ушло в
+        // kb как «TDR-ы воспроизводятся прямо сейчас» - неправда: WER бесконечно ретраит
+        // очередь ReportQueue, 8149 событий оказались 52 уникальными отчётами (~20 инцидентов),
+        // последний реальный дамп - месяц назад.
+        var run = Body("livekernel");
+
+        Assert.Contains("UNIKALNYE OTCHETY", run);
+        Assert.Contains("incidentov (", run);
+        Assert.Contains("retrai WER", run);
+        Assert.Contains("ReportQueue", run);
+        Assert.Contains("POSLEDNIJ REALNYJ INCIDENT", run);
+    }
+
+    [Fact]
+    public void LiveKernelProbe_GroupsByReportIdGuid_RegardlessOfWindowsLocale()
+    {
+        // "Идентификатор отчета" на RU-Windows / "Report Id" на EN-Windows - оба локализованы
+        // по-разному, а GUID-подпись отчёта - нет. Ловим её паттерном, а не заголовком.
+        var run = Body("livekernel");
+
+        Assert.Contains(
+            "[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}", run);
+    }
+
+    [Fact]
     public void LiveKernelProbe_DecodesP1AsHexThroughSharedTable()
     {
         // Регрессия (п.69): 148 событий печатались как `P1=124`, хотя это
