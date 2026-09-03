@@ -200,6 +200,17 @@ OCCT съели полчаса, и оба видны этой командой �
   жуёт `2026-08-11 13:03:34` по-своему. Разбирая время из чужих логов — только
   `[datetime]::ParseExact(..., 'yyyy-MM-dd HH:mm:ss', [Globalization.CultureInfo]::InvariantCulture)`
   в `try/catch` (`game-session-log.ps1`).
+- **Запись на удалённую шару — проверять по `FullName`, а не по «ошибок не было».** На 161946
+  (бэклог п.216) `net use \\192.168.94.123\Share ...` упал `System error 67` (SMB-редиректор
+  не поднят в PE), но дальше `Test-Path`/`Copy-Item`/`Get-ChildItem` отработали **без единой
+  ошибки** — PowerShell молча подменил недоступный UNC локальным относительным путём на
+  RAM-диске (`X:\192.168.94.123\Share\...`), и 13 МБ уехали в никуда с виду успешно. Проверка:
+  ```powershell
+  if ((Get-Item $dst).FullName -notlike '\\*') { "SMB недоступен: $dst — путь не UNC"; return }
+  ```
+  Если писать по UNC вообще не получается (как в PE) — канал доставки **клиент → хост** уже
+  формализован без SMB: `pe-file-out-base64.ps1` (zip + base64-чанки через stdout `exec`,
+  sha256-сверка на хосте) — им и пользоваться, а не изобретать SMB-запись заново.
 - **Ограничения WinPE — один список, а не грабли по кругу в каждом `pe-*.ps1`.** Нет модуля
   PnpDevice (`Get-PnpDevice` → `CommandNotFoundException`, замена — `Get-CimInstance
   Win32_PnPEntity`), `Get-StorageReliabilityCounter` отдаёт только `Temperature`/`Wear`
