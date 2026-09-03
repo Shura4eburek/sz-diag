@@ -56,6 +56,49 @@ public class KbReportStoreTests : IDisposable
         Assert.EndsWith(Path.Combine("reports", "ts", "screen-1.png"), path);
     }
 
+    [Fact]
+    public void Save_DiagMd_UpdatesFindingsWithLinkToLatestReport()
+    {
+        // Регрессия (бэклог п.60): діагностика.md оставалась пустой заглушкой (42 байта) даже
+        // после успешного прогона — файл, который логично открыть первым, не содержал ничего.
+        var store = new KbReportStore(_root);
+        var content = "# diag\n\ncontent"u8.ToArray();
+
+        store.Save("156864", "20260904-120000", "diag.md", content);
+
+        var findingsPath = new KbPaths(_root).Findings("156864");
+        var text = File.ReadAllText(findingsPath);
+        Assert.Contains("reports/20260904-120000/diag.md", text);
+        Assert.Contains("КБ", text);
+    }
+
+    [Fact]
+    public void Save_DiagMd_Twice_ReplacesLinkInsteadOfDuplicating()
+    {
+        var store = new KbReportStore(_root);
+        store.Save("156864", "20260904-120000", "diag.md", "first"u8.ToArray());
+        store.Save("156864", "20260904-130000", "diag.md", "second"u8.ToArray());
+
+        var text = File.ReadAllText(new KbPaths(_root).Findings("156864"));
+        Assert.DoesNotContain("20260904-120000", text);
+        Assert.Contains("20260904-130000", text);
+    }
+
+    [Fact]
+    public void Save_DiagMd_PreservesHandwrittenTextOutsideMarkers()
+    {
+        var findingsPath = new KbPaths(_root).Findings("156864");
+        Directory.CreateDirectory(Path.GetDirectoryName(findingsPath)!);
+        File.WriteAllText(findingsPath, "# Діагностика — СЗ 156864\n\nручна нотатка майстра\n");
+
+        var store = new KbReportStore(_root);
+        store.Save("156864", "ts", "diag.md", "x"u8.ToArray());
+
+        var text = File.ReadAllText(findingsPath);
+        Assert.Contains("ручна нотатка майстра", text);
+        Assert.Contains("reports/ts/diag.md", text);
+    }
+
     public void Dispose()
     {
         if (Directory.Exists(_root)) Directory.Delete(_root, recursive: true);

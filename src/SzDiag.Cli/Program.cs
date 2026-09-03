@@ -359,14 +359,25 @@ switch (command)
         }
 
         var diagSections = parsedSections is null ? null : string.Join(",", parsedSections);
+        var diagStartedAt = DateTime.Now;
         if (await client.TriggerDiagAsync(diagSz, diagSections))
         {
             var scope = diagSections is null ? "все секции" : $"секции: {diagSections}";
-            // Путь печатаем сразу: файл ложится не в корень СЗ, а в reports\<timestamp>\, и
-            // ждать его «где-то в kb» приходилось вслепую (бэклог п.60).
-            var reportPath = Path.Combine(new KbPaths(options.KbRoot).ReportsDir(diagSz), "<YYYYMMDD-HHMMSS>", "diag.md");
+            var reportsDir = new KbPaths(options.KbRoot).ReportsDir(diagSz);
             AnsiConsole.MarkupLineInterpolated($"[green]СЗ {diagSz}: диагностика запущена[/] ({scope}) на агенте.");
-            AnsiConsole.MarkupLineInterpolated($"[grey]Отчёт появится здесь:[/] {reportPath}");
+            // Ждём фактического отчёта (снапшот обычно занимает секунды-десятки секунд) —
+            // раньше CLI либо показывал шаблонный путь с плейсхолдером таймстампа, либо вообще
+            // не сообщал о завершении, и «появится в kb» приходилось ждать вслепую (бэклог п.60).
+            var found = await DiagCompletionWatcher.WaitAsync(reportsDir, diagStartedAt, TimeSpan.FromSeconds(20));
+            if (found is { } f)
+                AnsiConsole.MarkupLineInterpolated(
+                    $"[green]Готово:[/] {f.Path} ({f.Bytes / 1024d:N1} КБ)");
+            else
+            {
+                var reportPath = Path.Combine(reportsDir, "<YYYYMMDD-HHMMSS>", "diag.md");
+                AnsiConsole.MarkupLineInterpolated(
+                    $"[grey]Ещё не готово (секции events/reliability могут занять дольше) — появится здесь:[/] {reportPath}");
+            }
         }
         else
             AnsiConsole.MarkupLineInterpolated($"[red]СЗ {diagSz} не найдена[/] среди активных.");
