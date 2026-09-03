@@ -25,16 +25,30 @@ public static class SessionTableRenderer
 
         foreach (var s in sessions.OrderBy(x => x.Sz))
         {
-            // Без юникод-глифов (●/○) — не в каждом шрифте консоли есть их отрисовка,
-            // из-за чего колонка резервирует место под невидимый символ и текст съезжает.
-            // Фиксированная ширина ("online " с хвостовым пробелом) — чтобы колонка не
-            // "гуляла" между кадрами в live-перерисовке (szcli watch).
-            var status = s.Status == SessionStatus.Online
-                ? "[green]online [/]"
-                : "[grey]offline[/]";
-            table.AddRow(s.Sz, status, s.Ip, s.Hostname, UptimeCell(s, nowV), ActivityCell(s, nowV));
+            table.AddRow(s.Sz, StatusCell(s, nowV), s.Ip, s.Hostname, UptimeCell(s, nowV), ActivityCell(s, nowV));
         }
         return table;
+    }
+
+    /// <summary>Порог, после которого молчание уже не спишешь на лаг heartbeat под нагрузкой:
+    /// exec может не отвечать минутами, пока машина жива, но не десять минут подряд. До этого
+    /// порога — вероятно лаг, после — вероятно реальный отказ (подтверждается только сменой
+    /// boot-time при реконнекте — «offline» само по себе вырубоном не является, бэклог п.42).</summary>
+    public static readonly TimeSpan LikelyFailureThreshold = TimeSpan.FromMinutes(10);
+
+    /// <summary>Ячейка статуса: живая СЗ — просто «online», офлайн — с явной меткой «лаг?»
+    /// или «ВЫРУБОН?», а не голое «offline», за которым раньше это различие было видно
+    /// только по счётчику ⚡N и подсветке uptime, а не в самом статусе (бэклог п.42).</summary>
+    private static string StatusCell(SessionInfo s, DateTimeOffset now)
+    {
+        // Без юникод-глифов (●/○) — не в каждом шрифте консоли есть их отрисовка, из-за
+        // чего колонка резервирует место под невидимый символ и текст съезжает.
+        if (s.Status == SessionStatus.Online) return "[green]online[/]";
+
+        var silentFor = now - s.LastHeartbeat;
+        return silentFor >= LikelyFailureThreshold
+            ? "[red]offline (ВЫРУБОН?)[/]"
+            : "[grey]offline (лаг?)[/]";
     }
 
     /// <summary>Ячейка uptime: сколько машина работает с загрузки ОС. Свежий ребут (менее часа
