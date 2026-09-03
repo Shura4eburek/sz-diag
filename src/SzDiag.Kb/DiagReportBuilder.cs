@@ -44,6 +44,15 @@ public static class DiagReportBuilder
             sb.AppendLine("```");
             sb.AppendLine();
         }
+
+        // Сводка последней строкой отчёта: на 161972 whea упала с ошибкой запуска процесса
+        // (длинное имя командной строки), а заметно это было только тому, кто дочитал diag.md
+        // до конца - шапка «провалившиеся секции» не спасает, если её саму пролистали
+        // (бэклог п.182). Печатается всегда, даже когда всё отработало.
+        var summary = $"Секций запрошено: {report.Steps.Count}, выполнено: {report.Steps.Count - failed.Count}";
+        if (failed.Count > 0)
+            summary += ", провалено: " + string.Join(", ", failed.Select(f => $"{f.Name} ({f.Error})"));
+        sb.AppendLine(summary + ".");
         return sb.ToString();
     }
 }
