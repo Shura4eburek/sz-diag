@@ -10,6 +10,16 @@
 #  - результаты лежат в Documents ЗАЛОГИНЕННОГО пользователя, а exec работает под SYSTEM —
 #    искать надо по владельцу explorer.exe, иначе папка «не найдена» при живых результатах.
 #
+# #177 / б.221 (161716, 26.08): список «известных папок» (Documents\OCCT, OneDrive\...\OCCT,
+# C:\OCCT) один раз уже подводил — реальный прогон лежал в %LOCALAPPDATA%\Temp\OCCT, где
+# OCCT ещё и распаковывает движки (GPUUNREAL, CPULINPACK), забивая папку сотнями файлов
+# лицензий. Патч именем ОДНОЙ папки не решает вопрос в принципе — OCCT сам знает, куда
+# писать, и это может смениться снова. Поэтому ищем не по имени подпапки, а по СОБСТВЕННЫМ
+# файлам-сигнатурам OCCT: `report.csv` (посекундный монитор) и `LastMonitoringValues.json`
+# (пишется ТОЛЬКО при штатном выходе — если его нет, тест убили, а не он доработал).
+# Роутов для поиска остаётся немного (реальные места, где вообще может писать процесс
+# пользователя/интерактивной задачи), а вот имя папки внутри них больше не имеет значения.
+#
 #   szcli exec <СЗ> -f tools\recipes\client\check-occt-result.ps1
 
 $HoursBack = 6                        # какой давности прогоны показывать
@@ -17,57 +27,86 @@ $TaskName  = 'szdiag-occtcomb-161716' # задача прогона (под св
 
 # Профиль залогиненного: под SYSTEM $env:USERPROFILE указывает в systemprofile.
 $expl = Get-CimInstance Win32_Process -Filter "Name='explorer.exe'" | Select-Object -First 1
-$roots = @()
+$searchRoots = @()
 if ($expl) {
     $owner = Invoke-CimMethod -InputObject $expl -MethodName GetOwner
     $userHome = Join-Path 'C:\Users' $owner.User
-    $roots += (Join-Path $userHome 'Documents\OCCT')
-    $roots += (Join-Path $userHome 'OneDrive\Documents\OCCT')   # Documents бывает перенаправлен в OneDrive
-    $roots += (Join-Path $userHome 'AppData\Local\Temp\OCCT')   # 161716: реально OCCT пишет СЮДА (Documents\OCCT вообще нет)
+    $searchRoots += (Join-Path $userHome 'Documents')                  # частый выбор GUI/CLI по умолчанию
+    $searchRoots += (Join-Path $userHome 'OneDrive\Documents')         # Documents бывает перенаправлен в OneDrive
+    $searchRoots += (Join-Path $userHome 'AppData\Local\Temp')         # 161716: реально OCCT пишет СЮДА
     "пользователь: $($owner.Domain)\$($owner.User)"
 }
-$roots += 'C:\OCCT'
-$roots = @($roots | Where-Object { Test-Path $_ } | Select-Object -Unique)
-if (-not $roots) { 'папок с результатами OCCT не найдено'; return }
+$searchRoots += 'C:\OCCT'
+$searchRoots = @($searchRoots | Where-Object { Test-Path $_ } | Select-Object -Unique)
+if (-not $searchRoots) { 'ни одного корня для поиска результатов OCCT не найдено'; return }
 
 $since = (Get-Date).AddHours(-$HoursBack)
-foreach ($root in $roots) {
-    "== $root"
-    $files = @(Get-ChildItem $root -Recurse -File -ErrorAction SilentlyContinue |
-        Where-Object { $_.LastWriteTime -gt $since } | Sort-Object LastWriteTime)
-    if (-not $files) { '   свежих файлов нет'; continue }
-    foreach ($f in $files) {
-        '   {0,-55} {1,8} б  {2:HH:mm:ss}' -f $f.FullName.Substring($root.Length + 1), $f.Length, $f.LastWriteTime
+
+# Сигнатура OCCT, а не имя папки: report.csv лежит при любом запуске, LastMonitoringValues.json
+# появляется только на чистом финише (--auto-close довёл дело до конца, а не был убит).
+$signature = @()
+foreach ($root in $searchRoots) {
+    $signature += Get-ChildItem $root -Recurse -File -Include 'report.csv', 'LastMonitoringValues.json' -ErrorAction SilentlyContinue |
+        Where-Object { $_.LastWriteTime -gt $since }
+}
+if (-not $signature) {
+    "ни report.csv, ни LastMonitoringValues.json за последние $HoursBack ч не найдено ни в одном из корней:"
+    $searchRoots | ForEach-Object { "   $_" }
+    'OCCT либо не запускался, либо результат не за этот период — попробуй увеличить $HoursBack.'
+    return
+}
+
+$runDir = ($signature | Sort-Object LastWriteTime -Descending | Select-Object -First 1).DirectoryName
+$finished = [bool]($signature | Where-Object Name -eq 'LastMonitoringValues.json')
+"== папка последнего прогона: $runDir"
+
+# Фильтр шума: *LICENSE* (лицензии распакованных движков) и сами движки (GPUUNREAL/CPULINPACK —
+# папки с exe/dll, а не с результатом теста).
+$files = @(Get-ChildItem $runDir -Recurse -File -ErrorAction SilentlyContinue |
+    Where-Object {
+        $_.Name -notmatch 'LICENSE' -and
+        $_.DirectoryName -notmatch '\\(GPUUNREAL|CPULINPACK)(\\|$)' -and
+        $_.LastWriteTime -gt $since
+    } | Sort-Object LastWriteTime)
+if (-not $files) { '   свежих файлов результата нет (кроме отфильтрованного шума)'; return }
+
+foreach ($f in $files) {
+    '   {0,-55} {1,8} б  {2:HH:mm:ss}' -f $f.FullName.Substring($runDir.Length + 1), $f.Length, $f.LastWriteTime
+}
+
+# (1) Окно прогона — по разбросу времён файлов: первый записанный — старт, последний — финиш.
+# Это честнее, чем «задача запущена в HH:MM»: старт задачи не равен старту нагрузки.
+$first = $files[0]; $last = $files[-1]
+'== (1) окно прогона'
+'   {0:HH:mm:ss} -> {1:HH:mm:ss} ({2:n1} мин)' -f $first.LastWriteTime, $last.LastWriteTime,
+    ($last.LastWriteTime - $first.LastWriteTime).TotalMinutes
+
+foreach ($f in $files) {
+    if ($f.Extension -eq '.txt' -or $f.Extension -eq '.log') {
+        "   --- $($f.Name)"
+        Get-Content $f.FullName -Tail 40 | ForEach-Object { '      ' + $_ }
     }
-
-    # Длительность считаем по разбросу времён файлов: первый записанный — старт, последний — финиш.
-    # Это честнее, чем «задача запущена в HH:MM»: старт задачи не равен старту нагрузки.
-    $first = $files[0]; $last = $files[-1]
-    '   окно записи: {0:HH:mm:ss} -> {1:HH:mm:ss} ({2:n1} мин)' -f $first.LastWriteTime, $last.LastWriteTime,
-        ($last.LastWriteTime - $first.LastWriteTime).TotalMinutes
-
-    foreach ($f in $files) {
-        if ($f.Extension -eq '.txt' -or $f.Extension -eq '.log') {
-            "   --- $($f.Name)"
-            Get-Content $f.FullName -Tail 40 | ForEach-Object { '      ' + $_ }
-        }
-        elseif ($f.Extension -eq '.csv') {
-            $n = (Get-Content $f.FullName | Measure-Object -Line).Lines
-            "   --- $($f.Name): $n строк"
-            Get-Content $f.FullName -Tail 3 | ForEach-Object { '      ' + $_ }
-        }
-    }
-
-    $txt = @($files | Where-Object { $_.Extension -eq '.txt' -or $_.Extension -eq '.log' -or $_.Extension -eq '.csv' })
-    if ($txt) {
-        $hits = @($txt | Select-String -Pattern 'error|fail|ошибк' -ErrorAction SilentlyContinue)
-        if ($hits) {
-            '   !!! строки с ошибками:'
-            $hits | Select-Object -First 30 | ForEach-Object { '      ' + $_.Filename + ': ' + $_.Line.Trim() }
-        }
-        else { '   ошибок в текстовых файлах не найдено' }
+    elseif ($f.Extension -eq '.csv') {
+        $n = (Get-Content $f.FullName | Measure-Object -Line).Lines
+        "   --- $($f.Name): $n строк"
+        Get-Content $f.FullName -Tail 3 | ForEach-Object { '      ' + $_ }
     }
 }
+
+# (2) WHEA/ошибки — только по отфильтрованным файлам результата, не по мусору движков.
+'== (2) WHEA/ошибки'
+$txt = @($files | Where-Object { $_.Extension -eq '.txt' -or $_.Extension -eq '.log' -or $_.Extension -eq '.csv' })
+if ($txt) {
+    $hits = @($txt | Select-String -Pattern 'error|fail|ошибк|whea' -ErrorAction SilentlyContinue)
+    if ($hits) { $hits | Select-Object -First 30 | ForEach-Object { '   ' + $_.Filename + ': ' + $_.Line.Trim() } }
+    else { '   не найдено' }
+}
+else { '   нет текстовых/csv файлов для разбора' }
+
+# (3) Чем закончился — сам факт наличия LastMonitoringValues.json и есть признак «дошёл до конца».
+'== (3) чем закончился'
+if ($finished) { '   штатный выход: LastMonitoringValues.json записан (тест доработал расписание/--auto-close)' }
+else { '   LastMonitoringValues.json НЕ найден — процесс убит/прерван до штатного финиша (или ещё идёт)' }
 
 '== процессы OCCT сейчас'
 $p = @(Get-Process OCCTCmd, OCCT -ErrorAction SilentlyContinue)
