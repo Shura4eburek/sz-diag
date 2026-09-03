@@ -26,7 +26,21 @@ if (-not $Schedule) {
 
 if (-not (Test-Path $Schedule)) { "НЕТ ФАЙЛА: $Schedule"; exit 1 }
 
-$json = Get-Content $Schedule -Raw -Encoding UTF8 | ConvertFrom-Json
+# #65 / б.128 (161346): расписание из ОДНОГО периода, собранное `$sched.Periods = foreach (...) {...}`,
+# сериализуется ConvertTo-Json в "Periods": {…} (объект), а не "Periods": [{…}] (массив). После
+# ConvertFrom-Json это уже не отличить — PowerShell одинаково даёт скаляр что для {…}, что для
+# однородного [{…}], а foreach ниже одинаково итерирует оба случая. Поэтому тип проверяем ДО
+# парсинга, по сырому тексту файла — именно так, как его увидит OCCT.
+$raw = Get-Content $Schedule -Raw -Encoding UTF8
+if ($raw -notmatch '"Periods"\s*:\s*\[') {
+    "НЕ МАССИВ: `"Periods`" сериализован объектом ({…}), а не массивом ([{…}])."
+    "OCCT на такой файл ответит 'Could not load the schedule file - file does not exists' —"
+    "это ЛОЖЬ про путь: файл на месте, просто не разобран. Причина обычно в"
+    "`$sched.Periods = foreach (...) {...}` с одним периодом — оберни в @(foreach ...)."
+    exit 1
+}
+
+$json = $raw | ConvertFrom-Json
 $bad = @()
 $i = 0
 foreach ($p in $json.Periods) {

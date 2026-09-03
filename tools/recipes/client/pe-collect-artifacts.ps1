@@ -1,4 +1,7 @@
 ﻿$OutputEncoding = [Console]::OutputEncoding = [Text.UTF8Encoding]::new()
+# Обмеження WinPE (нема Get-PnpDevice, Get-StorageReliabilityCounter частково пустий тощо) —
+# зведений список у шапці pe-offline-triage.ps1 (бэклог п.192).
+#
 # Зібрати журнали й дампи офлайн-тому клієнта в одну папку — з WinPE (СЗ 161946).
 #
 # Грабля: коли машина в PE, штатний `szcli diag run` бачить лише PE, а `szcli pull` по цій

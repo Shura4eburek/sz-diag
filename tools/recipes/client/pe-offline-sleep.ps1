@@ -4,6 +4,9 @@
 $Sys  = ''   # буква тома с Windows клиента; пусто = искать самому
 $Days = 30   # глубина разбора журнала
 [Console]::OutputEncoding = [Text.Encoding]::UTF8
+# Ограничения WinPE (нет Get-PnpDevice, Get-StorageReliabilityCounter частично пуст и т.п.) -
+# сведённый список в шапке pe-offline-triage.ps1 (бэклог п.192).
+#
 # Разбор «почему машина уходит в сон» по ОФЛАЙН-тому клиента из WinPE (СЗ 161498).
 #
 # Грабля: машина засыпает через считанные минуты, окно доступа к живому агенту слишком
@@ -14,6 +17,9 @@ $Days = 30   # глубина разбора журнала
 # он держит петлю «проснулась -> уснула» независимо от standby-timeout).
 #
 # Использование: szcli exec <СЗ> -f tools\recipes\client\pe-offline-sleep.ps1 --timeout 300
+#
+# #183 / б.227 (161498, 26.08): TimeCreated конвертируется в ЛОКАЛЬНУЮ таймзону PE, а не
+# клиента — журнальные секции ниже печатают `.ToUniversalTime()` (UTC), помечено в заголовках.
 
 if (-not $Sys) {
     foreach ($l in [char[]]'CDEFGHIJ') {
@@ -120,7 +126,7 @@ $ev = Get-WinEvent -Path $log -ErrorAction SilentlyContinue | Where-Object { $_.
 
 $reasons = @{0='Кнопка/крышка';2='Батарея';4='Тепловая';5='ПРОГРАММА (Application API)';7='Простой системы'}
 ''
-'--- уходы в сон (Kernel-Power 42) ---'
+'--- уходы в сон (Kernel-Power 42), время UTC ---'
 $e42 = $ev | Where-Object { $_.Id -eq 42 -and $_.ProviderName -match 'Kernel-Power' } | Sort-Object TimeCreated
 if (-not $e42) { '  событий нет' }
 else {
@@ -129,13 +135,13 @@ else {
         foreach ($n in $x.Event.EventData.Data) { $d[$n.Name] = $n.'#text' }
         $r = 0; [void][int]::TryParse([string]$d['Reason'], [ref]$r)
         $rt = if ($reasons.ContainsKey($r)) { $reasons[$r] } else { "код $($d['Reason'])" }
-        "  {0:dd.MM HH:mm:ss}  Target={1} Effective={2} Reason={3} ({4})" -f $e.TimeCreated, $d['TargetState'], $d['EffectiveState'], $d['Reason'], $rt
+        "  {0:dd.MM HH:mm:ss}  Target={1} Effective={2} Reason={3} ({4})" -f $e.TimeCreated.ToUniversalTime(), $d['TargetState'], $d['EffectiveState'], $d['Reason'], $rt
     }
     "  всего: $($e42.Count)"
 }
 
 ''
-'--- пробуждения (Power-Troubleshooter 1): сколько спала и что разбудило ---'
+'--- пробуждения (Power-Troubleshooter 1): сколько спала и что разбудило, время UTC ---'
 $e1 = $ev | Where-Object { $_.Id -eq 1 -and $_.ProviderName -match 'Power-Troubleshooter' } | Sort-Object TimeCreated
 if (-not $e1) { '  событий нет' }
 else {
@@ -144,12 +150,12 @@ else {
         foreach ($n in $x.Event.EventData.Data) { $d[$n.Name] = $n.'#text' }
         $dur = ''
         try { $dur = ' спала ' + [math]::Round(([datetime]$d['WakeTime'] - [datetime]$d['SleepTime']).TotalMinutes,1) + ' мин' } catch {}
-        "  проснулась {0:dd.MM HH:mm:ss}{1}; источник: {2} / {3}" -f $e.TimeCreated, $dur, $d['WakeSourceType'], $d['WakeSourceText']
+        "  проснулась {0:dd.MM HH:mm:ss}{1}; источник: {2} / {3}" -f $e.TimeCreated.ToUniversalTime(), $dur, $d['WakeSourceType'], $d['WakeSourceText']
     }
 }
 
 ''
-'--- вырубоны и грязные завершения рядом по времени (41 / 6008 / 1074) ---'
+'--- вырубоны и грязные завершения рядом по времени (41 / 6008 / 1074), время UTC ---'
 $ev | Where-Object { $_.Id -in 41, 6008, 1074 } | Sort-Object TimeCreated | ForEach-Object {
-    '  {0:dd.MM HH:mm:ss} [{1}/{2}] {3}' -f $_.TimeCreated, $_.ProviderName, $_.Id, (($_.Message -replace '\s+',' ') -replace '^(.{160}).*','$1')
+    '  {0:dd.MM HH:mm:ss} [{1}/{2}] {3}' -f $_.TimeCreated.ToUniversalTime(), $_.ProviderName, $_.Id, (($_.Message -replace '\s+',' ') -replace '^(.{160}).*','$1')
 }

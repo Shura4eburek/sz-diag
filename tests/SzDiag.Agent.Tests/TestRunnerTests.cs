@@ -212,6 +212,35 @@ public class TestRunnerTests
     }
 
     [Fact]
+    public void Run_AppStep_RunToCompletion_EarlyExitWithoutArtifact_WarnsInsteadOfSilentOk()
+    {
+        // #65 (б.128, СЗ 161346): OCCT не принял расписание (Periods сериализован объектом,
+        // а не массивом) — процесс выходит почти сразу, отчёта не создаёт, а раньше это
+        // молчаливо считалось нормальным «до-завершением» и в UI светилось «✓».
+        var exe = Path.GetTempFileName();
+        var missingArtifact = Path.Combine(Path.GetDirectoryName(exe)!, Guid.NewGuid() + ".html");
+        try
+        {
+            var exec = new RecordingExecutor();   // IsProcessAlive -> "" -> процесс не жив (самозавершился)
+            var runner = new TestRunner(exec, new FakeCapturer(new ScreenCapture(null, "n/a")), initialGraceSeconds: 0);
+            var suite = new TestSuite { Steps = new[]
+            {
+                new TestStep("app", "OCCT", Exe: exe, Args: "test", DurationSeconds: 4500,
+                    KillImage: "occtcmd.exe", RunToCompletion: true, ArtifactFile: missingArtifact),
+            } };
+
+            var output = runner.Run(suite, "156864", "PC-1", At);
+
+            var step = output.Report.Steps.Single();
+            Assert.Null(step.Error);
+            Assert.Null(step.ArtifactFile);
+            Assert.NotNull(step.Output);
+            Assert.Contains("раньше", step.Output);
+        }
+        finally { File.Delete(exe); }
+    }
+
+    [Fact]
     public void Run_InvokesOnStepForEachStepInOrder()
     {
         var runner = new TestRunner(

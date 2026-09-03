@@ -47,19 +47,19 @@ foreach ($e in $stor) {
 }
 if (-not $stor.Count) { '  нет' }
 ''
-'=== minidump / memory.dmp ==='
+'=== minidump / memory.dmp (время файлов - UTC, #183/б.227: LastWriteTime тоже конвертится в зону PE) ==='
 foreach ($d in @('W:\Windows\Minidump', 'W:\Windows\LiveKernelReports')) {
     if (Test-Path $d) {
         $f = @(Get-ChildItem $d -Recurse -Filter *.dmp -ErrorAction SilentlyContinue)
         ('  ' + $d + ': ' + $f.Count + ' шт')
-        foreach ($x in ($f | Sort-Object LastWriteTime | Select-Object -Last 15)) {
-            ('    {0}  {1} KB  {2}' -f $x.Name, [int]($x.Length / 1KB), $x.LastWriteTime.ToString('yyyy-MM-dd HH:mm:ss'))
+        foreach ($x in ($f | Sort-Object LastWriteTimeUtc | Select-Object -Last 15)) {
+            ('    {0}  {1} KB  {2} UTC' -f $x.Name, [int]($x.Length / 1KB), $x.LastWriteTimeUtc.ToString('yyyy-MM-dd HH:mm:ss'))
         }
     }
     else { ('  ' + $d + ': нет папки') }
 }
 if (Test-Path 'W:\Windows\MEMORY.DMP') {
     $m = Get-Item 'W:\Windows\MEMORY.DMP'
-    ('  MEMORY.DMP: ' + [int]($m.Length / 1MB) + ' MB  ' + $m.LastWriteTime.ToString('yyyy-MM-dd HH:mm:ss'))
+    ('  MEMORY.DMP: ' + [int]($m.Length / 1MB) + ' MB  ' + $m.LastWriteTimeUtc.ToString('yyyy-MM-dd HH:mm:ss') + ' UTC')
 }
 else { '  MEMORY.DMP: нет' }
