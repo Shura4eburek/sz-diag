@@ -18,15 +18,23 @@
 Get-CimInstance Win32_BIOS | Select-Object Manufacturer, SMBIOSBIOSVersion, ReleaseDate | Format-List
 Get-CimInstance Win32_BaseBoard | Select-Object Manufacturer, Product, Version | Format-List
 
-'== Модули памяти (Speed=JEDEC, Configured*=фактически)'
+'== Модули памяти (Speed=«заявлено SMBIOS» — НЕНАДЁЖНО, см. ниже; Configured*=фактически)'
 Get-CimInstance Win32_PhysicalMemory |
     Select-Object BankLabel, DeviceLocator, @{n = 'GB'; e = { [int]($_.Capacity / 1GB) } }, Speed,
     ConfiguredClockSpeed, ConfiguredVoltage, MinVoltage, MaxVoltage, Manufacturer, PartNumber, SerialNumber |
     Format-List
 $m = @(Get-CimInstance Win32_PhysicalMemory)
-$xmp = @($m | Where-Object { $_.ConfiguredClockSpeed -gt $_.Speed })
-if ($xmp.Count) { "ВЫВОД: XMP/EXPO ВКЛЮЧЁН — фактически $($xmp[0].ConfiguredClockSpeed) МГц при JEDEC $($xmp[0].Speed)" }
-else { 'ВЫВОД: работает на стоке (JEDEC), профиль выключен' }
+# Грабля (161716, бэклог п.207): вердикт строился на `ConfiguredClockSpeed -gt Speed`, а у
+# Kingston FURY KF560C30-8 SMBIOS кладёт в `Speed` МАКСИМУМ из SPD (=6000), а не JEDEC-базу —
+# сравнение никогда не срабатывает. Рецепт напечатал «работает на стоке» при реально включённом
+# EXPO 6000 — ровно наоборот истине, а этот вывод подавался как приборное подтверждение и на
+# нём строится вся дискриминация «профиль против стока» ([[159873]], [[160176]], [[161432]]).
+# Надёжный вердикт требует либо чтения SPD напрямую, либо JEDEC-таблицы по поколению с учётом
+# ранговости/платформы — этого пока нет. Печатаем ТОЛЬКО факт (ConfiguredClockSpeed уже выше),
+# вердикт «сток/профиль» намеренно НЕ печатаем: лучше отсутствие ответа, чем уверенный неверный.
+$configured = ($m | ForEach-Object { $_.ConfiguredClockSpeed } | Select-Object -Unique) -join ', '
+"ВЫВОД: вердикт «сток/профиль» не печатается — Speed из SMBIOS на этой плате ненадёжен " +
+    "(бэклог п.207). Факт — фактическая частота (ConfiguredClockSpeed) выше: $configured МГц."
 $slots = Get-CimInstance Win32_PhysicalMemoryArray | Select-Object -First 1
 if ($slots) { "Слотов на плате: $($slots.MemoryDevices), занято: $($m.Count)" }
 
