@@ -122,6 +122,11 @@ public sealed class SessionRegistry
     public string? TryGetConnectionId(string sz)
         => _bySz.TryGetValue(sz, out var e) ? e.ConnectionId : null;
 
+    /// <summary>Снимок сессии — нужен, например, чтобы решить, поднять ли дефолтный таймаут
+    /// `exec`, когда на СЗ прямо сейчас идёт стресс-прогон (бэклог п.35a).</summary>
+    public SessionInfo? TryGetInfo(string sz)
+        => _bySz.TryGetValue(sz, out var e) ? e.Info : null;
+
     public IReadOnlyList<SessionInfo> GetActive()
         => _bySz.Values.Select(e => e.Info).ToList();
 }
