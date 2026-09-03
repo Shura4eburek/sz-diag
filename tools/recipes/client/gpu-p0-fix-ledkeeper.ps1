@@ -16,8 +16,11 @@
 # Поэтому рецепт — инструмент ДОКАЗАТЕЛЬСТВА причины, а не готовое лечение для отдачи клиенту.
 #
 # Прежнее состояние служб и задачи пишется в файл, откат — $Restore = $true.
-# ⚠️ Бэкап пишется при КАЖДОМ запуске (бэклог п.171): второй прогон затрёт точку возврата уже
-# изменённым состоянием. Перед повторным применением сохрани исходные значения отдельно.
+# #113 / б.171 (161190): бэкап пишется РОВНО ОДИН РАЗ. Раньше он перезаписывался при КАЖДОМ
+# запуске — второй прогон (доработка лечения) сохранял состояние, которое УЖЕ было изменено
+# первым прогоном (`Mystic_Light_Service` = Disabled/Stopped вместо исходного Auto/Running),
+# и `$Restore` потом «возвращал» подсветку в уже поломанное состояние, честно считая его
+# исходным. Если файл уже есть — он не трогается, и это явно сказано в выводе.
 #
 #   szcli exec <СЗ> -f tools\recipes\client\gpu-p0-fix-ledkeeper.ps1
 $Restore = $false   # ← true = вернуть всё как было
@@ -32,11 +35,17 @@ function Pstate { (& $smi --query-gpu=pstate,clocks.current.graphics,fan.speed,t
 if ($Restore) {
     if (-not (Test-Path $state)) { 'файла состояния нет — откатывать нечего'; return }
     $s = Get-Content $state -Raw | ConvertFrom-Json
+    # Печатаем, ЧТО будем возвращать, ДО применения (#113 / б.171) — если точка возврата
+    # когда-то сохранилась уже поломанной, это должно быть видно СРАЗУ, а не задним числом.
+    "== возвращаем состояние, сохранённое $($s.Saved):"
+    "   задача '$($s.Task)': была $($s.TaskWas)"
+    foreach ($x in $s.Services) { "   $($x.Name) -> $($x.StartMode)/$($x.State)" }
+    ''
     Enable-ScheduledTask -TaskName $s.Task -ErrorAction SilentlyContinue | Out-Null
     foreach ($x in $s.Services) {
         Set-Service -Name $x.Name -StartupType $x.StartMode -ErrorAction SilentlyContinue
         if ($x.State -eq 'Running') { Start-Service -Name $x.Name -ErrorAction SilentlyContinue }
-        "   $($x.Name) -> $($x.StartMode)/$($x.State)"
+        "   применено: $($x.Name) -> $($x.StartMode)/$($x.State)"
     }
     'возвращено как было'
     return
@@ -44,15 +53,26 @@ if ($Restore) {
 
 "== до лечения: $(Pstate)"
 $t = Get-ScheduledTask -TaskName $task -ErrorAction SilentlyContinue
-$saved = foreach ($n in $svcs) {
-    $sv = Get-CimInstance Win32_Service -Filter "Name='$n'" -ErrorAction SilentlyContinue
-    if ($sv) { @{ Name = $n; StartMode = "$($sv.StartMode)"; State = "$($sv.State)" } }
+
+# #113 / б.171: бэкап пишется РОВНО ОДИН РАЗ за жизнь точки возврата. Повторный запуск
+# (доработка лечения) видит уже применённые изменения — перезаписать файл ими означало бы
+# заменить "исходное" состояние на "уже поломанное" (см. заголовок файла).
+if (Test-Path $state) {
+    "состояние уже сохранено ранее ($state) — НЕ перезаписываю, использую как точку возврата"
+    $existing = Get-Content $state -Raw | ConvertFrom-Json
+    "   (сохранено $($existing.Saved), задача была $($existing.TaskWas))"
 }
-$dir = Split-Path $state -Parent
-if (-not (Test-Path $dir)) { New-Item -ItemType Directory $dir -Force | Out-Null }
-@{ Task = $task; TaskWas = "$($t.State)"; Services = @($saved); Saved = (Get-Date).ToString('s') } |
-    ConvertTo-Json -Depth 4 | Set-Content $state -Encoding UTF8
-"состояние сохранено в $state"
+else {
+    $saved = foreach ($n in $svcs) {
+        $sv = Get-CimInstance Win32_Service -Filter "Name='$n'" -ErrorAction SilentlyContinue
+        if ($sv) { @{ Name = $n; StartMode = "$($sv.StartMode)"; State = "$($sv.State)" } }
+    }
+    $dir = Split-Path $state -Parent
+    if (-not (Test-Path $dir)) { New-Item -ItemType Directory $dir -Force | Out-Null }
+    @{ Task = $task; TaskWas = "$($t.State)"; Services = @($saved); Saved = (Get-Date).ToString('s') } |
+        ConvertTo-Json -Depth 4 | Set-Content $state -Encoding UTF8
+    "состояние сохранено в $state"
+}
 
 foreach ($n in $svcs) {
     $sv = Get-Service -Name $n -ErrorAction SilentlyContinue
