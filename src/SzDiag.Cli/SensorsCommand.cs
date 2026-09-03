@@ -90,6 +90,11 @@ public static class SensorsCommand
             $"[green]СЗ {sz}: наблюдатель запущен[/] (job {res.JobId}, интервал {interval} с, до {minutes} мин)");
         AnsiConsole.MarkupLineInterpolated($"[grey]CSV на клиенте:[/] {csvPath}");
         AnsiConsole.MarkupLine("[grey]Проверить:[/] szcli sensors status <СЗ>   [grey]забрать:[/] szcli pull <СЗ> <csv>");
+        // Бэклог п.153: cpu_temp_c читается из ACPI thermal zone и на многих машинах пуст —
+        // «CSV пишется, GPU-колонки живые» выглядит как рабочий прогон, хотя вопрос «перегрев
+        // или нет» этот источник не закрывает вовсе. Предупреждаем сразу, а не постфактум
+        // в `sensors report`, когда прогон уже потрачен.
+        AnsiConsole.MarkupLine("[grey]Если cpu_temp_c в CSV окажется пустой (нет датчика ACPI) — подними lhmmon:[/] tools/recipes/client/start-sensors.ps1");
         return 0;
     }
 

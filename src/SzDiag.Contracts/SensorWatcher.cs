@@ -41,7 +41,7 @@ public static class SensorWatcher
             $procNames = @({{procs}})
             {{deadline}}
             if (-not (Test-Path $csv)) {
-                'time;cpu_pct;stress_procs;cpu_temp_c;ram_used_pct;gpu_pct;gpu_temp_c;gpu_power_w' | Out-File -FilePath $csv -Encoding utf8
+                'time;cpu_pct;stress_procs;cpu_temp_c;ram_used_pct;gpu_pct;gpu_temp_c;gpu_power_w;cpu_clock_mhz' | Out-File -FilePath $csv -Encoding utf8
             }
             # nvidia-smi лежит в System32 и работает даже из session 0 (проверено на 161312).
             # Без GPU-колонок 30 минут FurMark выглядели как «нагрузка шла 2% времени» — по
@@ -59,8 +59,11 @@ public static class SensorWatcher
             while ((Get-Date) -lt $deadline) {
                 # Win32_Processor.LoadPercentage - дешёвый счётчик; счётчики производительности
                 # под 100% нагрузкой сами становятся узким местом и рвут ряд наблюдений.
-                $cpu = (Get-CimInstance Win32_Processor).LoadPercentage
-                if ($cpu -is [array]) { $cpu = ($cpu | Measure-Object -Average).Average }
+                # CurrentClockSpeed берём из того же запроса (бэклог п.153) - без частоты
+                # вердикт "троттлинга нет" недоказуем, а второй WMI-запрос под нагрузкой лишний.
+                $proc = @(Get-CimInstance Win32_Processor)
+                $cpu = ($proc | Measure-Object -Property LoadPercentage -Average).Average
+                $clock = ($proc | Measure-Object -Property CurrentClockSpeed -Maximum).Maximum
                 $running = 0
                 foreach ($n in $procNames) { $running += @(Get-Process -Name $n -ErrorAction SilentlyContinue).Count }
                 $temp = ''
@@ -82,7 +85,7 @@ public static class SensorWatcher
                 # Add-Content открывает и закрывает файл на каждой строке: пережить вырубон
                 # важнее, чем сэкономить на вводе-выводе.
                 ((Get-Date -Format 'yyyy-MM-dd HH:mm:ss') + ';' + $cpu + ';' + $running + ';' + $temp + ';' + $ram +
-                 ';' + $gpu + ';' + $gpuTemp + ';' + $gpuPower) |
+                 ';' + $gpu + ';' + $gpuTemp + ';' + $gpuPower + ';' + $clock) |
                     Add-Content -Path $csv -Encoding utf8
                 Start-Sleep -Seconds {{intervalSeconds}}
             }
