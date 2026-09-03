@@ -349,6 +349,15 @@ public class DiagnosticProbesTests
     }
 
     [Fact]
+    public void RebootsAndWheaProbes_AlsoPrintTimeZoneLabel()
+    {
+        // Регрессия (п.49): PE и хост могут жить в разных поясах не только в events -
+        // timeline вырубонов и WHEA страдает от того же расхождения.
+        foreach (var section in new[] { "reboots", "whea" })
+            Assert.Contains("Write-TzNote", Body(section));
+    }
+
+    [Fact]
     public void ProbesQueryingOptionalProviders_WrapCallsInTryCatch()
     {
         // Живая грабля: незарегистрированный ProviderName валит Get-WinEvent с

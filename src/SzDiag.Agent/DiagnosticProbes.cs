@@ -396,7 +396,8 @@ public static class DiagnosticProbes
         // установки ОС) читался как «сломалось в процессе эксплуатации». Событий этого типа
         // единицы-десятки, читать их все дёшево.
         Probe("reboots", "Перезагрузки: Kernel-Power 41 + dirty shutdown + BSOD-коды",
-            BugcheckCodes.PowerShellPrologue() + HardwareWindow.PowerShellPrologue() + """
+            TimeZoneNote.PowerShellPrologue() + BugcheckCodes.PowerShellPrologue() + HardwareWindow.PowerShellPrologue() + """
+            Write-TzNote
             "=== Okno etogo zheleza ==="
             Write-HwWindow
 
@@ -496,7 +497,8 @@ public static class DiagnosticProbes
         // Поля MCA (банк, MciStat, тип ошибки) раньше приходилось доставать отдельным exec
         // из EventData XML — теперь они в отчёте (п.18).
         Probe("whea", "Аппаратные ошибки железа (WHEA-Logger, все уровни)",
-            CperDecoder.PowerShellPrologue() + HardwareWindow.PowerShellPrologue() + """
+            TimeZoneNote.PowerShellPrologue() + CperDecoder.PowerShellPrologue() + HardwareWindow.PowerShellPrologue() + """
+            Write-TzNote
             "=== Okno etogo zheleza ==="
             Write-HwWindow
             $whea = @()

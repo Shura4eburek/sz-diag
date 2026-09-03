@@ -27,11 +27,7 @@ public static class HwCommand
 
         if (sub == "update")
         {
-            Console.WriteLine($"Качаю {PciIdsUrl} …");
-            using var http = new HttpClient();
-            var text = await http.GetStringAsync(PciIdsUrl);
-            await File.WriteAllTextAsync(pciIdsPath, text);
-            await ImportFileAsync(repo, pciIdsPath);
+            await UpdateAsync(repo, pciIdsPath);
             return;
         }
 
@@ -41,7 +37,26 @@ public static class HwCommand
             try { id = PciId.Parse(args[1]); }
             catch (FormatException ex) { Console.WriteLine(ex.Message); return; }
 
-            var res = await new GpuResolver(repo, new VgaBiosScraper()).ResolveAsync(id);
+            var resolver = new GpuResolver(repo, new VgaBiosScraper());
+            var res = await resolver.ResolveAsync(id);
+
+            // Промах device раньше только советовал `hw update` текстом в выводе - на
+            // Blackwell (DEV_2F04, устаревший pci.ids) это стоило лишнего ручного раунда на
+            // живой заявке (бэклог п.49). Пробуем обновление автоматически, один раз.
+            if (ShouldAutoUpdate(res))
+            {
+                Console.WriteLine($"Device {args[1]} не найден в локальной базе (pci.ids мог устареть) — пробую `hw update`…");
+                try
+                {
+                    await UpdateAsync(repo, pciIdsPath);
+                    res = await resolver.ResolveAsync(id);
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine($"Автообновление не удалось: {ex.Message}");
+                }
+            }
+
             Print(res);
             return;
         }
@@ -52,6 +67,19 @@ public static class HwCommand
               szcli hw update                      скачать свежий pci.ids и импортировать
               szcli hw resolve "<PCI ID>"          определить видяху по hardware id
             """);
+    }
+
+    /// <summary>Device известен вендору, но не резолвится локально — повод попробовать
+    /// свежий pci.ids сразу, а не только предложить это в тексте вывода.</summary>
+    public static bool ShouldAutoUpdate(GpuResolution res) => res.Source == GpuSource.Unresolved;
+
+    private static async Task UpdateAsync(GpuRepository repo, string pciIdsPath)
+    {
+        Console.WriteLine($"Качаю {PciIdsUrl} …");
+        using var http = new HttpClient();
+        var text = await http.GetStringAsync(PciIdsUrl);
+        await File.WriteAllTextAsync(pciIdsPath, text);
+        await ImportFileAsync(repo, pciIdsPath);
     }
 
     private static async Task ImportFileAsync(GpuRepository repo, string path)
