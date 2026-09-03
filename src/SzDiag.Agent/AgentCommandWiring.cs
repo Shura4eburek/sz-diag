@@ -16,12 +16,19 @@ public static class AgentCommandWiring
         string testSuitePath, Action<string, string?> announce,
         string? hubUrl = null, string? agentToken = null)
     {
+        // Единая точка резолва каталога тулов (бэклог п.151): TestRunner и push обязаны
+        // смотреть в одно и то же место — иначе push кладёт в ProgramData (агент в OneDrive),
+        // а тест-раннер ищет exe рядом с собой и не находит НИКОГДА (СЗ 161716).
+        var (toolsDir, movedOutOfCloud) = ToolsDirectory.Resolve(AppContext.BaseDirectory);
+        if (movedOutOfCloud)
+            announce($"Папка агента внутри облачного каталога — инструменты уйдут в {toolsDir}", null);
+
         // RunTests: по команде hub прогнать набор из testsuite.json и залить отчёт.
         if (File.Exists(testSuitePath))
         {
             var suite = TestSuite.Load(testSuitePath);
             var reportRunner = new TestReportRunner(
-                new TestRunner(new PowerShellCommandExecutor(ps), new GdiScreenCapturer()),
+                new TestRunner(new PowerShellCommandExecutor(ps), new GdiScreenCapturer(), toolsDir: toolsDir),
                 suite, link, hostname);
             link.OnRunTests(async (runSz, filter) =>
             {
@@ -53,7 +60,7 @@ public static class AgentCommandWiring
 
         // RunDiag: read-only снапшот (каталог проб встроен — работает всегда).
         var diagRunner = new DiagReportRunner(
-            new TestRunner(new PowerShellCommandExecutor(ps), new GdiScreenCapturer()),
+            new TestRunner(new PowerShellCommandExecutor(ps), new GdiScreenCapturer(), toolsDir: toolsDir),
             DiagnosticProbes.Suite, link, hostname);
         link.OnRunDiag(async (runSz, sections) =>
         {
@@ -152,14 +159,10 @@ public static class AgentCommandWiring
         // Регистрируем только когда известен адрес hub: без него качать неоткуда.
         if (!string.IsNullOrWhiteSpace(hubUrl))
         {
-            var (toolsDir, movedOutOfCloud) = ToolsDirectory.Resolve(AppContext.BaseDirectory);
             var http = new HttpClient { BaseAddress = new Uri(hubUrl), Timeout = Timeout.InfiniteTimeSpan };
             if (!string.IsNullOrEmpty(agentToken))
                 http.DefaultRequestHeaders.Add(HubRoutes.TokenHeader, agentToken);
             var pushHandler = new PushCommandHandler(http, toolsDir, movedOutOfCloud);
-
-            if (movedOutOfCloud)
-                announce($"Папка агента внутри облачного каталога — инструменты уйдут в {toolsDir}", null);
 
             link.OnPush(async req =>
             {

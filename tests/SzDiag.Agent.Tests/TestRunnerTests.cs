@@ -150,7 +150,43 @@ public class TestRunnerTests
 
         var step = output.Report.Steps.Single();
         Assert.Equal(TestStepKind.App, step.Kind);
-        Assert.Contains("не найден", step.Error);
+        // Явная причина вместо тихого "не запустился": инструмент либо не доставлен вовсе,
+        // либо push положил его в другой каталог, чем ожидал раннер (бэклог п.151).
+        Assert.Contains("не доставлен", step.Error);
+        Assert.Contains("ожидался в", step.Error);
+    }
+
+    [Fact]
+    public void Run_AppStep_ExeUnderTools_ResolvesAgainstActualToolsDir_NotBaseDir()
+    {
+        // Регрессия (бэклог п.151, СЗ 161716): агент запущен из OneDrive-папки, push увёл
+        // раздачу в ProgramData, а TestRunner резолвил "tools\occt\OCCTCmd.exe" от
+        // AppContext.BaseDirectory — exe не находился НИКОГДА, хотя push отчитался успехом.
+        var toolsDir = Path.Combine(Path.GetTempPath(), $"szdiag-tools-{Guid.NewGuid():N}");
+        var baseDir = Path.Combine(Path.GetTempPath(), $"szdiag-base-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(Path.Combine(toolsDir, "occt"));
+        var exePath = Path.Combine(toolsDir, "occt", "OCCTCmd.exe");
+        File.WriteAllText(exePath, "");
+        try
+        {
+            var exec = new RecordingExecutor();
+            var runner = new TestRunner(exec, new FakeCapturer(new ScreenCapture(null, "n/a")),
+                toolsDir: toolsDir, baseDir: baseDir);
+            var suite = new TestSuite { Steps = new[]
+            {
+                new TestStep("app", "OCCT", Exe: @"tools\occt\OCCTCmd.exe", DurationSeconds: 1),
+            } };
+
+            var output = runner.Run(suite, "156864", "PC-1", At);
+
+            var step = output.Report.Steps.Single();
+            Assert.Null(step.Error);
+            Assert.Contains(exec.Commands, c => c.Contains(exePath));
+        }
+        finally
+        {
+            try { Directory.Delete(toolsDir, recursive: true); } catch { }
+        }
     }
 
     [Fact]
