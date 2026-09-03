@@ -23,4 +23,58 @@ public class SensorsCommandTests
         Assert.Contains("job-1", warning);
         Assert.Contains("156864-20260904-100000.csv", warning);
     }
+
+    // #156/бэклог п.206: под нагрузкой процесс наблюдателя жив, а CSV не растёт 18 минут —
+    // `status` при этом рапортовал «идёт». Хартбит в stdout — способ увидеть это без сети.
+    [Fact]
+    public void ParseHeartbeatRows_NoTickLines_ReturnsNull()
+        => Assert.Null(SensorsCommand.ParseHeartbeatRows("some other output\nno ticks here"));
+
+    [Fact]
+    public void ParseHeartbeatRows_TakesLastTickLine()
+    {
+        var tail = "tick;1;2026-09-04 13:27:45\ntick;2;2026-09-04 13:27:57\ntick;3;2026-09-04 13:28:08";
+
+        Assert.Equal(3, SensorsCommand.ParseHeartbeatRows(tail));
+    }
+
+    [Fact]
+    public void IsStale_RunningButNoOutputForOver3Intervals_IsTrue()
+    {
+        var now = new DateTimeOffset(2026, 8, 24, 13, 46, 4, TimeSpan.Zero);
+        var lastOutput = new DateTimeOffset(2026, 8, 24, 13, 28, 8, TimeSpan.Zero);   // кейс 161716: дыра 18 минут
+
+        Assert.True(SensorsCommand.IsStale(running: true, lastOutput, intervalSeconds: 10, now));
+    }
+
+    [Fact]
+    public void IsStale_RunningAndFresh_IsFalse()
+    {
+        var now = new DateTimeOffset(2026, 8, 24, 13, 28, 12, TimeSpan.Zero);
+        var lastOutput = new DateTimeOffset(2026, 8, 24, 13, 28, 8, TimeSpan.Zero);
+
+        Assert.False(SensorsCommand.IsStale(running: true, lastOutput, intervalSeconds: 10, now));
+    }
+
+    [Fact]
+    public void IsStale_NotRunning_IsFalse()
+    {
+        // «Завершён» — отдельный, честный статус; «не пишет» относится только к живому процессу.
+        var now = DateTimeOffset.UtcNow;
+        Assert.False(SensorsCommand.IsStale(running: false, now.AddMinutes(-30), 10, now));
+    }
+
+    [Fact]
+    public void FreshnessLine_NoHeartbeatYet_SaysUnknown()
+        => Assert.Contains("хартбит", SensorsCommand.FreshnessLine(null, null, DateTimeOffset.UtcNow));
+
+    [Fact]
+    public void FreshnessLine_WithData_MentionsRowsAndLag()
+    {
+        var now = new DateTimeOffset(2026, 9, 4, 10, 5, 0, TimeSpan.Zero);
+        var line = SensorsCommand.FreshnessLine(42, new DateTimeOffset(2026, 9, 4, 10, 0, 0, TimeSpan.Zero), now);
+
+        Assert.Contains("42 строк", line);
+        Assert.Contains("5,0 мин назад", line.Replace('.', ','));
+    }
 }

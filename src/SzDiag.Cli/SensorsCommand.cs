@@ -27,7 +27,8 @@ public static class SensorsCommand
     private static string StatePath(string stateDir, string sz)
         => Path.Combine(stateDir, "sensors", $"{sz}.json");
 
-    private sealed record SensorRun(string JobId, string CsvPath, DateTimeOffset StartedAt);
+    private sealed record SensorRun(string JobId, string CsvPath, DateTimeOffset StartedAt,
+        int IntervalSeconds = DefaultIntervalSeconds);
 
     public static async Task<int> RunAsync(IHubApiClient client, string[] args, string stateDir)
     {
@@ -84,7 +85,7 @@ public static class SensorsCommand
         var path = StatePath(stateDir, sz);
         Directory.CreateDirectory(Path.GetDirectoryName(path)!);
         await File.WriteAllTextAsync(path,
-            JsonSerializer.Serialize(new SensorRun(res.JobId, csvPath, DateTimeOffset.Now)));
+            JsonSerializer.Serialize(new SensorRun(res.JobId, csvPath, DateTimeOffset.Now, interval)));
 
         AnsiConsole.MarkupLineInterpolated(
             $"[green]СЗ {sz}: наблюдатель запущен[/] (job {res.JobId}, интервал {interval} с, до {minutes} мин)");
@@ -110,10 +111,20 @@ public static class SensorsCommand
             AnsiConsole.MarkupLineInterpolated($"[red]СЗ {sz} не найдена[/] среди активных.");
             return 1;
         }
-        var state = status.Running ? "[yellow]идёт[/]" : $"[grey]завершён[/] (exit {status.ExitCode})";
+        // Свежесть по факту, а не по «процесс жив»: под нагрузкой наблюдатель может висеть на
+        // WMI минутами, оставаясь формально запущенным (бэклог п.206, СЗ 161716, дыра 18 минут
+        // при status == «идёт»). LastOutputAt — файл-таймстамп stdout фоновой задачи, тот же
+        // канал, что уже проверен под полной нагрузкой (п.208); хартбит наблюдателя
+        // (см. SensorWatcher) держит его свежим, пока идёт цикл, и несёт номер строки CSV.
+        var rows = ParseHeartbeatRows(status.Tail);
+        var stale = IsStale(status.Running, status.LastOutputAt, run.IntervalSeconds, DateTimeOffset.Now);
+        var state = stale
+            ? $"[red]не пишет {StaleMinutes(status.LastOutputAt, DateTimeOffset.Now):N0} мин[/]"
+            : status.Running ? "[yellow]идёт[/]" : $"[grey]завершён[/] (exit {status.ExitCode})";
         // MarkupLine + Escape для данных: Interpolated-вариант съедал разметку из $state и
         // печатал её текстом («[yellow]идёт[/]» на 260306).
         AnsiConsole.MarkupLine($"Наблюдатель {Markup.Escape(run.JobId)}: {state}, CSV {Markup.Escape(run.CsvPath)}");
+        AnsiConsole.MarkupLine($"[grey]{Markup.Escape(FreshnessLine(rows, status.LastOutputAt, DateTimeOffset.Now))}[/]");
         if (!string.IsNullOrEmpty(status.Error)) AnsiConsole.MarkupLineInterpolated($"[red]{status.Error}[/]");
         return 0;
     }
@@ -171,6 +182,48 @@ public static class SensorsCommand
         return $"Прошлый прогон не остановлен явно: job {previousJobId}, CSV {previousCsvPath} " +
                $"(запущен {previousStartedAt:dd.MM HH:mm}). Новые данные пишутся в отдельный файл — " +
                "старые не тронуты, но процесс на клиенте мог продолжать работать: szcli exec <СЗ> --jobs";
+    }
+
+    /// <summary>Номер строки CSV из последнего хартбита наблюдателя в хвосте вывода фоновой
+    /// задачи (<c>tick;&lt;номер строки&gt;;&lt;время&gt;</c> — см. <see cref="SensorWatcher"/>).
+    /// Время берём не отсюда, а из <see cref="ExecJobStatus.LastOutputAt"/> (файл-таймстамп,
+    /// уже DateTimeOffset и уже проверен под нагрузкой — п.208) — здесь нужно только «сколько
+    /// строк». Чистая функция без сети/файлов — тестируется напрямую (бэклог п.206).</summary>
+    public static int? ParseHeartbeatRows(string? tail)
+    {
+        if (string.IsNullOrWhiteSpace(tail)) return null;
+
+        string? last = null;
+        foreach (var raw in tail.Split('\n'))
+        {
+            var line = raw.Trim();
+            if (line.StartsWith("tick;", StringComparison.OrdinalIgnoreCase)) last = line;
+        }
+        if (last is null) return null;
+
+        var parts = last.Split(';');
+        return parts.Length >= 2 && int.TryParse(parts[1], out var r) ? r : null;
+    }
+
+    /// <summary>Наблюдатель формально «идёт» (процесс жив), но не дописал ни строки за
+    /// &gt; 3 интервала — тот самый сценарий 18-минутной дыры на 161716, когда `status` врал
+    /// «идёт» весь простой.</summary>
+    public static bool IsStale(bool running, DateTimeOffset? lastOutputAt, int intervalSeconds, DateTimeOffset now)
+    {
+        if (!running || lastOutputAt is null) return false;
+        return StaleMinutes(lastOutputAt, now) > intervalSeconds * 3.0 / 60.0;
+    }
+
+    private static double StaleMinutes(DateTimeOffset? lastOutputAt, DateTimeOffset now)
+        => lastOutputAt is null ? 0 : (now - lastOutputAt.Value).TotalMinutes;
+
+    /// <summary>Строка «сколько строк / когда последняя» — то, ради чего раньше приходилось
+    /// делать `szcli pull` дважды и сравнивать `wc -l` руками.</summary>
+    public static string FreshnessLine(int? rows, DateTimeOffset? lastAt, DateTimeOffset now)
+    {
+        if (lastAt is null) return "свежесть неизвестна: хартбит от наблюдателя ещё не пришёл";
+        var rowsText = rows is { } n ? $"{n} строк" : "число строк неизвестно";
+        return $"{rowsText}, последняя {lastAt:HH:mm:ss} ({StaleMinutes(lastAt, now):N1} мин назад)";
     }
 
     private static SensorRun? Load(string stateDir, string sz)
