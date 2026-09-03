@@ -93,7 +93,6 @@ while ((Get-Date) -lt $deadline) {
                     }
                 }
             } finally { $fs.Dispose() }
-            Start-Sleep -Milliseconds $PauseMs
         } catch [System.IO.IOException] {
             # «Файл занят» на системном диске — норма, а не отказ железа. Считаем отдельно,
             # иначе тест «найдёт» дефект на любой работающей машине.
@@ -111,6 +110,10 @@ while ((Get-Date) -lt $deadline) {
             $script:bugs++
             if ($script:bugs -le 3) { Say "ОШИБКА СКРИПТА (не диска): $($_.Exception.Message)" }
         }
+        # Пауза БЕЗУСЛОВНО — не только на успехе (бэклог п.174, аудит): если файлы массово заняты
+        # или недоступны, ветка catch раньше пропускала паузу и цикл по 200 файлам молотил без
+        # единой задержки, раздувая лог тем же способом, что и холостой пропуск в disk-stress-write.
+        Start-Sleep -Milliseconds $PauseMs
     }
     Say ("проход {0} завершён: прочитано {1:N1} ГБ, ошибок {2}" -f $passes, $totalGB, $errors)
 }
