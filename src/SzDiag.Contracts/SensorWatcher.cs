@@ -48,6 +48,14 @@ public static class SensorWatcher
             # одному только CPU (бэклог п.80). Нет nvidia-smi (AMD/Intel) - колонки пустые.
             $smi = Join-Path $env:SystemRoot 'System32\nvidia-smi.exe'
             $hasSmi = Test-Path $smi
+            # nvidia-smi отдаёт "[N/A]" на картах без телеметрии мощности (RTX 3050, бэклог п.166) —
+            # писать это в CSV как значение нельзя, иначе szcli sensors report валится на приведении
+            # к double. Нечисловое (в т.ч. голый "-") превращаем в пустую ячейку.
+            function ScrubNum([string]$v) {
+                if (-not $v) { return '' }
+                $v = $v.Trim()
+                if ($v -eq '' -or $v -eq '-' -or $v -match '(?i)^\[?n/?a\]?$') { '' } else { $v }
+            }
             while ((Get-Date) -lt $deadline) {
                 # Win32_Processor.LoadPercentage - дешёвый счётчик; счётчики производительности
                 # под 100% нагрузкой сами становятся узким местом и рвут ряд наблюдений.
@@ -68,7 +76,7 @@ public static class SensorWatcher
                     $line = & $smi --query-gpu=utilization.gpu,temperature.gpu,power.draw --format=csv,noheader,nounits 2>$null | Select-Object -First 1
                     if ($line) {
                         $p = $line -split ','
-                        $gpu = $p[0].Trim(); $gpuTemp = $p[1].Trim(); $gpuPower = $p[2].Trim()
+                        $gpu = ScrubNum $p[0]; $gpuTemp = ScrubNum $p[1]; $gpuPower = ScrubNum $p[2]
                     }
                 }
                 # Add-Content открывает и закрывает файл на каждой строке: пережить вырубон

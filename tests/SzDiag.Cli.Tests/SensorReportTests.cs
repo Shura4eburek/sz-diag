@@ -165,4 +165,15 @@ public class SensorWatcherScriptTests
     [Fact]
     public void Script_ZeroMinutes_RunsUntilKilled()
         => Assert.Contains("AddYears(1)", SensorWatcher.BuildScript(@"C:\x.csv", 5, 0, new[] { "OCCT" }));
+
+    [Fact]
+    public void Script_ScrubsNvidiaSmiNotAvailableValues()
+    {
+        // RTX 3050 отдаёт power.draw как "[N/A]" — писать эту строку в CSV как число нельзя,
+        // szcli sensors report падает на приведении к double (бэклог п.166).
+        var script = SensorWatcher.BuildScript(@"C:\x.csv", 5, 0, new[] { "OCCT" });
+
+        Assert.Contains("ScrubNum", script);
+        Assert.DoesNotContain("$gpuPower = $p[2].Trim()", script);
+    }
 }

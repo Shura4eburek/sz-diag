@@ -42,7 +42,11 @@ $cols = $rows[0].PSObject.Properties.Name | Where-Object {
 foreach ($c in $cols) {
     $vals = foreach ($r in $rows) {
         $v = $r.$c
-        if ($v -and $v -ne '') { [double]($v -replace ',', '.') }
+        # nvidia-smi отдаёт "[N/A]" на картах без телеметрии мощности (161190, бэклог п.166) —
+        # без фильтра приведение к double сыплет полсотни строк исключений и топит полезный вывод.
+        if ($v -and $v -ne '' -and $v -ne '-' -and $v -notmatch '(?i)^\[?n/?a\]?$') {
+            [double]($v -replace ',', '.')
+        }
     }
     if (-not $vals) { continue }
     $m = $vals | Measure-Object -Maximum -Average
