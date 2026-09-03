@@ -554,6 +554,12 @@ switch (command)
             // на отдельные строки (бэклог п.77).
             foreach (var w in ScriptLint.Check(script))
                 AnsiConsole.MarkupLineInterpolated($"[yellow]⚠ {w}[/]");
+
+            // --param Key=Value — параметризация рецепта без правки файла в рабочем дереве
+            // (бэклог п.155): почти каждый рецепт начинается с плейсхолдера `$Sz = '000000'`.
+            // Номер СЗ подставляем сами, раз он и так есть в команде — если не перекрыт явно.
+            var fileParams = ExecParams.WithAutoSz(ExecParams.ParseArgs(args), execSz);
+            script = ExecParams.Apply(script, fileParams);
         }
         else
         {
@@ -652,7 +658,7 @@ static void PrintUsage()
               [yellow]szcli diag run[/] [blue]<СЗ>[/] [grey][[storage,events|…]][/]  диагностика (снапшот; секции точечно)
                 [grey]секции: system cpu memory gpu storage temps drivers events reboots whea livekernel reliability battery[/]
                 [grey]можно через запятую или пробел; all — все; алиасы: hw ram disks video bsod tdr temp[/]
-              [yellow]szcli exec[/] [blue]<СЗ>[/] [grey]"<powershell>" | -f <файл> [[--timeout <сек>]] [[--detach [[--isolated]]]][/]
+              [yellow]szcli exec[/] [blue]<СЗ>[/] [grey]"<powershell>" | -f <файл> [[--param Key=Value ...]] [[--timeout <сек>]] [[--detach [[--isolated]]]][/]
                 [grey]--isolated — фон переживает падение/закрытие агента (scheduled task под SYSTEM)[/]
               [yellow]szcli exec[/] [blue]<СЗ>[/] [grey]--result <jobId> [[--tail N]]   состояние фоновой задачи[/]
               [yellow]szcli exec[/] [blue]<СЗ>[/] [grey]--cancel <jobId> | --jobs      снять задачу / список задач[/]
