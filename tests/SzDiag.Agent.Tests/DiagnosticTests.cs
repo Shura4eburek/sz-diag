@@ -133,6 +133,20 @@ public class DiagnosticProbesTests
     }
 
     [Fact]
+    public void MemoryProbe_ReadsVoltageForXmpDetection()
+    {
+        // Регрессия (бэклог п.8): на 160467 Speed=ConfiguredClockSpeed=4800 не давал понять,
+        // включён ли EXPO. ConfiguredVoltage сразу отличает JEDEC (~1100 mV) от EXPO/XMP
+        // (~1350-1400 mV) без захода в BIOS.
+        var run = Body("memory");
+
+        Assert.Contains("ConfiguredVoltage", run);
+        Assert.Contains("MinVoltage", run);
+        Assert.Contains("MaxVoltage", run);
+        Assert.Contains("JEDEC", run);
+    }
+
+    [Fact]
     public void StorageProbe_ReadsNvmeHealthLogDirectly()
     {
         // Регрессия (п.120/142): на NVMe Get-StorageReliabilityCounter отдаёт пустые

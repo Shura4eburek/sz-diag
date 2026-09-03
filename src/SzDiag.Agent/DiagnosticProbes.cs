@@ -79,14 +79,21 @@ public static class DiagnosticProbes
                 Format-List | Out-String
             """),
 
+        // Chastoty odni ne otvechayut na vopros "vklyuchen li profil": na 160467
+        // Speed=ConfiguredClockSpeed=4800, i tolko ConfiguredVoltage=1100 (JEDEC) skazal,
+        // chto EXPO NE vklyuchen. VSOC (AM5, glavnyy ubiytsa IMC pri EXPO 6000) trebuet
+        // lhmmon i otdelnogo zahoda (HVCI ego blokiruet - sm. tools/recipes) - vne scope
+        // etoy proby (backlog p.8).
         Probe("memory", "Память (ОЗУ и модули)", """
             $os = Get-CimInstance Win32_OperatingSystem -ErrorAction SilentlyContinue
             "Total: {0:N1} GB, Free: {1:N1} GB" -f ($os.TotalVisibleMemorySize/1MB), ($os.FreePhysicalMemory/1MB)
             Get-CimInstance Win32_PhysicalMemory -ErrorAction SilentlyContinue |
                 Select-Object DeviceLocator, @{n='GB';e={[math]::Round($_.Capacity/1GB,1)}},
-                    Speed, ConfiguredClockSpeed, Manufacturer, PartNumber |
+                    Speed, ConfiguredClockSpeed, ConfiguredVoltage, MinVoltage, MaxVoltage,
+                    Manufacturer, PartNumber |
                 Format-Table -Auto | Out-String
             "Speed = pasportnaya (JEDEC), ConfiguredClockSpeed = fakticheskaya; ConfiguredClockSpeed > Speed => vklyuchen XMP/EXPO (razgon pamyati)."
+            "ConfiguredVoltage (mV): ~1100 = JEDEC (stok), ~1350-1400 = EXPO/XMP profil vklyuchen. VSOC (AM5) etoy probay ne snimaetsya - sm. lhmmon otdelnym zahodom DO stressa (HVCI ego blokiruet, backlog p.8)."
             """),
 
         Probe("gpu", "Видеокарта (PCI ID для резолвера + драйвер)", """
