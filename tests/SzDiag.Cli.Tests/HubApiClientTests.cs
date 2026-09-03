@@ -61,7 +61,7 @@ public class HubApiClientTests
 
         var ok = await client.AddNoteAsync("160697", "поставив тестовий Corsair RM850x");
 
-        Assert.True(ok);
+        Assert.Equal(NoteResult.Ok, ok);
         Assert.Equal(HttpMethod.Post, handler.LastRequest!.Method);
         Assert.Equal("/api/sessions/160697/journal", handler.LastRequest.RequestUri!.AbsolutePath);
         // Тело разбираем обратно, а не ищем подстроку: System.Text.Json экранирует кириллицу
@@ -72,11 +72,23 @@ public class HubApiClientTests
     }
 
     [Fact]
-    public async Task AddNoteAsync_WhenHubRejects_ReturnsFalse()
+    public async Task AddNoteAsync_WhenHubRejects_ReturnsRejected()
     {
         var client = NewClient(new StubHandler(HttpStatusCode.BadRequest));
 
-        Assert.False(await client.AddNoteAsync("160697", "текст"));
+        Assert.Equal(NoteResult.Rejected, await client.AddNoteAsync("160697", "текст"));
+    }
+
+    [Fact]
+    public async Task AddNoteAsync_WhenRouteMissing_ReturnsHubTooOld()
+    {
+        // Регрессия (бэклог п.191): journal-эндпоинт принимает любую валидную СЗ без проверки
+        // сессии, поэтому 404 здесь означает не «СЗ не найдена», а «hub не знает такой
+        // маршрут» — старый hub без journal-эндпоинта. Раньше оба случая выглядели одинаково
+        // как «hub не принял заметку», и на живой заявке (161190) причину искали руками.
+        var client = NewClient(new StubHandler(HttpStatusCode.NotFound));
+
+        Assert.Equal(NoteResult.HubTooOld, await client.AddNoteAsync("160697", "текст"));
     }
 
     [Fact]

@@ -254,12 +254,22 @@ switch (command)
 
         // Кавычки вокруг текста необязательны: всё, что после номера, — одна заметка.
         var noteText = string.Join(' ', args[2..]);
-        if (await client.AddNoteAsync(noteSz, noteText))
-            AnsiConsole.MarkupLineInterpolated($"[green]СЗ {noteSz}: записано в журнал[/]");
-        else
+        var noteResult = await client.AddNoteAsync(noteSz, noteText);
+        switch (noteResult)
         {
-            AnsiConsole.MarkupLineInterpolated($"[red]СЗ {noteSz}: hub не принял заметку[/]");
-            return 1;
+            case NoteResult.Ok:
+                AnsiConsole.MarkupLineInterpolated($"[green]СЗ {noteSz}: записано в журнал[/]");
+                break;
+            // 404 на этом эндпоинте не значит «СЗ не найдена» (он принимает любую) — значит
+            // hub не знает такого маршрута вообще, то есть старее CLI (бэклог п.191: раньше
+            // это выглядело так же, как обычный отказ, и причину искали руками на живой заявке).
+            case NoteResult.HubTooOld:
+                AnsiConsole.MarkupLineInterpolated(
+                    $"[red]СЗ {noteSz}: hub не знает такой команды[/] [grey](похоже, hub старее CLI — перезапусти hub после build-dist)[/]");
+                return 1;
+            default:
+                AnsiConsole.MarkupLineInterpolated($"[red]СЗ {noteSz}: hub не принял заметку[/]");
+                return 1;
         }
         break;
     }

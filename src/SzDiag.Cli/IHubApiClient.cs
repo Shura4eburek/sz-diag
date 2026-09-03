@@ -8,7 +8,7 @@ public interface IHubApiClient
     Task<CloseOutcome> CloseAsync(string sz, CancellationToken ct = default);
 
     /// <summary>Ручной шаг у машины в журнал СЗ. Принимается и когда сессии нет.</summary>
-    Task<bool> AddNoteAsync(string sz, string text, CancellationToken ct = default);
+    Task<NoteResult> AddNoteAsync(string sz, string text, CancellationToken ct = default);
     Task<TargetInfo?> GetTargetAsync(string sz, CancellationToken ct = default);
     Task<TriggerResult> TriggerTestAsync(string sz, string? filter, string? config,
         bool sameConfig, CancellationToken ct = default);
@@ -37,3 +37,10 @@ public interface IHubApiClient
 /// <summary>Итог запуска прогона: hub возвращает текст причины, и CLI обязан его показать —
 /// иначе подсказка про `--same-config` до пользователя не доедет.</summary>
 public sealed record TriggerResult(bool Ok, string? Error);
+
+/// <summary>Итог `AddNoteAsync`. Эндпоинт журнала принимает любую валидную СЗ без проверки
+/// существования сессии — 404 там означает не «СЗ не найдена», а «hub не знает такой
+/// маршрут вообще», то есть hub старее CLI. Раньше оба случая давали одинаковое безликое
+/// «hub не принял заметку», и на живой заявке (161190) причину пришлось искать вручную
+/// (бэклог п.191).</summary>
+public enum NoteResult { Ok, Rejected, HubTooOld }

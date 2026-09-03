@@ -49,12 +49,15 @@ public sealed class HubApiClient : IHubApiClient
         return await resp.Content.ReadFromJsonAsync<CloseOutcome>(cts.Token) ?? new CloseOutcome(true, null);
     }
 
-    public async Task<bool> AddNoteAsync(string sz, string text, CancellationToken ct = default)
+    public async Task<NoteResult> AddNoteAsync(string sz, string text, CancellationToken ct = default)
     {
         using var cts = Short(ct);
         var resp = await _http.PostAsJsonAsync($"/api/sessions/{sz}/journal",
             new JournalNoteRequest(text), cts.Token);
-        return resp.StatusCode == HttpStatusCode.OK;
+        if (resp.StatusCode == HttpStatusCode.OK) return NoteResult.Ok;
+        // Эндпоинт принимает любую валидную СЗ без проверки сессии — 404 тут не «не нашли
+        // СЗ», а «такого маршрута на hub нет вовсе» (старый hub без journal-эндпоинта).
+        return resp.StatusCode == HttpStatusCode.NotFound ? NoteResult.HubTooOld : NoteResult.Rejected;
     }
 
     public async Task<TargetInfo?> GetTargetAsync(string sz, CancellationToken ct = default)
