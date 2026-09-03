@@ -683,7 +683,9 @@ static string ResolveLocal(string path)
 static async Task WatchAsync(IHubApiClient client)
 {
     AnsiConsole.Write(new Rule("[bold]sz-diag[/] — онлайн-СЗ").LeftJustified());
-    AnsiConsole.MarkupLine("[grey]Ctrl+C для выхода.[/]\n");
+    // Дата сборки в шапке — протухший CLI в dist иначе виден только по --version, который
+    // никто не догадывается набрать посреди заявки (бэклог п.198/205/211).
+    AnsiConsole.MarkupLineInterpolated($"[grey]{Markup.Escape(CliCommands.Describe())}[/] · Ctrl+C для выхода.\n");
 
     var table = SessionTableRenderer.Render(Array.Empty<SzDiag.Contracts.SessionInfo>());
     await AnsiConsole.Live(table)
