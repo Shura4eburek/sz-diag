@@ -352,6 +352,21 @@ public class DiagnosticProbesTests
     }
 
     [Fact]
+    public void StorageProbe_SummarizesJournalDiskEventsByDeviceAndFlagsRemovable()
+    {
+        // Регрессия (бэклог п.141, СЗ 160705): 396 событий `disk Id=51` чуть не уехали в акт
+        // клиенту как "ошибок накопителя нет" — ни одна секция их не агрегировала и не
+        // привязывала к устройству. Все 396 оказались за один день на USB-флешке
+        // (Harddisk1, съёмный), 0 из 396 рядом с вырубоном.
+        var run = Body("storage");
+
+        Assert.Contains("Svodka diskovyh sobytiy po Harddisk N", run);
+        Assert.Contains("SEMNYY NOSITEL", run);
+        Assert.Contains("Kernel-Power 41", run);
+        Assert.Contains("InterfaceType -eq 'USB'", run);
+    }
+
+    [Fact]
     public void StorageProbe_MapsPagefileToPhysicalDiskAndSplitsUncorrectable()
     {
         // Регрессия (п.27): «ReadErrors: 393» выглядело как шум, хотя все 393 неисправимы,

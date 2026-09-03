@@ -249,6 +249,48 @@ public static class DiagnosticProbes
                     Format-Table -Auto | Out-String
             } else { "none" }
 
+            "=== Svodka diskovyh sobytiy po Harddisk N (rezolv ustroystva) ==="
+            # 396 sobytiy 'disk Id=51' na 160705 chut ne uehali v akt klientu kak 'oshibok
+            # nakopitelya net' - ni odna sektsiya ih ne agregirovala i ne privyazyvala k
+            # ustroystvu. Razbor zanyal 3 minuty i snyal versiyu: vse 396 - za odin den,
+            # ustroystvo Harddisk1 (semnyy USB-nositel, ne sistemnyy SSD Harddisk0), 0 iz 396
+            # v okne vyrubona (backlog p.141).
+            if ($diskEvents.Count -gt 0) {
+                $kp41Times = @()
+                try {
+                    $kp41Times = @(Get-WinEvent -FilterHashtable @{ LogName='System'; ProviderName='Microsoft-Windows-Kernel-Power'; Id=41 } -ErrorAction Stop |
+                        Select-Object -ExpandProperty TimeCreated)
+                } catch { }
+
+                $rows = foreach ($e in $diskEvents) {
+                    $diskNum = $null
+                    if ($e.Message -match 'Harddisk(\d+)') { $diskNum = [int]$Matches[1] }
+                    $nearShutdown = $false
+                    if ($kp41Times.Count -gt 0) {
+                        $nearShutdown = [bool]@($kp41Times | Where-Object { [math]::Abs(($_ - $e.TimeCreated).TotalMinutes) -le 5 }).Count
+                    }
+                    [PSCustomObject]@{ Time = $e.TimeCreated; Disk = $diskNum; NearShutdown = $nearShutdown }
+                }
+                $byDisk = $rows | Group-Object Disk | Sort-Object Count -Descending
+                foreach ($g in $byDisk) {
+                    $diskInfo = $null
+                    $n = 0
+                    if ($g.Name -and [int]::TryParse("$($g.Name)", [ref]$n) -and $dmap.ContainsKey($n)) { $diskInfo = $dmap[$n] }
+                    $label = if ($diskInfo) { "Harddisk$n" } else { "(nomer diska ne opredelen iz Message)" }
+                    $model = if ($diskInfo) { $diskInfo.Model } else { '?' }
+                    # InterfaceType='USB' - eto semnyy nositel, k defektu sistemnogo diska
+                    # otnosheniya obychno ne imeet (backlog p.141).
+                    $removableMark = if ($diskInfo -and $diskInfo.InterfaceType -eq 'USB') { ' [SEMNYY NOSITEL - USB]' } else { '' }
+                    $first = ($g.Group | Sort-Object Time | Select-Object -First 1).Time
+                    $last = ($g.Group | Sort-Object Time -Descending | Select-Object -First 1).Time
+                    $nearCount = @($g.Group | Where-Object NearShutdown).Count
+                    "{0}: {1} sobytiy, {2:dd.MM.yyyy}-{3:dd.MM.yyyy}, model={4}{5}, ryadom s Kernel-Power 41 (+-5 min): {6}" -f `
+                        $label, $g.Count, $first, $last, $model, $removableMark, $nearCount
+                }
+                "Podskazka: sobytiya semnyh nositeley (USB-fleshki i pr.) k defektu sistemnogo diska"
+                "otnosheniya NE imeyut - eto ne 'oshibok nakopitelya net', a 'oshibki na drugom ustroystve'."
+            }
+
             "=== Toma ==="
             Get-Volume -ErrorAction SilentlyContinue | Where-Object DriveLetter |
                 Select-Object DriveLetter, FileSystemLabel,
