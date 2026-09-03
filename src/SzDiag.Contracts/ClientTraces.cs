@@ -26,12 +26,16 @@ public static class ClientTraces
     /// начинается с `R0` — по «очевидному» `lhmmon` уборка промахивалась (п.88).</summary>
     public static readonly string[] ToolServices = { "R0lhmmon", "WinRing0_1_2_0", "R0OCCT" };
 
-    /// <summary>Наши временные каталоги на клиенте: вывод фоновых задач и CSV наблюдателя.
-    /// Всё это заведомо наше — чистится без вопросов.</summary>
+    /// <summary>Наши временные каталоги на клиенте: вывод фоновых задач, CSV наблюдателя и
+    /// доставленные инструменты (`ToolsDirectory.Resolve` уводит их сюда, когда папка агента
+    /// сама оказалась в OneDrive/Dropbox/… — иначе четверть гига OCCT+lhmmon уезжала в личное
+    /// облако клиента и оставалась там навсегда, бэклог п.63). Всё это заведомо наше —
+    /// чистится без вопросов.</summary>
     public static readonly string[] TempDirs =
     {
         @"C:\ProgramData\szdiag\jobs",
         @"C:\ProgramData\szdiag\sensors",
+        @"C:\ProgramData\szdiag\tools",
     };
 
     /// <summary>Что осталось на машине: задачи с нашим префиксом (в том числе безымянные, без
