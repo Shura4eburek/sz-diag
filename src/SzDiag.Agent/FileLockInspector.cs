@@ -12,6 +12,7 @@ public static class FileLockInspector
 {
     private const int CchRmMaxAppName = 255;
     private const int CchRmMaxSvcName = 63;
+    private const int CchRmSessionKeyLen = 32;
     private const int ErrorMoreData = 234;
 
     [StructLayout(LayoutKind.Sequential)]
@@ -36,7 +37,7 @@ public static class FileLockInspector
     }
 
     [DllImport("rstrtmgr.dll", CharSet = CharSet.Unicode)]
-    private static extern int RmStartSession(out uint pSessionHandle, int dwSessionFlags, string strSessionKey);
+    private static extern int RmStartSession(out uint pSessionHandle, int dwSessionFlags, System.Text.StringBuilder strSessionKey);
 
     [DllImport("rstrtmgr.dll")]
     private static extern int RmEndSession(uint pSessionHandle);
@@ -57,8 +58,11 @@ public static class FileLockInspector
         uint handle = 0;
         try
         {
-            // Ключ сессии Restart Manager ограничен CCH_RM_SESSION_KEY_LEN (32) символами.
-            var key = Guid.NewGuid().ToString("N")[..24];
+            // strSessionKey — ВЫХОДНОЙ буфер: RmStartSession сам пишет в него ключ из
+            // CCH_RM_SESSION_KEY_LEN (32) символов + нуль. Неизменяемая .NET-строка короче
+            // 33 символов здесь = запись за границу буфера и порча кучи (тест-хост падал
+            // с Fatal Internal CLR error 0x80131506 в соседних тестах).
+            var key = new System.Text.StringBuilder(CchRmSessionKeyLen + 1);
             if (RmStartSession(out handle, 0, key) != 0) return result;
 
             var files = new[] { path };
