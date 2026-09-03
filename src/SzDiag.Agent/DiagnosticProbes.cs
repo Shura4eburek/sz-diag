@@ -72,6 +72,89 @@ public static class DiagnosticProbes
             "VAZHNO: uptime NE dokazyvaet rabotu. Narabotka = SMART PowerOnHours (sektsiya storage); chastotu otkazov schitat na chas narabotki, a ne na kalendarnyy den."
             """),
 
+        // Один InstallDate ничего не доказывает: он переживает feature update и едет внутри
+        // образа. На 161346 «ОС старше даты сборки, значит переносилась» на этом основании
+        // ушло клиенту, а он потребовал письменное подтверждение — и его пришлось строить
+        // ad-hoc рецептом os-provenance.ps1 (бэклог п.162). Прямые признаки: CloneTag
+        // (метка снятия образа), GeneralizationState (sysprep обезличил систему), даты
+        // setupapi.dev.log/профилей/тома (когда драйверы/OOBE прошли именно на ЭТОЙ сборке),
+        // призраки чужого железа в Enum и статус активации.
+        Probe("os", "Происхождение ОС (образ / sysprep / чистая установка)", """
+            $cv = Get-ItemProperty 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion' -ErrorAction SilentlyContinue
+            "=== Zayavlennaya versiya i InstallDate ==="
+            if ($cv.InstallDate) {
+                "InstallDate (registry): {0:yyyy-MM-dd HH:mm:ss} - PEREZHIVAET feature update i edet vnutri obraza, samo po sebe NICHEGO ne dokazyvaet." -f `
+                    ([DateTimeOffset]::FromUnixTimeSeconds($cv.InstallDate).LocalDateTime)
+            } else { "InstallDate: net dannyh" }
+            "BuildLabEx obraza: {0}" -f $cv.BuildLabEx
+            "InstallationType: {0}" -f $cv.InstallationType
+
+            "=== Sledy klonirovaniya / sysprep ==="
+            $ct = Get-ItemProperty 'HKLM:\SYSTEM\Setup' -Name CloneTag -ErrorAction SilentlyContinue
+            if ($ct) { "CloneTag: {0} (PRYAMAYA metka snyatiya obraza)" -f ($ct.CloneTag -join ' | ') }
+            else { "CloneTag: net" }
+            $sp = Get-ItemProperty 'HKLM:\SYSTEM\Setup\Status\SysprepStatus' -ErrorAction SilentlyContinue
+            if ($sp -and ($null -ne $sp.GeneralizationState)) {
+                $gs = [int]$sp.GeneralizationState
+                $meaning = @{7='obraz obezlichen (sysprep /generalize proshel)'; 4='ne obezlichen'}[$gs]
+                "GeneralizationState: {0} ({1})" -f $gs, $(if ($meaning) { $meaning } else { 'unknown' })
+            } else { "GeneralizationState: net dannyh (SysprepStatus ne nayden)" }
+            "Windows.old: {0}" -f $(if (Test-Path 'C:\Windows.old') { 'EST (byla predydushaya ustanovka na etom diske)' } else { 'net' })
+
+            "=== Data sozdaniya toma C: (edet vnutri obraza vmeste s faylami) ==="
+            $vol = Get-Item -LiteralPath 'C:\System Volume Information' -Force -ErrorAction SilentlyContinue
+            if ($vol) { "Tom C: sozdan {0:yyyy-MM-dd HH:mm:ss}" -f $vol.CreationTime } else { "net dostupa k System Volume Information" }
+
+            "=== setupapi.dev.log - kogda na ETOY sisteme vpervye stavilis drayvery ==="
+            $sa = 'C:\Windows\INF\setupapi.dev.log'
+            if (Test-Path $sa) {
+                $fi = Get-Item $sa -Force
+                "sozdan {0:yyyy-MM-dd HH:mm:ss}" -f $fi.CreationTime
+            } else { "fayla net" }
+
+            "=== Profili polzovateley (data sozdaniya = pervyy vhod / OOBE na ETOY sisteme) ==="
+            $profiles = @()
+            Get-ChildItem 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\ProfileList' -ErrorAction SilentlyContinue |
+                ForEach-Object {
+                    $pp = (Get-ItemProperty $_.PSPath -ErrorAction SilentlyContinue).ProfileImagePath
+                    if ($pp -and $pp -notmatch 'systemprofile|LocalService|NetworkService') {
+                        $d = Get-Item -LiteralPath $pp -Force -ErrorAction SilentlyContinue
+                        if ($d) { $profiles += [PSCustomObject]@{ Profil = $pp; Sozdan = $d.CreationTime } }
+                    }
+                }
+            if ($profiles.Count -gt 0) { $profiles | Sort-Object Sozdan | Format-Table -Auto | Out-String }
+            else { "profiley polzovateley ne nayti" }
+
+            "=== Prizraki chuzhogo zheleza (Status=Unknown, PCI/USB) ==="
+            # Obraz s DRUGOY platformy ostavlyaet v Enum PCI-ustroystva, kotoryh v mashine net.
+            $ghosts = @(Get-PnpDevice -ErrorAction SilentlyContinue |
+                Where-Object { $_.Status -eq 'Unknown' -and $_.InstanceId -match '^(PCI|USB\\VID)' })
+            "Prizrakov PCI/USB: {0}" -f $ghosts.Count
+            if ($ghosts.Count -gt 0) {
+                $ghosts | Select-Object -First 20 | ForEach-Object { "  {0} {1}" -f $_.Class, $_.FriendlyName }
+                "VAZHNO: prizraki ne dokazyvayut chuzhoe zhelezo naprjamuyu - eto mogut byt i sobstvennye otklyuchennye ustroystva."
+            } else { "0 - argument PROTIV versii pro chuzhie drayvery/zhelezo v obraze." }
+
+            "=== Aktivaciya ==="
+            try {
+                $lic = @(Get-CimInstance SoftwareLicensingProduct -ErrorAction Stop |
+                    Where-Object { $_.PartialProductKey })
+                $names = @{0='Unlicensed';1='Licensed';2='OOBGrace';3='OOTGrace';4='NonGenuineGrace';5='NotificationMode';6='ExtendedGrace'}
+                if ($lic.Count -gt 0) {
+                    foreach ($l in $lic) {
+                        $st = [int]$l.LicenseStatus
+                        "Aktivaciya: status={0} ({1}), kanal={2}, opisanie={3}" -f `
+                            $st, $(if ($names[$st]) { $names[$st] } else { 'unknown' }), $l.ProductKeyChannel, $l.Description
+                    }
+                } else { "Aktivaciya: produkt s klyuchom ne nayden" }
+            } catch { "Aktivaciya: dannyh net ($($_.Exception.Message))" }
+
+            "=== VYVOD ==="
+            "CloneTag i/ili GeneralizationState=7 => sistema razvernuta iz obraza (obezlichena)."
+            "setupapi.dev.log/profil polzovatelya POZZHE InstallDate => drayvery i OOBE proshli UZHE na etoy sborke."
+            "Prizrakov 0 => argument PROTIV versii pro chuzhie drayvery/zhelezo v obraze."
+            """),
+
         Probe("cpu", "Процессор", """
             Get-CimInstance Win32_Processor -ErrorAction SilentlyContinue |
                 Select-Object Name, NumberOfCores, NumberOfLogicalProcessors, MaxClockSpeed,

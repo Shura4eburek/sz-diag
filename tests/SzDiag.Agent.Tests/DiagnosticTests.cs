@@ -11,7 +11,7 @@ public class DiagnosticProbesTests
     {
         var expected = new[]
         {
-            "system", "cpu", "memory", "gpu", "storage",
+            "system", "os", "cpu", "memory", "gpu", "storage",
             "temps", "drivers", "events", "reboots", "whea", "livekernel", "reliability", "battery"
         };
         Assert.Equal(expected, DiagnosticProbes.Sections);
@@ -20,6 +20,24 @@ public class DiagnosticProbesTests
         Assert.Equal(DiagSections.All, DiagnosticProbes.Sections);
         Assert.DoesNotContain("network", DiagnosticProbes.Sections);
         Assert.DoesNotContain("security", DiagnosticProbes.Sections);
+    }
+
+    [Fact]
+    public void OsProbe_CoversProvenanceEvidence_NotJustInstallDate()
+    {
+        // Регрессия (бэклог п.162, СЗ 161346): вывод «ОС старше даты сборки, значит
+        // переносилась» строился на ОДНОМ InstallDate, хотя он переживает feature update и
+        // едет внутри образа. Клиент оспорил вывод и потребовал письменное подтверждение.
+        var run = Body("os");
+
+        Assert.Contains("CloneTag", run);
+        Assert.Contains("GeneralizationState", run);
+        Assert.Contains("InstallDate", run);
+        Assert.Contains("BuildLabEx", run);
+        Assert.Contains("setupapi.dev.log", run);
+        Assert.Contains("Windows.old", run);
+        Assert.Contains("Prizrakov", run);
+        Assert.Contains("Aktivaciya", run);
     }
 
     [Fact]

@@ -75,4 +75,19 @@ public class DiagSectionsTests
     {
         Assert.All(DiagSections.Aliases.Values, v => Assert.Contains(v, DiagSections.All));
     }
+
+    [Fact]
+    public void Os_IsItsOwnSection_NotAliasedToSystem()
+    {
+        // Регрессия (бэклог п.162): происхождение ОС (CloneTag/GeneralizationState/призраки
+        // чужого железа) — отдельный дешёвый снимок, а не то же самое, что «система/BIOS».
+        // Раньше `os` был просто синонимом `system` и своей пробы не имел.
+        Assert.Contains("os", DiagSections.All);
+        Assert.False(DiagSections.Aliases.ContainsKey("os"));
+
+        var (sections, unknown) = DiagSections.Parse(new[] { "os" });
+
+        Assert.Empty(unknown);
+        Assert.Equal(new[] { "os" }, sections);
+    }
 }
