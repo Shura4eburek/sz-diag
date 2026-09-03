@@ -134,6 +134,21 @@ public class PowerShellRunnerTests
     }
 
     [Fact]
+    public void Run_SetsWorkingDirectoryExplicitly_InsteadOfInheritingProcessCwd()
+    {
+        // Регрессия (бэклог п.149, СЗ 161716): ProcessStartInfo.WorkingDirectory не задавался
+        // явно и наследовался от CWD агента. На длинном рабочем пути клиента
+        // (C:\Users\vasya\OneDrive\Desktop\Client-test) запуск powershell.exe падал с "имя
+        // файла или его расширение имеет слишком большую длину" - именно на секции whea,
+        // самой объёмной. WorkingDirectory обязан резолвиться явно (каталог самого агента),
+        // а не наследоваться от того, откуда его запустили.
+        var psi = PowerShellRunner.BuildStartInfo("-NoProfile -Command -", utf8: true);
+
+        Assert.False(string.IsNullOrEmpty(psi.WorkingDirectory));
+        Assert.Equal(AppContext.BaseDirectory.TrimEnd('\\'), psi.WorkingDirectory.TrimEnd('\\'));
+    }
+
+    [Fact]
     public void Run_MultilinePipeline_ReturnsAllLines()
     {
         // Регрессия: скрипт раньше шёл через stdin `-Command -`, который в PowerShell 5.1

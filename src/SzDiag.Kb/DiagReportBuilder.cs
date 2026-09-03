@@ -1,3 +1,4 @@
+using System.Linq;
 using System.Text;
 
 namespace SzDiag.Kb;
@@ -14,6 +15,19 @@ public static class DiagReportBuilder
         sb.AppendLine($"- Хост: {report.Hostname}");
         sb.AppendLine($"- Дата: {report.RunAt:yyyy-MM-dd HH:mm}");
         sb.AppendLine();
+
+        // Упавшая секция обязана быть видна сразу в шапке, а не только внутри своего
+        // "```"-блока: на 161716 whea упала целиком (длинный путь клиента), и отчёт без
+        // этой строки выглядел полным (бэклог п.149).
+        var failed = report.Steps.Where(s => s.Error is not null).ToList();
+        if (failed.Count > 0)
+        {
+            sb.AppendLine("## Провалившиеся секции");
+            sb.AppendLine();
+            foreach (var f in failed)
+                sb.AppendLine($"- секция {f.Name}: НЕ ОТРАБОТАЛА ({f.Error})");
+            sb.AppendLine();
+        }
 
         foreach (var s in report.Steps)
         {

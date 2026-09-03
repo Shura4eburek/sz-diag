@@ -31,4 +31,26 @@ public class DiagReportBuilderTests
         Assert.Contains("OK", md);
         Assert.DoesNotContain("ошибка", md);
     }
+
+    [Fact]
+    public void FailedSection_IsListedInHeaderSummary()
+    {
+        // Регрессия (бэклог п.149, СЗ 161716): секция whea упала целиком (длинный путь клиента),
+        // а ошибка тонула внутри блока - отчёт выглядел полным. Упавшая секция обязана быть
+        // видна сразу в шапке, а не только внутри своего "```"-блока.
+        var md = Build(
+            new TestStepResult("WHEA", TestStepKind.Command, Error: "имя файла слишком большую длину"),
+            new TestStepResult("Диски", TestStepKind.Command, Output: "OK", ExitCode: 0));
+
+        Assert.Contains("секция WHEA: НЕ ОТРАБОТАЛА", md);
+        Assert.DoesNotContain("секция Диски: НЕ ОТРАБОТАЛА", md);
+    }
+
+    [Fact]
+    public void AllSectionsOk_NoFailureSummaryPrinted()
+    {
+        var md = Build(new TestStepResult("Диски", TestStepKind.Command, Output: "OK", ExitCode: 0));
+
+        Assert.DoesNotContain("НЕ ОТРАБОТАЛА", md);
+    }
 }

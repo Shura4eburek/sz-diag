@@ -85,23 +85,37 @@ public sealed class PowerShellRunner : IPowerShellRunner
             @"^\s*(?:(?:#[^\r\n]*|<#[\s\S]*?#>)\s*)*param\s*\(",
             System.Text.RegularExpressions.RegexOptions.IgnoreCase);
 
-    private PsResult RunProcess(string arguments, string script, bool throwOnError, TimeSpan? timeout)
+    /// <summary>Собирает <see cref="ProcessStartInfo"/> для дочернего powershell.exe.
+    /// <c>WorkingDirectory</c> задаётся явно — иначе она наследуется от текущего каталога
+    /// агента (последней ssh-сессии/автостарт-задачи), и на длинном клиентском пути
+    /// (<c>C:\Users\vasya\OneDrive\Desktop\Client-test</c>) запуск падал с «имя файла или его
+    /// расширение имеет слишком большую длину» — ровно на секции whea, самой объёмной
+    /// (бэклог п.149, СЗ 161716). <c>AppContext.BaseDirectory</c> — каталог самого агента,
+    /// короткий и существует всегда (те же пути, что резолвятся для ключа/testsuite).</summary>
+    public static ProcessStartInfo BuildStartInfo(string arguments, bool utf8)
     {
         var psi = new ProcessStartInfo
         {
             FileName = "powershell.exe",
             Arguments = arguments,
+            WorkingDirectory = AppContext.BaseDirectory,
             RedirectStandardInput = true,
             RedirectStandardOutput = true,
             RedirectStandardError = true,
             UseShellExecute = false,
             CreateNoWindow = true
         };
-        if (_utf8)
+        if (utf8)
         {
             psi.StandardOutputEncoding = new System.Text.UTF8Encoding(false);
             psi.StandardErrorEncoding = new System.Text.UTF8Encoding(false);
         }
+        return psi;
+    }
+
+    private PsResult RunProcess(string arguments, string script, bool throwOnError, TimeSpan? timeout)
+    {
+        var psi = BuildStartInfo(arguments, _utf8);
         using var p = Process.Start(psi)!;
         p.StandardInput.Close();   // дочерним процессам — сразу EOF на stdin, чтобы не висли
 
