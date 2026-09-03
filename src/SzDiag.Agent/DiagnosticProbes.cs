@@ -622,18 +622,37 @@ public static class DiagnosticProbes
                 # bursts of 8 within ONE second - DWM takes diagnostic snapshots when a 3D window
                 # closes, i.e. traces of a stress test stopping, not a defect (backlog p.94).
                 # Discriminator: a dump file written around the same time.
+                #
+                # Talking to the GPU driver AT ALL produces its own events: on 161190 pairs
+                # 0x117+0x1cc landed exactly on the minute of OUR OWN gpu-idle-state.ps1 probe,
+                # plus on boot and session logon - polling "does it fire while idle" measured
+                # the tool itself, not the machine (backlog p.219). Mark events near boot/logon
+                # so they are not offered as a symptom.
+                $osInfo = Get-CimInstance Win32_OperatingSystem -ErrorAction SilentlyContinue
+                $logons = @()
+                try {
+                    $logons = @(Get-WinEvent -FilterHashtable @{ LogName='Security'; Id=4624 } -ErrorAction Stop |
+                        Select-Object -ExpandProperty TimeCreated)
+                } catch { }   # Security log may need audit policy / elevated rights - absence is fine
+
                 "--- gruppy po vremeni (pachka = >=3 sobytiy v odnu sekundu) ---"
                 $groups = $evts | Group-Object { $_.Time.ToString('yyyy-MM-dd HH:mm:ss') } | Sort-Object Name -Descending
-                $withDump = 0; $artifacts = 0
+                $withDump = 0; $ownActivity = 0; $artifacts = 0
                 $shown = 0
                 foreach ($g in $groups) {
                     $t = [datetime]::ParseExact($g.Name, 'yyyy-MM-dd HH:mm:ss', $null)
                     # A dump written within +-2 minutes marks a REAL event.
                     $near = @($lk | Where-Object { [math]::Abs(($_.LastWriteTime - $t).TotalSeconds) -le 120 })
                     $real = $near.Count -gt 0
-                    if ($real) { $withDump += $g.Count } else { $artifacts += $g.Count }
+                    $bootNear = $osInfo -and $osInfo.LastBootUpTime -and ([math]::Abs(($osInfo.LastBootUpTime - $t).TotalSeconds) -le 120)
+                    $logonNear = @($logons | Where-Object { [math]::Abs(($_ - $t).TotalSeconds) -le 120 })
+                    if ($real) { $withDump += $g.Count }
+                    elseif ($bootNear -or $logonNear.Count -gt 0) { $ownActivity += $g.Count }
+                    else { $artifacts += $g.Count }
                     if ($shown -lt 25) {
                         $mark = if ($real) { "NASTOYASHEE (ryadom damp: {0})" -f $near[0].Name }
+                                elseif ($bootNear) { 'sovpadaet s zagruzkoy sistemy - NE simptom, sledstvie starta drayverov' }
+                                elseif ($logonNear.Count -gt 0) { 'sovpadaet so vhodom v sessiyu (logon) - NE simptom' }
                                 elseif ($g.Count -ge 3) { 'pachka bez dampa - veroyatno artefakt zakrytiya 3D-prilozheniya (stress-test)' }
                                 else { 'bez dampa' }
                         "{0} x{1} [{2}] {3}" -f $g.Name, $g.Count, (($g.Group | Select-Object -First 1).Code), $mark
@@ -641,8 +660,9 @@ public static class DiagnosticProbes
                     }
                 }
                 if ($groups.Count -gt 25) { "... esche {0} grupp ne pokazano" -f ($groups.Count - 25) }
-                "ITOGO: sobytiy s dampom {0}, veroyatnyh artefaktov {1} (iz {2})" -f $withDump, $artifacts, $evts.Count
-                if ($withDump -eq 0 -and $evts.Count -gt 0) {
+                "ITOGO: sobytiy s dampom {0}, sovpadenie s zagruzkoy/logonom {1}, veroyatnyh artefaktov {2} (iz {3})" -f `
+                    $withDump, $ownActivity, $artifacts, $evts.Count
+                if (($withDump + $ownActivity) -eq 0 -and $evts.Count -gt 0) {
                     "VNIMANIE: ni odno sobytie ne podtverzhdeno dampom - schitat 'videopodsistema sypetsya' po etim cifram NELZYA (p.94)."
                 }
             } else { "none" }

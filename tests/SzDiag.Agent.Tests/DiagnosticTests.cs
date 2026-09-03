@@ -300,6 +300,19 @@ public class DiagnosticProbesTests
     }
 
     [Fact]
+    public void LiveKernelProbe_MarksEventsNearBootOrLogonAsOwnActivityNotSymptom()
+    {
+        // Регрессия (бэклог п.219, СЗ 161190): пары 0x117+0x1cc легли ровно на минуту нашего
+        // же замера gpu-idle-state.ps1, а также на загрузку и вход в сессию - обращение к
+        // драйверу само порождает событие. Такие совпадения не должны предлагаться как симптом.
+        var run = Body("livekernel");
+
+        Assert.Contains("logon", run);
+        Assert.Contains("NE simptom", run);
+        Assert.Contains("zagruzkoy sistemy", run);
+    }
+
+    [Fact]
     public void ReliabilityProbe_SaysNoMinidumpsIsNotNoKernelCrashes()
     {
         var run = Body("reliability");
