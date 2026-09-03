@@ -8,8 +8,12 @@ namespace SzDiag.Contracts;
 /// <param name="Detached">Запустить в фоне и сразу вернуть JobId: под полной нагрузкой
 /// синхронный exec не проходит вообще (на 160636 три попытки подряд в таймаут при живом
 /// heartbeat), а долгий exec держит канал и не даёт подсмотреть прогресс — бэклог п.43/п.46.</param>
+/// <param name="Isolated">Только вместе с <paramref name="Detached"/>: обернуть задачу в
+/// транзиентную scheduled task под SYSTEM (как sshd), а не в дочерний процесс агента. Дерево
+/// процессов (TM5, OCCT) переживает падение/закрытие агента — на живой заявке TM5 пропал
+/// вместе с упавшим агентом, не досчитав ни одного цикла (бэклог п.53).</param>
 public sealed record ExecRequest(string Sz, string RequestId, string Script, int TimeoutSeconds,
-    bool Detached = false);
+    bool Detached = false, bool Isolated = false);
 
 /// <summary>Агент → hub: «команду принял, выполняю». Отправляется СРАЗУ по получении, до
 /// запуска скрипта. Без этого «агент не принял команду» и «принял, но не успел ответить»
@@ -54,7 +58,7 @@ public sealed record ExecResult(
 
 /// <summary>Тело HTTP-запроса CLI → hub: что выполнить на агенте.</summary>
 public sealed record ExecCommandRequest(string Script, int? TimeoutSeconds = null,
-    bool Detached = false);
+    bool Detached = false, bool Isolated = false);
 
 /// <summary>Общие лимиты exec — одинаковые на агенте и hub, чтобы ожидания совпадали.</summary>
 public static class ExecLimits

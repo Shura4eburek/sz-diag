@@ -42,7 +42,7 @@
 | `Revert` | `sz` | `AgentSession` → `RevertCoordinator.TriggerAsync` (откат) |
 | `RunTests` | `sz, filter?` | `Program.cs` `OnRunTests` → `TestReportRunner.RunAndUploadAsync` (стресс) |
 | `RunDiag` | `sz, sections?` | `Program.cs` `OnRunDiag` → `DiagReportRunner.RunAndUploadAsync` (read-only снапшот → `diag.md`) |
-| `Exec` | `ExecRequest{Sz,RequestId,Script,TimeoutSeconds,Detached}` | `AgentCommandWiring` → `ExecCommandHandler.Handle`; ack сразу, результат отдельным `ExecResult` |
+| `Exec` | `ExecRequest{Sz,RequestId,Script,TimeoutSeconds,Detached,Isolated}` | `AgentCommandWiring` → `ExecCommandHandler.Handle`; ack сразу, результат отдельным `ExecResult`. `Isolated` (только с `Detached`) — `BackgroundJobs` оборачивает задачу в транзиентную scheduled task под SYSTEM (`szdiag-job-<сз>-<jobId>`, как sshd) вместо дочернего процесса агента — переживает падение/закрытие агента (бэклог п.53) |
 | `ExecStatus` | `ExecStatusRequest{Sz,RequestId,JobId,TailLines,Cancel}` | `ExecCommandHandler.Status`; `JobId="*"` — список задач, `Cancel=true` — снять задачу (дерево процессов). Этот канал короткий и проходит под полной нагрузкой — поэтому отмена/список едут им же (бэклог п.134/172/176) |
 
 Прямого RPC-возврата нет: hub **push-ит** команду, агент отвечает **отдельными** server-инвокациями
@@ -62,7 +62,7 @@ CLI-токен — заголовок `X-SzDiag-Mgmt-Token` (`ManagementApi.Toke
 | `POST /api/sessions/{sz}/journal` (тело `JournalNoteRequest{Text}`) | `JournalWriter.Manual` → `kb/СЗ/<sz>/журнал.md` | `Ok`/`BadRequest`; **активная сессия не требуется** |
 | `POST /api/sessions/{sz}/diag?sections=` | `DiagRunTrigger.TriggerAsync` | `Ok`/`NotFound` |
 | `GET /api/sessions/{sz}/target` | реестр + `ServiceAccount` | `TargetInfo{Sz,Ip,User,Ssh}`/`NotFound` |
-| `POST /api/sessions/{sz}/exec` (тело `ExecCommandRequest{Script,TimeoutSeconds,Detached}`) | `ExecCoordinator.RunAsync` | `ExecResult`/`NotFound`/`504` |
+| `POST /api/sessions/{sz}/exec` (тело `ExecCommandRequest{Script,TimeoutSeconds,Detached,Isolated}`) | `ExecCoordinator.RunAsync` | `ExecResult`/`NotFound`/`504`; без явного `TimeoutSeconds` дефолт зависит от `Activity` сессии (`ExecLimits.StressDefaultTimeoutSeconds`, если идёт стресс-прогон — бэклог п.35a) |
 | `GET /api/sessions/{sz}/exec/{jobId}?tail=` | `ExecCoordinator.StatusAsync` | `ExecJobStatus` (+`Error` из `err.txt` при parse-ошибке скрипта) |
 | `GET /api/sessions/{sz}/exec` | `StatusAsync(sz, "*")` | список фоновых задач (сводка в `Tail`) |
 | `DELETE /api/sessions/{sz}/exec/{jobId}` | `StatusAsync(cancel: true)` | отмена задачи; `Cancelled=true` в ответе |

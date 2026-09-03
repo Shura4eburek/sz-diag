@@ -31,7 +31,7 @@ public sealed class ExecCoordinator
     /// <summary>Выполнить скрипт на агенте СЗ. Возвращает null, если СЗ не онлайн.</summary>
     /// <exception cref="TimeoutException">Агент не ответил в отведённое время.</exception>
     public async Task<ExecResult?> RunAsync(string sz, string script, int? timeoutSeconds = null,
-        CancellationToken ct = default, bool detached = false)
+        CancellationToken ct = default, bool detached = false, bool isolated = false)
     {
         var connId = _registry.TryGetConnectionId(sz);
         if (connId is null) return null;
@@ -42,7 +42,8 @@ public sealed class ExecCoordinator
         _pending[requestId] = tcs;
         try
         {
-            await _sender.SendExecAsync(connId, new ExecRequest(sz, requestId, script, timeout, detached), ct);
+            await _sender.SendExecAsync(connId,
+                new ExecRequest(sz, requestId, script, timeout, detached, isolated), ct);
 
             // Ждём дольше, чем сам скрипт: агенту нужно время убить процесс и доставить ответ.
             var wait = TimeSpan.FromSeconds(timeout + _graceSeconds);

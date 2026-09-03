@@ -13,8 +13,11 @@ public interface IHubApiClient
     Task<TriggerResult> TriggerTestAsync(string sz, string? filter, string? config,
         bool sameConfig, CancellationToken ct = default);
     Task<bool> TriggerDiagAsync(string sz, string? sections = null, CancellationToken ct = default);
+    /// <param name="isolated">Только вместе с <paramref name="detached"/>: обернуть фоновую
+    /// задачу транзиентной scheduled task под SYSTEM вместо дочернего процесса агента — дерево
+    /// процессов переживает падение агента (бэклог п.53).</param>
     Task<ExecResult?> ExecAsync(string sz, string script, int? timeoutSeconds = null,
-        CancellationToken ct = default, bool detached = false);
+        CancellationToken ct = default, bool detached = false, bool isolated = false);
     Task<ExecJobStatus?> ExecStatusAsync(string sz, string jobId, int tailLines, CancellationToken ct = default);
 
     /// <summary>Снять фоновую exec-задачу. null — СЗ не онлайн (бэклог п.134/172/176).</summary>

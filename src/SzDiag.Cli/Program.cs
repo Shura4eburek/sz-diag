@@ -528,8 +528,14 @@ switch (command)
             execTimeout = parsedTimeout;
 
         var detach = args.Any(a => a.Equals("--detach", StringComparison.OrdinalIgnoreCase));
+        // --isolated: фоновая задача уходит транзиентной scheduled task под SYSTEM (как sshd),
+        // а не дочерним процессом агента — переживает падение/закрытие агента (TM5 на живой
+        // заявке пропал вместе с упавшим агентом, не досчитав ни одного цикла — бэклог п.53).
+        var isolated = args.Any(a => a.Equals("--isolated", StringComparison.OrdinalIgnoreCase));
+        if (isolated && !detach)
+            AnsiConsole.MarkupLine("[yellow]⚠ --isolated без --detach ни на что не влияет[/]");
 
-        var execRes = await client.ExecAsync(execSz, script, execTimeout, default, detach);
+        var execRes = await client.ExecAsync(execSz, script, execTimeout, default, detach, isolated);
         if (execRes is null)
         {
             AnsiConsole.MarkupLineInterpolated($"[red]СЗ {execSz} не найдена[/] среди активных.");
@@ -595,7 +601,8 @@ static void PrintUsage()
               [yellow]szcli diag run[/] [blue]<СЗ>[/] [grey][[storage,events|…]][/]  диагностика (снапшот; секции точечно)
                 [grey]секции: system cpu memory gpu storage temps drivers events reboots whea livekernel reliability battery[/]
                 [grey]можно через запятую или пробел; all — все; алиасы: hw ram disks video bsod tdr temp[/]
-              [yellow]szcli exec[/] [blue]<СЗ>[/] [grey]"<powershell>" | -f <файл> [[--timeout <сек>]] [[--detach]][/]
+              [yellow]szcli exec[/] [blue]<СЗ>[/] [grey]"<powershell>" | -f <файл> [[--timeout <сек>]] [[--detach [[--isolated]]]][/]
+                [grey]--isolated — фон переживает падение/закрытие агента (scheduled task под SYSTEM)[/]
               [yellow]szcli exec[/] [blue]<СЗ>[/] [grey]--result <jobId> [[--tail N]]   состояние фоновой задачи[/]
               [yellow]szcli exec[/] [blue]<СЗ>[/] [grey]--cancel <jobId> | --jobs      снять задачу / список задач[/]
                 [grey]выполнить скрипт на агенте и получить вывод (без SSH)[/]

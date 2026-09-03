@@ -84,9 +84,9 @@ public static class ManagementApi
             try
             {
                 var result = await exec.RunAsync(sz, body.Script, body.TimeoutSeconds,
-                    detached: body.Detached);
+                    detached: body.Detached, isolated: body.Isolated);
                 if (result is null) return Results.NotFound();
-                var mode = body.Detached ? ", detached" : "";
+                var mode = body.Detached ? (body.Isolated ? ", detached+isolated" : ", detached") : "";
                 journal.Command(sz, $"`exec` — скрипт виконано ({body.Script.Length} символів{mode})");
                 return Results.Ok(result);
             }

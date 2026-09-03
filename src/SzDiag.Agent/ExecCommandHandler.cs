@@ -13,7 +13,9 @@ public sealed class ExecCommandHandler
     public ExecCommandHandler(IPowerShellRunner ps, BackgroundJobs? jobs = null)
     {
         _ps = ps;
-        _jobs = jobs ?? new BackgroundJobs();
+        // ps прокидываем и в BackgroundJobs: изолированным (scheduled-task) фоновым задачам
+        // он нужен, чтобы регистрировать/опрашивать/снимать саму задачу (бэклог п.53).
+        _jobs = jobs ?? new BackgroundJobs(ps: ps);
     }
 
     /// <summary>Где лежат выводы фоновых задач (для сообщений оператору).</summary>
