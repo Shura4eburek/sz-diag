@@ -66,11 +66,23 @@ public sealed class PullCommandHandler
             }
             catch (Exception ex)
             {
-                files.Add(new PullFileInfo(info.Name, path, info.Length, "", true, ex.Message));
+                files.Add(new PullFileInfo(info.Name, path, info.Length, "", true, DescribeLockError(ex, path)));
             }
         }
 
         return new PullResult(request.RequestId, files);
+    }
+
+    /// <summary>Читает файл кусками, считая sha256 на лету — второй проход по многомегабайтному
+    /// дампу ради хеша не нужен. Ошибка при sharing violation дополняется тем, КТО держит файл:
+    /// молчаливое "занято чем-то" бесполезно, когда нужно решить, ждать закрытия сессии или
+    /// нет (бэклог п.104) — если писатель (например живой `sshd`) открыл файл вовсе без
+    /// совместного чтения, прочитать байты без VSS всё равно нельзя, но назвать держателя можно.</summary>
+    private static string DescribeLockError(Exception ex, string path)
+    {
+        if (ex is not (IOException or UnauthorizedAccessException)) return ex.Message;
+        var holders = FileLockInspector.WhoIsLocking(path);
+        return holders.Count == 0 ? ex.Message : $"{ex.Message} (занято: {string.Join(", ", holders)})";
     }
 
     /// <summary>Читает файл кусками, считая sha256 на лету — второй проход по многомегабайтному

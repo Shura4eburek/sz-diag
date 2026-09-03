@@ -133,6 +133,36 @@ public class DiagnosticProbesTests
     }
 
     [Fact]
+    public void MemoryProbe_ReadsVoltageForXmpDetection()
+    {
+        // Регрессия (бэклог п.8): на 160467 Speed=ConfiguredClockSpeed=4800 не давал понять,
+        // включён ли EXPO. ConfiguredVoltage сразу отличает JEDEC (~1100 mV) от EXPO/XMP
+        // (~1350-1400 mV) без захода в BIOS.
+        var run = Body("memory");
+
+        Assert.Contains("ConfiguredVoltage", run);
+        Assert.Contains("MinVoltage", run);
+        Assert.Contains("MaxVoltage", run);
+        Assert.Contains("JEDEC", run);
+    }
+
+    [Fact]
+    public void MemoryProbe_CountsModulesAndComparesWithWindowsTotal()
+    {
+        // Регрессия (бэклог п.200, СЗ 161211): на ASUS TUF B850-PLUS WIFI обе планки
+        // репортят DeviceLocator='DIMM 1' (различаются только BankLabel) - словарь по
+        // DeviceLocator схлопывал вторую планку поверх первой, и паспорт печатал "1x32"
+        // вместо "2x32". Ключ по BankLabel+DeviceLocator+SN не схлопывает, плюс ИТОГО
+        // сверяется с Win32_ComputerSystem.TotalPhysicalMemory.
+        var run = Body("memory");
+
+        Assert.Contains("BankLabel", run);
+        Assert.Contains("ITOGO:", run);
+        Assert.Contains("TotalPhysicalMemory", run);
+        Assert.Contains("planok", run);
+    }
+
+    [Fact]
     public void StorageProbe_ReadsNvmeHealthLogDirectly()
     {
         // Регрессия (п.120/142): на NVMe Get-StorageReliabilityCounter отдаёт пустые
@@ -270,6 +300,19 @@ public class DiagnosticProbesTests
     }
 
     [Fact]
+    public void LiveKernelProbe_MarksEventsNearBootOrLogonAsOwnActivityNotSymptom()
+    {
+        // Регрессия (бэклог п.219, СЗ 161190): пары 0x117+0x1cc легли ровно на минуту нашего
+        // же замера gpu-idle-state.ps1, а также на загрузку и вход в сессию - обращение к
+        // драйверу само порождает событие. Такие совпадения не должны предлагаться как симптом.
+        var run = Body("livekernel");
+
+        Assert.Contains("logon", run);
+        Assert.Contains("NE simptom", run);
+        Assert.Contains("zagruzkoy sistemy", run);
+    }
+
+    [Fact]
     public void ReliabilityProbe_SaysNoMinidumpsIsNotNoKernelCrashes()
     {
         var run = Body("reliability");
@@ -321,6 +364,39 @@ public class DiagnosticProbesTests
         Assert.Contains("Redkie kritichnye Id - BEZ limita", run);
         Assert.Contains("Kernel-Power 41", run);
         Assert.Contains("yavnyy nol", run);   // отсутствие событий печатается явным нулём
+    }
+
+    [Fact]
+    public void EventsProbe_PrintsTimeZoneLabelForOfflineComparisons()
+    {
+        // Регрессия (п.31/49): WinPE и хост живут в разных поясах (159948: -08:00 vs +03:00,
+        // разница 11 часов молча превращала "днём" в "ночью"). Метка обязана быть явной.
+        var run = Body("events");
+
+        Assert.Contains("Write-TzNote", run);
+        Assert.Contains("WinPE=", run);
+    }
+
+    [Fact]
+    public void RebootsProbe_ComparesUnsafeShutdownsWithJournal()
+    {
+        // Регрессия (бэклог п.142): Unsafe Shutdowns накопителя - независимое от журнала ОС
+        // доказательство отказа (67 счётчика против 73 Kernel-Power 41 на 160705). Раньше
+        // добывалось только рецептом; теперь должно быть прямо рядом с таймлайном reboots.
+        var run = Body("reboots");
+
+        Assert.Contains("Get-NvmeSmartRows", run);
+        Assert.Contains("Unsafe Shutdowns", run);
+        Assert.Contains("zhurnal OS (Kernel-Power 41)", run);
+    }
+
+    [Fact]
+    public void RebootsAndWheaProbes_AlsoPrintTimeZoneLabel()
+    {
+        // Регрессия (п.49): PE и хост могут жить в разных поясах не только в events -
+        // timeline вырубонов и WHEA страдает от того же расхождения.
+        foreach (var section in new[] { "reboots", "whea" })
+            Assert.Contains("Write-TzNote", Body(section));
     }
 
     [Fact]

@@ -371,6 +371,18 @@ $szcli = @'
 '@
 Set-Content -Path dist\host\szcli.cmd -Value $szcli -Encoding ascii
 
+# szcli.ps1 - обёртка для PowerShell-сессий (техник на боксе почти всегда в ней). У szcli.cmd
+# есть грабля (бэклог п.49): PowerShell не квотирует аргумент без пробелов при релонче через
+# cmd.exe, и `szcli hw resolve "PCI\VEN_10DE&DEV_..."` режется на две "команды" - `DEV_...` уже
+# не находится. Обход через двойные кавычки внутри одинарных неочевиден. Вызов `.ps1` через `&`
+# передаёт $args как готовый массив строк, минуя реконструкцию и разбор командной строки в
+# cmd.exe - `&`/`|`/`^` в аргументе доезжают как есть.
+$szcliPs1 = @'
+& (Join-Path $PSScriptRoot 'cli\SzDiag.Cli.exe') @args
+exit $LASTEXITCODE
+'@
+Set-Content -Path dist\host\szcli.ps1 -Value $szcliPs1 -Encoding utf8
+
 Write-Host ""
 if ($failed.Count -gt 0) {
     # Явно и громко: «готово частично» раньше читалось как «готово», и правка молча не

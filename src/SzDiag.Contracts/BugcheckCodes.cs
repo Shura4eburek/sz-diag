@@ -96,4 +96,21 @@ public static class BugcheckCodes
             """);
         return sb.ToString();
     }
+
+    /// <summary>Та же таблица как готовый PS hashtable-литерал для офлайн-рецепта
+    /// <c>tools/recipes/client/pe-wer-livekernel.ps1</c>, который не может вызвать C#
+    /// (<c>agent.exe</c> — self-contained single-file, DLL рядом нет). Ключ — hex без <c>0x</c>
+    /// в нижнем регистре (как приходит <c>Sig[0].Value</c> из WER), значение —
+    /// <c>"0xHEX ИМЯ"</c>. Синхронность с рецептом проверяет
+    /// <c>BugcheckCodesRecipeSyncTests</c> — таблица живёт в одном месте (<see cref="Names"/>),
+    /// рецепт регенерируется отсюда (бэклог п.197).</summary>
+    public static string ToPowerShellRecipeTable()
+    {
+        var sb = new StringBuilder();
+        sb.AppendLine("$codes = @{");
+        foreach (var kv in Names.OrderBy(kv => kv.Key))
+            sb.AppendLine($"    '{kv.Key:x}' = '0x{kv.Key:X} {kv.Value}'");
+        sb.Append('}');
+        return sb.ToString();
+    }
 }
