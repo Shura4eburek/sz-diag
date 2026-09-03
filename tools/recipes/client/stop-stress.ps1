@@ -17,7 +17,14 @@ $killed = @()
 
 # y-cruncher переименовывает себя под конкретный CPU (на Zen4 — `19-ZN4 ~ Kagari.exe`),
 # поэтому ловим и лаунчер, и известные имена бинарей.
-foreach ($n in 'OCCTCmd', 'OCCT', 'furmark', 'TM5', '3DMarkCmd', 'prime95', 'y-cruncher', 'Kagari') {
+#
+# Грабля (161346, 26.08, бэклог п.213): список был ограничен ОБОЛОЧКАМИ стресс-тулов — закрытие
+# окна OCCT снимало `OCCTCmd`, но рабочие подтесты (`linpack` — CPU, `gpu3d-Win64-Shipping` —
+# GPU) переживали оболочку и молотили ещё 1.5 часа незамеченными (машина считалась свободной,
+# а на деле держала полную нагрузку). Список подпроцессов — тоже единственный источник правды,
+# дополнять вместе с новыми `start-*.ps1`.
+foreach ($n in 'OCCTCmd', 'OCCT', 'furmark', 'TM5', '3DMarkCmd', 'prime95', 'y-cruncher', 'Kagari',
+                'linpack', 'gpu3d-Win64-Shipping', 'gpu_unreal', 'memtest*') {
     $p = Get-Process $n -ErrorAction SilentlyContinue
     if ($p) { $p | Stop-Process -Force -ErrorAction SilentlyContinue; $killed += "$n x$($p.Count)" }
 }
