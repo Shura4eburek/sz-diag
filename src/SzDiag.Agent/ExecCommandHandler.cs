@@ -95,8 +95,8 @@ public sealed class ExecCommandHandler
             // throwOnError: false — ненулевой код это валидный результат, а не сбой транспорта:
             // пусть вызывающий сам решает, что значит exit code его скрипта.
             var r = _ps.Run(request.Script, throwOnError: false, timeout: timeout);
-            var (stdout, cutOut) = Cap(r.StdOut);
-            var (stderr, cutErr) = Cap(r.StdErr);
+            var (stdout, cutOut) = Cap(SuppressCarriageReturnProgress(r.StdOut));
+            var (stderr, cutErr) = Cap(SuppressCarriageReturnProgress(r.StdErr));
             return new ExecResult(request.RequestId, r.ExitCode, stdout, stderr,
                 TimedOut: false, Truncated: cutOut || cutErr);
         }
@@ -111,6 +111,24 @@ public sealed class ExecCommandHandler
             // потеря связи, и вызывающий ждал бы впустую до таймаута hub.
             return new ExecResult(request.RequestId, -1, "", ex.Message);
         }
+    }
+
+    /// <summary>Схлопывает прогресс-бары консольных утилит (`chkdsk`, `robocopy`, `xcopy` —
+    /// «12 percent complete»): они пишут одну и ту же строку заново через одиночный `\r` без
+    /// `\n`, и .NET читает каждую перезапись как отдельную «строку». Сотни таких перезаписей
+    /// съедали лимит обрезки раньше, чем до него доходили осмысленные строки (бэклог п.181).
+    /// Настоящие переводы строки (`\n`/`\r\n`) не трогаем — режем только внутристрочные `\r`,
+    /// оставляя последнее состояние строки.</summary>
+    private static string SuppressCarriageReturnProgress(string? text)
+    {
+        if (string.IsNullOrEmpty(text) || !text.Contains('\r')) return text ?? "";
+        var lines = text.Replace("\r\n", "\n").Split('\n');
+        for (var i = 0; i < lines.Length; i++)
+        {
+            var idx = lines[i].LastIndexOf('\r');
+            if (idx >= 0) lines[i] = lines[i][(idx + 1)..];
+        }
+        return string.Join("\n", lines);
     }
 
     /// <summary>Обрезает вывод до лимита, сохраняя голову И хвост: chkdsk кладёт вердикт в

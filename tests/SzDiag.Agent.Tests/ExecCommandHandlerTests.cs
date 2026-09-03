@@ -184,6 +184,32 @@ public class ExecCommandHandlerTests
     }
 
     [Fact]
+    public void Handle_ProgressBarCarriageReturns_CollapsedToFinalState()
+    {
+        // Регрессия (бэклог п.181): `chkdsk`/`robocopy` дописывают одну строку через голый
+        // `\r` без `\n` — раньше все промежуточные проценты съедали лимит обрезки раньше,
+        // чем до неё доходили осмысленные строки. Реальный перевод строки трогать нельзя.
+        var progress = "0 percent complete.\r10 percent complete.\r100 percent complete.\nВЕРДИКТ\n";
+        var handler = new ExecCommandHandler(new StubPs(new PsResult(0, progress, "")));
+
+        var r = handler.Handle(Req());
+
+        Assert.DoesNotContain("0 percent complete.\r10", r.StdOut);
+        Assert.Contains("100 percent complete.", r.StdOut);
+        Assert.Contains("ВЕРДИКТ", r.StdOut);
+    }
+
+    [Fact]
+    public void Handle_ProgressBarCarriageReturns_DoesNotBreakRealNewlines()
+    {
+        var handler = new ExecCommandHandler(new StubPs(new PsResult(0, "line1\r\nline2\r\nline3", "")));
+
+        var r = handler.Handle(Req());
+
+        Assert.Equal("line1\nline2\nline3", r.StdOut);
+    }
+
+    [Fact]
     public void Handle_Timeout_ReportsTimedOutInsteadOfThrowing()
     {
         var handler = new ExecCommandHandler(new StubPs(new PowerShellTimeoutException("убит")));
