@@ -90,6 +90,19 @@ public sealed class SessionRegistry
         return true;
     }
 
+    /// <summary>Итог `agent.exe --revert`, пришедший по HTTP (watchdog/headless-откат — там
+    /// нет живого SignalR-коннекта для обычного ответа). Успех — сессия закрыта штатно,
+    /// убираем её из реестра. Неудача — доступ на клиенте мог остаться навсегда (бэклог п.59,
+    /// СЗ 160705: watchdog упал на середине, а hub так и показывал СЗ online), поэтому метим
+    /// проблемной вместо online: `false` — записывать некуда, СЗ уже не в реестре.</summary>
+    public bool MarkRevertOutcome(string sz, bool success, string note)
+    {
+        if (success) { Remove(sz); return true; }
+        if (!_bySz.TryGetValue(sz, out var e)) return false;
+        _bySz[sz] = e with { Info = e.Info with { Status = SessionStatus.Offline, RevertNote = note } };
+        return true;
+    }
+
     public string? MarkOfflineByConnection(string connectionId)
     {
         foreach (var (sz, e) in _bySz)

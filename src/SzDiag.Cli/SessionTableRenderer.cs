@@ -29,9 +29,13 @@ public static class SessionTableRenderer
             // из-за чего колонка резервирует место под невидимый символ и текст съезжает.
             // Фиксированная ширина ("online " с хвостовым пробелом) — чтобы колонка не
             // "гуляла" между кадрами в live-перерисовке (szcli watch).
-            var status = s.Status == SessionStatus.Online
-                ? "[green]online [/]"
-                : "[grey]offline[/]";
+            // Неудачный watchdog/headless-откат (бэклог п.59) обязан выглядеть иначе, чем
+            // штатный offline: доступ (sshd, учётка, фаервол) мог остаться на клиенте навсегда.
+            var status = !string.IsNullOrEmpty(s.RevertNote)
+                ? "[red]⚠ откат[/]"
+                : s.Status == SessionStatus.Online
+                    ? "[green]online [/]"
+                    : "[grey]offline[/]";
             table.AddRow(s.Sz, status, s.Ip, s.Hostname, UptimeCell(s, nowV), ActivityCell(s, nowV));
         }
         return table;
@@ -72,6 +76,9 @@ public static class SessionTableRenderer
     /// <summary>Ячейка активности: идущий тест с тикающим временем, простой с меткой, или «—».</summary>
     private static string ActivityCell(SessionInfo s, DateTimeOffset now)
     {
+        // Провал отката важнее любой обычной активности — не прятать его под «—».
+        if (!string.IsNullOrEmpty(s.RevertNote))
+            return $"[red]откат не завершён: {Markup.Escape(s.RevertNote)}[/]";
         if (s.Status == SessionStatus.Offline || string.IsNullOrEmpty(s.Activity))
             return "[dim]—[/]";
 

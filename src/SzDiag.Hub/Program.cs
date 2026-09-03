@@ -156,6 +156,7 @@ app.MapHub<AgentHub>(HubRoutes.Path);
 app.MapManagementApi();
 app.MapAgentPackageApi();
 app.MapToolsApi();
+app.MapRevertStatusApi();
 
 try { app.Run(); }
 finally

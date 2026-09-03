@@ -82,6 +82,15 @@ Exit-коды `szcli exec` (`ExecExitCode`): 0 успех · N — код скр
 | `GET /agent/package` | `package.zip` (agent+ssh+ключ+testsuite, без appsettings/tools) |
 | `GET /agent/package.sha256` | sha256 пакета (plain text) |
 
+### Итог отката вне SignalR `/agent/revert-status` (`Hub/RevertStatusApi.cs`)
+
+Тот же токен/префикс, что у раздачи пакета. `agent.exe --revert` (watchdog-задача, headless-
+откат после ребута) POST'ит `RevertStatusReport{Sz,Success,Summary}` — в этом режиме нет живого
+SignalR-коннекта, чтобы ответить обычным путём. `SessionRegistry.MarkRevertOutcome`: успех —
+`Remove(sz)`; неудача — `Status=Offline` + `SessionInfo.RevertNote`, и `list`/`watch` показывают
+`⚠ откат` вместо `online`/`offline` (бэклог п.59) — без этого упавший на середине откат оставлял
+доступ на клиенте, а hub считал СЗ штатной.
+
 ### Автообнаружение hub (`DiscoveryProtocol`, UDP `5098`)
 
 Агент broadcast-ит `SZDIAG-DISCOVER:<token>` на все локальные подсети + `255.255.255.255`

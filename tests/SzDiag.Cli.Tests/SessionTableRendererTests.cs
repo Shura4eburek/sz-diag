@@ -117,7 +117,7 @@ public class SessionTableRendererTests
 
         Assert.Contains("Активность", text);
         Assert.Contains("Тест OCCT", text);
-    }
+    }
 
     [Fact]
     public void Render_OfflineSession_FreezesUptimeAndShowsSilence()
@@ -136,6 +136,25 @@ public class SessionTableRendererTests
         Assert.Contains("2ч 48мин", text);        // заморожено на моменте последнего контакта
         Assert.Contains("нет связи", text);
         Assert.DoesNotContain("3ч 0мин", text);
+    }
+
+    [Fact]
+    public void Render_RevertFailed_ShowsProblemInsteadOfOfflineOrOnline()
+    {
+        // Регрессия (бэклог п.59, СЗ 160705): watchdog упал на середине отката, а список
+        // продолжал показывать СЗ как обычную — доступ на клиенте мог остаться навсегда.
+        var now = new DateTimeOffset(2026, 9, 4, 10, 0, 0, TimeSpan.Zero);
+        var sessions = new List<SessionInfo>
+        {
+            new("160705", "10.0.0.42", "PC-1", SessionStatus.Offline, now, now,
+                RevertNote: "sshd не снят: Access denied"),
+        };
+
+        var text = RenderToText(SessionTableRenderer.Render(sessions, now));
+
+        Assert.Contains("откат", text);
+        Assert.Contains("Access denied", text);
+        Assert.DoesNotContain("online", text);
     }
 
     [Fact]

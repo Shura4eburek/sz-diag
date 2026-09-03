@@ -121,6 +121,34 @@ if (args.Length >= 2 && args[0] == "--revert")
         revertLog.Write($"СЗ {st.Sz}: {outcome.Summary()}");
         logFile.WriteLine($"[revert] СЗ {st.Sz}: {outcome.Summary()}");
         logFile.Flush();
+
+        // Сообщаем hub итог по HTTP: в этом режиме нет живого SignalR-коннекта, поэтому
+        // hub иначе никогда не узнаёт об упавшем откате и продолжает показывать СЗ online,
+        // хотя доступ на клиенте мог остаться навсегда (бэклог п.59, СЗ 160705).
+        // Best-effort с коротким бюджетом — недоступность hub не должна ничего блокировать,
+        // сам откат уже случился к этому моменту.
+        try
+        {
+            using var reportCts = new CancellationTokenSource(TimeSpan.FromSeconds(8));
+            var hubUrl = revertOpts.HubUrl;
+            if (string.IsNullOrWhiteSpace(hubUrl))
+                hubUrl = await HubDiscovery.FindHubAsync(revertOpts.AgentToken,
+                    timeout: TimeSpan.FromSeconds(3), ct: reportCts.Token);
+
+            using var reportHttp = new HttpClient { BaseAddress = new Uri(hubUrl) };
+            if (!string.IsNullOrEmpty(revertOpts.AgentToken))
+                reportHttp.DefaultRequestHeaders.Add(HubRoutes.TokenHeader, revertOpts.AgentToken);
+            var reportError = await new RevertStatusReporter(reportHttp)
+                .ReportAsync(st.Sz, outcome.AllClean, outcome.Summary(), reportCts.Token);
+            revertLog.Write(reportError is null
+                ? "hub уведомлён об итоге отката."
+                : $"не смог сообщить hub статус отката: {reportError}");
+        }
+        catch (Exception ex)
+        {
+            revertLog.Write($"не смог сообщить hub статус отката: {ex.Message}");
+        }
+
         if (outcome.AllClean) return 0;
 
         // Не всё откатилось — даём себе вторую попытку через 10 минут вместо «N/A» в

@@ -17,4 +17,8 @@ public sealed record SessionInfo(
     DateTimeOffset? LastRebootAt = null,
     /// <summary>Сколько вырубонов hub насчитал за эту сессию (с момента своего старта).
     /// Полная история переживает рестарт hub и лежит в SQLite — `szcli reboots &lt;СЗ&gt;`.</summary>
-    int RebootCount = 0);
+    int RebootCount = 0,
+    /// <summary>Заполнено, когда `agent.exe --revert` (watchdog/headless, без SignalR) не
+    /// откатился чисто — доступ на клиенте мог остаться навсегда. `list`/`watch` обязаны
+    /// показать СЗ проблемной, а не online (бэклог п.59, СЗ 160705).</summary>
+    string? RevertNote = null);

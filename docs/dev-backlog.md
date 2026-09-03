@@ -2399,7 +2399,7 @@ SSH при этом работал, и через него видно: проц�
 **Критерий готовности.** Машина, уснувшая посреди `diag run`, после пробуждения сама доводит
 диагностику до конца (или явно сообщает об обрыве), а `exec` отвечает без ручного killа агента.
 
-### 59. 🟡 ЧАСТИЧНО (2026-08-06) — Watchdog сработал, но `agent.exe --revert` упал с необработанным исключением
+### 59. ✅ СДЕЛАНО (2026-09-04) — Watchdog сработал, но `agent.exe --revert` упал с необработанным исключением
 
 **Сделано.**
 - **Откат идёт по шагам**: каждый в своём try/catch, упавший попадает в `RevertOutcome.Failed`,
@@ -2415,6 +2415,17 @@ SSH при этом работал, и через него видно: проц�
 
 **Осталось.** Сообщать hub статус отката (`reverted/failed`), чтобы `szcli list` показывал СЗ
 как проблемную: в режиме `--revert` SignalR-соединения нет, нужен отдельный HTTP-вызов.
+
+**Сделано (2026-09-04, #34).** `agent.exe --revert` шлёт итог по HTTP: новый `RevertStatusReporter`
+(агент) POST'ит `RevertStatusReport{Sz,Success,Summary}` на `/agent/revert-status` (тот же
+`AgentToken` и префикс `/agent`, что у апдейтера) — best-effort, с бюджетом 8с, недоступность
+hub не блокирует уже случившийся откат. `SessionRegistry.MarkRevertOutcome`: успех — сессия
+убирается из реестра как штатно закрытая; неудача — `Status=Offline` + `SessionInfo.RevertNote`
+с текстом сводки. `SessionTableRenderer` показывает такую СЗ как `⚠ откат` вместо `online`/
+`offline`, с текстом причины в колонке «Активность» — не спутать с обычным простоем. Hub URL
+берётся из конфига агента, а при пустом — через `HubDiscovery` с коротким (3с) таймаутом.
+Тесты — `RevertStatusReporterTests`, `RevertStatusApiTests` (hub, `WebApplicationFactory`),
+`Render_RevertFailed_ShowsProblemInsteadOfOfflineOrOnline`.
 
 **Боль (2026-08-04, СЗ 160705).** Watchdog-задача `szdiag-watchdog-160705` отработала по расписанию
 в **17:10:47** — и в этот же момент в `Application` легли два события:
