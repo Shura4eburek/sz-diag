@@ -19,6 +19,27 @@ $p = Get-Process lhmmon -ErrorAction SilentlyContinue
 
 # Приёмка захвата: нули в CPU-колонках = драйвер не поднялся, а не «холодный CPU» (бэклог п.38)
 $csv = 'C:\OCCT\sensors.csv'
+
+# Грабля (бэклог п.186): приёмка торопилась — через 25 с после старта задачи файла ещё нет
+# (процесс жив, папка на месте, драйвер RUNNING), а «CSV не создан» читалось как ошибка. Ждём
+# появления файла с ретраями и различаем три исхода вместо одного поспешного вердикта.
+$waited = 0
+$RetrySec = 5
+$MaxWaitSec = 60
+while (-not (Test-Path $csv) -and $waited -lt $MaxWaitSec) {
+    Start-Sleep -Seconds $RetrySec
+    $waited += $RetrySec
+    $p = Get-Process lhmmon -ErrorAction SilentlyContinue
+    if (-not $p) { break }   # процесс умер — дальше ждать бессмысленно
+}
+
+if (-not (Test-Path $csv)) {
+    if (-not $p) {
+        "CSV не создан за $waited с, процесс lhmmon МЁРТВ — захват не поднялся, смотри задачу $task"
+    } else {
+        "CSV ещё не создан за $waited с, процесс жив (pid=$($p.Id)) — захват стартует, дай ему время"
+    }
+}
 if (Test-Path $csv) {
     $rows = (@(Get-Content $csv -TotalCount 1) + @(Get-Content $csv -Tail 3)) | ConvertFrom-Csv
     $cols = $rows[0].PSObject.Properties.Name
@@ -32,5 +53,5 @@ if (Test-Path $csv) {
             "   {0} = {1}" -f ($c -replace '\|/[^|]*$', ''), $rows[-1].$c
         }
     }
-} else { 'CSV не создан — проверь, что C:\OCCT существует' }
+}
 'драйвер R0lhmmon: ' + ((sc.exe query R0lhmmon 2>&1 | Select-String 'STATE|FAILED' | ForEach-Object { $_.Line.Trim() }) -join ' / ')
