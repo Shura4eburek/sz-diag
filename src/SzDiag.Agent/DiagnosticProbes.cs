@@ -344,7 +344,9 @@ public static class DiagnosticProbes
         // 160636 фильтр по Id 1001,41,6008,7,55,153,129 с -MaxEvents 40 вернул почти сплошной
         // Id=55 (Kernel-Processor-Power пишет по штуке на поток CPU), а Kernel-Power 41 не
         // попал вообще — и диагноз уехал на 180 градусов (бэклог п.31).
-        Probe("events", "События: критические/ошибки + счётчики по Id", """
+        Probe("events", "События: критические/ошибки + счётчики по Id",
+            TimeZoneNote.PowerShellPrologue() + """
+            Write-TzNote
             $since = (Get-Date).AddDays(-7)
             "=== Schetchiki po Id (System, Critical/Error, 7 dney) ==="
             $sys = @(Get-WinEvent -FilterHashtable @{ LogName='System'; Level=1,2; StartTime=$since } -ErrorAction SilentlyContinue)

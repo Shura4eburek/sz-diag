@@ -338,6 +338,17 @@ public class DiagnosticProbesTests
     }
 
     [Fact]
+    public void EventsProbe_PrintsTimeZoneLabelForOfflineComparisons()
+    {
+        // Регрессия (п.31/49): WinPE и хост живут в разных поясах (159948: -08:00 vs +03:00,
+        // разница 11 часов молча превращала "днём" в "ночью"). Метка обязана быть явной.
+        var run = Body("events");
+
+        Assert.Contains("Write-TzNote", run);
+        Assert.Contains("WinPE=", run);
+    }
+
+    [Fact]
     public void ProbesQueryingOptionalProviders_WrapCallsInTryCatch()
     {
         // Живая грабля: незарегистрированный ProviderName валит Get-WinEvent с
