@@ -78,6 +78,25 @@ public class ClientTracesTests
     }
 
     [Fact]
+    public void Cleanup_RemovesToolsDirectory_MovedOutOfCloud()
+    {
+        // Регрессия (бэклог п.63, СЗ 160705): ToolsDirectory уводит инструменты в
+        // %ProgramData%\szdiag\tools, когда папка агента сама внутри OneDrive/Dropbox/… —
+        // без этого доставленные ~250 МБ OCCT+lhmmon оставались на клиенте навсегда.
+        var script = ClientTraces.BuildCleanupScript();
+
+        Assert.Contains(@"C:\ProgramData\szdiag\tools", script);
+    }
+
+    [Fact]
+    public void Inventory_ReportsToolsDirectorySize()
+    {
+        var script = ClientTraces.BuildInventoryScript();
+
+        Assert.Contains(@"C:\ProgramData\szdiag\tools", script);
+    }
+
+    [Fact]
     public void TaskName_FollowsSingleConvention()
         => Assert.Equal("szdiag-lhmmon-160636", ClientTraces.TaskName("lhmmon", "160636"));
 

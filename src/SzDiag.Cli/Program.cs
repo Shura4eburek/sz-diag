@@ -485,9 +485,15 @@ switch (command)
         var state = status.Running
             ? $"[yellow]выполняется[/] ({SessionTableRenderer.FormatElapsed(DateTimeOffset.Now - status.StartedAt)})"
             : $"[green]завершена[/] (exit {status.ExitCode})";
+        // Пока задача выполняется — когда out.txt последний раз дописывался: молчащий файл
+        // минутами и «работает медленно, просто вывод раз в N секунд» неотличимы на глаз без
+        // этой цифры (бэклог п.208, СЗ 161716) — тот же вопрос, ради которого делался ack.
+        var freshness = status.Running && status.LastOutputAt is { } lastAt
+            ? $", последняя строка {SessionTableRenderer.FormatElapsed(DateTimeOffset.Now - lastAt)} назад"
+            : "";
         // MarkupLine, а не MarkupLineInterpolated: последний экранирует вставленные значения,
         // и разметка из $state печаталась как текст «[green]завершена[/]» (260306).
-        AnsiConsole.MarkupLine($"Задача {Markup.Escape(args[3])}: {state}, вывода {status.OutputBytes} б");
+        AnsiConsole.MarkupLine($"Задача {Markup.Escape(args[3])}: {state}, вывода {status.OutputBytes} б{Markup.Escape(freshness)}");
         if (!string.IsNullOrEmpty(status.Tail)) Console.WriteLine(status.Tail);
         // Ошибка скрипта (например, parse-ошибка из err.txt) — отдельно от хвоста: раньше
         // «завершена (exit 1), вывода 0 б» была неотличима от упавшего агента (п.177).
@@ -567,6 +573,12 @@ switch (command)
             execTimeout = parsedTimeout;
 
         var detach = args.Any(a => a.Equals("--detach", StringComparison.OrdinalIgnoreCase));
+        // --isolated: фоновая задача уходит транзиентной scheduled task под SYSTEM (как sshd),
+        // а не дочерним процессом агента — переживает падение/закрытие агента (TM5 на живой
+        // заявке пропал вместе с упавшим агентом, не досчитав ни одного цикла — бэклог п.53).
+        var isolated = args.Any(a => a.Equals("--isolated", StringComparison.OrdinalIgnoreCase));
+        if (isolated && !detach)
+            AnsiConsole.MarkupLine("[yellow]⚠ --isolated без --detach ни на что не влияет[/]");
 
         // До старта, а не после потери данных: синхронный exec копит вывод целиком и отдаёт
         // его только в конце — обрыв хоста/сети на длинном прогоне уносит всё разом (п.220).
@@ -574,7 +586,7 @@ switch (command)
             AnsiConsole.MarkupLineInterpolated(
                 $"[yellow]⚠ таймаут {execTimeout} с без --detach:[/] вывод придёт только по завершении целиком — обрыв по пути хост↔hub↔агент унесёт его весь. Для длинных прогонов — szcli exec <СЗ> ... --detach");
 
-        var execRes = await client.ExecAsync(execSz, script, execTimeout, default, detach);
+        var execRes = await client.ExecAsync(execSz, script, execTimeout, default, detach, isolated);
         if (execRes is null)
         {
             AnsiConsole.MarkupLineInterpolated($"[red]СЗ {execSz} не найдена[/] среди активных.");
@@ -640,7 +652,8 @@ static void PrintUsage()
               [yellow]szcli diag run[/] [blue]<СЗ>[/] [grey][[storage,events|…]][/]  диагностика (снапшот; секции точечно)
                 [grey]секции: system cpu memory gpu storage temps drivers events reboots whea livekernel reliability battery[/]
                 [grey]можно через запятую или пробел; all — все; алиасы: hw ram disks video bsod tdr temp[/]
-              [yellow]szcli exec[/] [blue]<СЗ>[/] [grey]"<powershell>" | -f <файл> [[--timeout <сек>]] [[--detach]][/]
+              [yellow]szcli exec[/] [blue]<СЗ>[/] [grey]"<powershell>" | -f <файл> [[--timeout <сек>]] [[--detach [[--isolated]]]][/]
+                [grey]--isolated — фон переживает падение/закрытие агента (scheduled task под SYSTEM)[/]
               [yellow]szcli exec[/] [blue]<СЗ>[/] [grey]--result <jobId> [[--tail N]]   состояние фоновой задачи[/]
               [yellow]szcli exec[/] [blue]<СЗ>[/] [grey]--cancel <jobId> | --jobs      снять задачу / список задач[/]
                 [grey]выполнить скрипт на агенте и получить вывод (без SSH)[/]

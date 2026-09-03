@@ -8,8 +8,12 @@ namespace SzDiag.Contracts;
 /// <param name="Detached">Запустить в фоне и сразу вернуть JobId: под полной нагрузкой
 /// синхронный exec не проходит вообще (на 160636 три попытки подряд в таймаут при живом
 /// heartbeat), а долгий exec держит канал и не даёт подсмотреть прогресс — бэклог п.43/п.46.</param>
+/// <param name="Isolated">Только вместе с <paramref name="Detached"/>: обернуть задачу в
+/// транзиентную scheduled task под SYSTEM (как sshd), а не в дочерний процесс агента. Дерево
+/// процессов (TM5, OCCT) переживает падение/закрытие агента — на живой заявке TM5 пропал
+/// вместе с упавшим агентом, не досчитав ни одного цикла (бэклог п.53).</param>
 public sealed record ExecRequest(string Sz, string RequestId, string Script, int TimeoutSeconds,
-    bool Detached = false);
+    bool Detached = false, bool Isolated = false);
 
 /// <summary>Агент → hub: «команду принял, выполняю». Отправляется СРАЗУ по получении, до
 /// запуска скрипта. Без этого «агент не принял команду» и «принял, но не успел ответить»
@@ -28,6 +32,10 @@ public sealed record ExecStatusRequest(string Sz, string RequestId, string JobId
 /// <param name="Running">Ещё выполняется.</param>
 /// <param name="Tail">Последние строки вывода — «шо там» во время часового прогона.</param>
 /// <param name="Cancelled">Задача была снята по запросу (Cancel в ExecStatusRequest).</param>
+/// <param name="LastOutputAt">Когда `out.txt` последний раз дописывался. Молчащий файл во
+/// время «выполняется» неотличим на глаз от зависшего скрипта — именно та развилка, ради
+/// которой делался ack (бэклог п.208): пробник состояния сенсоров провисел 3,5 минуты с нулём
+/// вывода, и понять «работает медленно» vs «встало намертво» было нечем.</param>
 public sealed record ExecJobStatus(
     string RequestId,
     string JobId,
@@ -37,7 +45,8 @@ public sealed record ExecJobStatus(
     DateTimeOffset StartedAt,
     long OutputBytes,
     string? Error = null,
-    bool Cancelled = false);
+    bool Cancelled = false,
+    DateTimeOffset? LastOutputAt = null);
 
 /// <summary>Агент → hub: результат выполнения <see cref="ExecRequest"/>.</summary>
 /// <param name="TimedOut">Скрипт не уложился в таймаут и был убит.</param>
@@ -54,7 +63,7 @@ public sealed record ExecResult(
 
 /// <summary>Тело HTTP-запроса CLI → hub: что выполнить на агенте.</summary>
 public sealed record ExecCommandRequest(string Script, int? TimeoutSeconds = null,
-    bool Detached = false);
+    bool Detached = false, bool Isolated = false);
 
 /// <summary>Общие лимиты exec — одинаковые на агенте и hub, чтобы ожидания совпадали.</summary>
 public static class ExecLimits
@@ -65,6 +74,12 @@ public static class ExecLimits
 
     /// <summary>Таймаут скрипта по умолчанию.</summary>
     public const int DefaultTimeoutSeconds = 120;
+
+    /// <summary>Дефолтный таймаут, когда hub видит по `Activity` СЗ, что на клиенте прямо
+    /// сейчас идёт стресс-прогон: под OCCT/TM5 запуск дочернего powershell.exe сам по себе
+    /// занимает десятки секунд (бэклог п.35a, СЗ 161288) — 120с дефолта не хватает и на
+    /// честный «жив, но медленный» ответ.</summary>
+    public const int StressDefaultTimeoutSeconds = 300;
 
     /// <summary>Запас поверх таймаута скрипта, в течение которого hub ещё ждёт ответ агента
     /// (сеть + запуск процесса). Без него hub сдавался бы ровно тогда, когда агент только-только

@@ -58,6 +58,10 @@ public static class HubRoutes
     public const string AgentPackageRoute = "/agent/package";
     public const string AgentPackageSha256Route = "/agent/package.sha256";
 
+    // Агент -> hub (HTTP, под TokenHeader): итог `--revert` вне SignalR-сессии — watchdog
+    // и headless-откат идут отдельным процессом без живого коннекта (бэклог п.59).
+    public const string AgentRevertStatusRoute = "/agent/revert-status";
+
     // Агент -> hub: загрузить файл отчёта.
     public const string UploadReportFile = nameof(UploadReportFile);
 

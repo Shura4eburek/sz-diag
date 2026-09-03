@@ -21,18 +21,33 @@ public sealed record ExecJobSummary(string JobId, bool Running, int? ExitCode,
 
 public sealed class BackgroundJobs
 {
-    private sealed record Job(string Id, Process Process, string OutPath, DateTimeOffset StartedAt);
+    /// <summary>Process — обычный (детский) фон; TaskName — изолированная задача под SYSTEM
+    /// (см. Start(ExecRequest) с Isolated: true) — дерево процессов не привязано к агенту.</summary>
+    private sealed record Job(string Id, Process? Process, string OutPath, DateTimeOffset StartedAt,
+        string? TaskName = null);
 
     private readonly string _root;
+    private readonly IPowerShellRunner? _ps;
     private readonly ConcurrentDictionary<string, Job> _jobs = new(StringComparer.OrdinalIgnoreCase);
 
     /// <param name="root">Куда складывать вывод задач. По умолчанию — вне папки агента,
     /// чтобы логи прогонов не уезжали в OneDrive клиента (см. ToolsDirectory / п.63).</param>
-    public BackgroundJobs(string? root = null)
-        => _root = root ?? Path.Combine(
+    /// <param name="ps">Нужен только для изолированных (scheduled-task) задач: регистрация,
+    /// опрос состояния и снятие идут через PowerShell, а не через .NET Process. Без него
+    /// запрос с Isolated: true молча откатывается в обычный дочерний процесс.</param>
+    public BackgroundJobs(string? root = null, IPowerShellRunner? ps = null)
+    {
+        _root = root ?? Path.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData), "szdiag", "jobs");
+        _ps = ps;
+    }
 
     public string Root => _root;
+
+    /// <summary>Имя транзиентной scheduled task для изолированной фоновой задачи — по тому же
+    /// правилу `szdiag-<роль>-<СЗ>`, что и sshd/watchdog: `client cleanup` находит и снимает
+    /// её как любую другую нашу задачу без отдельного кода (бэклог п.99).</summary>
+    private static string IsolatedTaskName(string sz, string jobId) => $"szdiag-job-{sz}-{jobId}";
 
     /// <summary>Запускает скрипт в фоне и сразу возвращает идентификатор задачи.</summary>
     public ExecResult Start(ExecRequest request)
@@ -69,6 +84,23 @@ public sealed class BackgroundJobs
                 .ToString();
             File.WriteAllText(scriptPath, wrapped, new UTF8Encoding(true));
 
+            // Isolated: задача уходит транзиентной scheduled task под SYSTEM (как sshd) —
+            // дерево процессов не дочернее агенту, падение/закрытие агента его не утащит
+            // (на живой заявке TM5 пропал вместе с упавшим агентом, не досчитав ни одного
+            // цикла — бэклог п.53). Без `_ps` откатываемся в обычный дочерний процесс: он
+            // всё ещё переживает штатное завершение агента (родитель не убивает детей сам
+            // по себе), просто не переживает крах консоли/сессии целиком.
+            if (request.Isolated && _ps is not null)
+            {
+                var taskName = IsolatedTaskName(request.Sz, jobId);
+                File.WriteAllText(Path.Combine(dir, "task.txt"), taskName, new UTF8Encoding(false));
+                _ps.Run(BuildRegisterIsolatedJobCommand(taskName, scriptPath, dir));
+
+                _jobs[jobId] = new Job(jobId, null, outPath, DateTimeOffset.Now, taskName);
+                return new ExecResult(request.RequestId, 0,
+                    $"задача запущена изолированно (task {taskName}): {jobId}\nвывод: {outPath}", "", JobId: jobId);
+            }
+
             var psi = new ProcessStartInfo
             {
                 FileName = "powershell.exe",
@@ -83,13 +115,63 @@ public sealed class BackgroundJobs
             try { process.PriorityClass = ProcessPriorityClass.AboveNormal; } catch { }
 
             _jobs[jobId] = new Job(jobId, process, outPath, DateTimeOffset.Now);
+            var note = request.Isolated
+                ? " (изоляция недоступна: агент не передал IPowerShellRunner — обычный дочерний процесс)"
+                : "";
             return new ExecResult(request.RequestId, 0,
-                $"задача запущена в фоне: {jobId}\nвывод: {outPath}", "", JobId: jobId);
+                $"задача запущена в фоне: {jobId}\nвывод: {outPath}{note}", "", JobId: jobId);
         }
         catch (Exception ex)
         {
             return new ExecResult(request.RequestId, -1, "", ex.Message);
         }
+    }
+
+    /// <summary>PowerShell для регистрации+запуска изолированной фоновой задачи транзиентной
+    /// scheduled task под SYSTEM. Тот же паттерн, что у sshd (<see cref="PortableSshServer"/>):
+    /// `-MultipleInstances IgnoreNew` и безлимитный `ExecutionTimeLimit` — тайминг решает вызывающий
+    /// уровень (hub/пользователь), не сама задача.</summary>
+    public static string BuildRegisterIsolatedJobCommand(string taskName, string scriptPath, string workDir) =>
+        "$a = New-ScheduledTaskAction -Execute 'powershell.exe' " +
+        $"-Argument '-NoProfile -NonInteractive -ExecutionPolicy Bypass -File \"{scriptPath}\"' " +
+        $"-WorkingDirectory '{workDir}'; " +
+        "$s = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries " +
+        "-ExecutionTimeLimit ([TimeSpan]::Zero) -MultipleInstances IgnoreNew; " +
+        $"Register-ScheduledTask -TaskName '{taskName}' -Action $a -Settings $s " +
+        "-RunLevel Highest -User 'SYSTEM' -Force | Out-Null; " +
+        $"Start-ScheduledTask -TaskName '{taskName}'";
+
+    /// <summary>PowerShell для опроса состояния изолированной задачи: `State` («Running»/«Ready»
+    /// после однократного прогона) + `LastTaskResult` (код возврата, когда уже не Running).
+    /// «absent» — задачу сняли (ручной cancel, ребут) или её никогда не было.</summary>
+    public static string BuildQueryIsolatedJobCommand(string taskName) =>
+        $"$t = Get-ScheduledTask -TaskName '{taskName}' -ErrorAction SilentlyContinue; " +
+        "if (-not $t) { 'absent' } else { " +
+        $"$i = Get-ScheduledTaskInfo -TaskName '{taskName}' -ErrorAction SilentlyContinue; " +
+        "$t.State.ToString() + '|' + $i.LastTaskResult }";
+
+    /// <summary>PowerShell для снятия изолированной задачи: остановить + разрегистрировать
+    /// саму scheduled task и добить дерево процессов по jobId в командной строке (задача не
+    /// убивает дочерние процессы автоматически при Stop-ScheduledTask).</summary>
+    public static string BuildStopIsolatedJobCommand(string taskName, string jobId)
+    {
+        var jid = jobId.Replace("'", "''");
+        return $"Stop-ScheduledTask -TaskName '{taskName}' -ErrorAction SilentlyContinue; " +
+               $"Unregister-ScheduledTask -TaskName '{taskName}' -Confirm:$false -ErrorAction SilentlyContinue; " +
+               "Get-CimInstance Win32_Process -Filter \"Name like '%powershell%'\" -ErrorAction SilentlyContinue | " +
+               $"Where-Object {{ $_.CommandLine -like '*{jid}*' }} | " +
+               "ForEach-Object { taskkill /PID $_.ProcessId /T /F | Out-Null }";
+    }
+
+    /// <summary>Имя scheduled task изолированной задачи, если она была отмечена таковой при
+    /// старте (в памяти) или маркер сохранился на диске (агент мог перезапуститься с тех пор —
+    /// задача от этого не пропадает, она живёт в планировщике независимо от агента).</summary>
+    private string? ResolveIsolatedTaskName(string jobId, Job? job)
+    {
+        if (job?.TaskName is { } tn) return tn;
+        var marker = Path.Combine(_root, jobId, "task.txt");
+        try { return File.Exists(marker) ? File.ReadAllText(marker).Trim() : null; }
+        catch { return null; }
     }
 
     /// <summary>Состояние задачи + хвост вывода.</summary>
@@ -107,12 +189,31 @@ public sealed class BackgroundJobs
 
         var running = false;
         int? exitCode = null;
-        if (job is not null)
+        var taskName = ResolveIsolatedTaskName(request.JobId, job);
+        if (taskName is not null && _ps is not null)
+        {
+            // Изолированная задача: состояние процесса Windows знает сама, через планировщик —
+            // переживает и рестарт агента (маркер task.txt это и обеспечивает).
+            try
+            {
+                var r = _ps.Run(BuildQueryIsolatedJobCommand(taskName), throwOnError: false);
+                var text = (r.StdOut ?? "").Trim();
+                if (!text.Equals("absent", StringComparison.OrdinalIgnoreCase))
+                {
+                    var parts = text.Split('|');
+                    running = parts.Length > 0 && parts[0].Trim().Equals("Running", StringComparison.OrdinalIgnoreCase);
+                    if (!running && parts.Length > 1 && int.TryParse(parts[1].Trim(), out var er)) exitCode = er;
+                }
+                // "absent" — задачу сняли (cancel/ребут): считаем завершённой, exitCode неизвестен.
+            }
+            catch { /* планировщик недоступен прямо сейчас — вывод из файла всё равно покажем */ }
+        }
+        else if (job?.Process is { } proc)
         {
             try
             {
-                running = !job.Process.HasExited;
-                if (!running) exitCode = job.Process.ExitCode;
+                running = !proc.HasExited;
+                if (!running) exitCode = proc.ExitCode;
             }
             catch { running = false; }
         }
@@ -120,6 +221,13 @@ public sealed class BackgroundJobs
         var (tail, size) = ReadTail(outPath, request.TailLines);
         var started = job?.StartedAt
             ?? (Directory.Exists(dir) ? new DirectoryInfo(dir).CreationTime : DateTime.Now);
+
+        // Когда out.txt последний раз дописывался: молчащий файл во время «выполняется»
+        // неотличим на глаз от зависшего скрипта — «работает медленно» от «встало намертво»
+        // отличить нечем было, пока не появился этот таймстамп (бэклог п.208).
+        DateTimeOffset? lastOutputAt = null;
+        try { if (File.Exists(outPath)) lastOutputAt = new DateTimeOffset(File.GetLastWriteTimeUtc(outPath), TimeSpan.Zero); }
+        catch { /* пишется прямо сейчас — покажем в следующий раз */ }
 
         // Parse-ошибка скрипта лежит в err.txt (см. Start): без неё «завершена (exit 199),
         // вывода 0 б» неотличима от упавшего агента или задавленной машины (п.177).
@@ -137,7 +245,7 @@ public sealed class BackgroundJobs
         }
 
         return new ExecJobStatus(request.RequestId, request.JobId, running, exitCode, tail,
-            started, size, error);
+            started, size, error, LastOutputAt: lastOutputAt);
     }
 
     /// <summary>Список всех фоновых задач: живые из памяти + завершённые/осиротевшие с диска.
@@ -149,12 +257,30 @@ public sealed class BackgroundJobs
         {
             var running = false;
             int? exitCode = null;
-            try
+            if (job.Process is { } proc)
             {
-                running = !job.Process.HasExited;
-                if (!running) exitCode = job.Process.ExitCode;
+                try
+                {
+                    running = !proc.HasExited;
+                    if (!running) exitCode = proc.ExitCode;
+                }
+                catch { /* процесс уже недоступен */ }
             }
-            catch { /* процесс уже недоступен */ }
+            else if (job.TaskName is { } tn && _ps is not null)
+            {
+                try
+                {
+                    var r = _ps.Run(BuildQueryIsolatedJobCommand(tn), throwOnError: false);
+                    var text = (r.StdOut ?? "").Trim();
+                    if (!text.Equals("absent", StringComparison.OrdinalIgnoreCase))
+                    {
+                        var parts = text.Split('|');
+                        running = parts.Length > 0 && parts[0].Trim().Equals("Running", StringComparison.OrdinalIgnoreCase);
+                        if (!running && parts.Length > 1 && int.TryParse(parts[1].Trim(), out var er)) exitCode = er;
+                    }
+                }
+                catch { /* планировщик недоступен прямо сейчас */ }
+            }
             var size = 0L;
             try { size = new FileInfo(job.OutPath).Length; } catch { }
             result[job.Id] = new ExecJobSummary(job.Id, running, exitCode, job.StartedAt, size);
@@ -185,17 +311,46 @@ public sealed class BackgroundJobs
         var n = 0;
         foreach (var job in _jobs.Values)
         {
-            try { if (!job.Process.HasExited) n++; }
-            catch { /* процесс умер между проверками */ }
+            if (job.Process is { } proc)
+            {
+                try { if (!proc.HasExited) n++; }
+                catch { /* процесс умер между проверками */ }
+                continue;
+            }
+            if (job.TaskName is { } tn && _ps is not null)
+            {
+                try
+                {
+                    var r = _ps.Run(BuildQueryIsolatedJobCommand(tn), throwOnError: false);
+                    if ((r.StdOut ?? "").Trim().StartsWith("Running", StringComparison.OrdinalIgnoreCase)) n++;
+                }
+                catch { /* планировщик недоступен прямо сейчас */ }
+            }
         }
         return n;
     }
 
-    /// <summary>Убить фоновую задачу (и её дерево процессов).</summary>
+    /// <summary>Убить фоновую задачу (и её дерево процессов). Для изолированной задачи —
+    /// остановить и разрегистрировать саму scheduled task, не только процесс; переживает
+    /// рестарт агента через маркер task.txt, как и Status.</summary>
     public bool Stop(string jobId)
     {
-        if (!_jobs.TryGetValue(jobId, out var job)) return false;
-        try { job.Process.Kill(entireProcessTree: true); return true; }
+        _jobs.TryGetValue(jobId, out var job);
+        var taskName = ResolveIsolatedTaskName(jobId, job);
+        if (taskName is not null)
+        {
+            if (_ps is null) return false;
+            try
+            {
+                _ps.Run(BuildStopIsolatedJobCommand(taskName, jobId), throwOnError: false);
+                _jobs.TryRemove(jobId, out _);
+                return true;
+            }
+            catch { return false; }
+        }
+
+        if (job?.Process is not { } process) return false;
+        try { process.Kill(entireProcessTree: true); return true; }
         catch { return false; }
     }
 

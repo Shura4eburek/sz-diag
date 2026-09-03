@@ -31,18 +31,19 @@ public sealed class ExecCoordinator
     /// <summary>Выполнить скрипт на агенте СЗ. Возвращает null, если СЗ не онлайн.</summary>
     /// <exception cref="TimeoutException">Агент не ответил в отведённое время.</exception>
     public async Task<ExecResult?> RunAsync(string sz, string script, int? timeoutSeconds = null,
-        CancellationToken ct = default, bool detached = false)
+        CancellationToken ct = default, bool detached = false, bool isolated = false)
     {
         var connId = _registry.TryGetConnectionId(sz);
         if (connId is null) return null;
 
-        var timeout = timeoutSeconds ?? ExecLimits.DefaultTimeoutSeconds;
+        var timeout = timeoutSeconds ?? DefaultTimeoutFor(sz);
         var requestId = Guid.NewGuid().ToString("N");
         var tcs = new TaskCompletionSource<ExecResult>(TaskCreationOptions.RunContinuationsAsynchronously);
         _pending[requestId] = tcs;
         try
         {
-            await _sender.SendExecAsync(connId, new ExecRequest(sz, requestId, script, timeout, detached), ct);
+            await _sender.SendExecAsync(connId,
+                new ExecRequest(sz, requestId, script, timeout, detached, isolated), ct);
 
             // Ждём дольше, чем сам скрипт: агенту нужно время убить процесс и доставить ответ.
             var wait = TimeSpan.FromSeconds(timeout + _graceSeconds);
@@ -93,6 +94,18 @@ public sealed class ExecCoordinator
             return await tcs.Task;
         }
         finally { _statusPending.TryRemove(requestId, out _); }
+    }
+
+    /// <summary>Дефолтный таймаут, если вызывающий не задал свой явно. Если по `Activity`
+    /// сессии видно, что на клиенте прямо сейчас идёт стресс-прогон (`ActivityProbe.Describe`
+    /// в агенте кладёт туда «стресс: …»), поднимаем дефолт — под OCCT/TM5 честный «жив, но
+    /// туго идёт» ответ иначе не отличить от «канал завис» (бэклог п.35a).</summary>
+    private int DefaultTimeoutFor(string sz)
+    {
+        var activity = _registry.TryGetInfo(sz)?.Activity;
+        return !string.IsNullOrEmpty(activity) && activity.Contains("стресс:", StringComparison.OrdinalIgnoreCase)
+            ? ExecLimits.StressDefaultTimeoutSeconds
+            : ExecLimits.DefaultTimeoutSeconds;
     }
 
     /// <summary>Агент подтвердил приём команды (ack приходит до запуска скрипта).</summary>

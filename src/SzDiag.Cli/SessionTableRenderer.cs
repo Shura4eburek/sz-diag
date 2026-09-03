@@ -43,6 +43,9 @@ public static class SessionTableRenderer
     {
         // Без юникод-глифов (●/○) — не в каждом шрифте консоли есть их отрисовка, из-за
         // чего колонка резервирует место под невидимый символ и текст съезжает.
+        // Неудачный watchdog/headless-откат (бэклог п.59) обязан выглядеть иначе, чем
+        // штатный offline: доступ (sshd, учётка, фаервол) мог остаться на клиенте навсегда.
+        if (!string.IsNullOrEmpty(s.RevertNote)) return "[red]⚠ откат[/]";
         if (s.Status == SessionStatus.Online) return "[green]online[/]";
 
         var silentFor = now - s.LastHeartbeat;
@@ -86,6 +89,9 @@ public static class SessionTableRenderer
     /// <summary>Ячейка активности: идущий тест с тикающим временем, простой с меткой, или «—».</summary>
     private static string ActivityCell(SessionInfo s, DateTimeOffset now)
     {
+        // Провал отката важнее любой обычной активности — не прятать его под «—».
+        if (!string.IsNullOrEmpty(s.RevertNote))
+            return $"[red]откат не завершён: {Markup.Escape(s.RevertNote)}[/]";
         if (s.Status == SessionStatus.Offline || string.IsNullOrEmpty(s.Activity))
             return "[dim]—[/]";
 

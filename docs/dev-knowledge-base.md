@@ -42,7 +42,7 @@
 | `Revert` | `sz` | `AgentSession` → `RevertCoordinator.TriggerAsync` (откат) |
 | `RunTests` | `sz, filter?` | `Program.cs` `OnRunTests` → `TestReportRunner.RunAndUploadAsync` (стресс) |
 | `RunDiag` | `sz, sections?` | `Program.cs` `OnRunDiag` → `DiagReportRunner.RunAndUploadAsync` (read-only снапшот → `diag.md`) |
-| `Exec` | `ExecRequest{Sz,RequestId,Script,TimeoutSeconds,Detached}` | `AgentCommandWiring` → `ExecCommandHandler.Handle`; ack сразу, результат отдельным `ExecResult` |
+| `Exec` | `ExecRequest{Sz,RequestId,Script,TimeoutSeconds,Detached,Isolated}` | `AgentCommandWiring` → `ExecCommandHandler.Handle`; ack сразу, результат отдельным `ExecResult`. `Isolated` (только с `Detached`) — `BackgroundJobs` оборачивает задачу в транзиентную scheduled task под SYSTEM (`szdiag-job-<сз>-<jobId>`, как sshd) вместо дочернего процесса агента — переживает падение/закрытие агента (бэклог п.53) |
 | `ExecStatus` | `ExecStatusRequest{Sz,RequestId,JobId,TailLines,Cancel}` | `ExecCommandHandler.Status`; `JobId="*"` — список задач, `Cancel=true` — снять задачу (дерево процессов). Этот канал короткий и проходит под полной нагрузкой — поэтому отмена/список едут им же (бэклог п.134/172/176) |
 
 Прямого RPC-возврата нет: hub **push-ит** команду, агент отвечает **отдельными** server-инвокациями
@@ -62,8 +62,8 @@ CLI-токен — заголовок `X-SzDiag-Mgmt-Token` (`ManagementApi.Toke
 | `POST /api/sessions/{sz}/journal` (тело `JournalNoteRequest{Text}`) | `JournalWriter.Manual` → `kb/СЗ/<sz>/журнал.md` | `Ok`/`BadRequest`; **активная сессия не требуется** |
 | `POST /api/sessions/{sz}/diag?sections=` | `DiagRunTrigger.TriggerAsync` | `Ok`/`NotFound` |
 | `GET /api/sessions/{sz}/target` | реестр + `ServiceAccount` | `TargetInfo{Sz,Ip,User,Ssh}`/`NotFound` |
-| `POST /api/sessions/{sz}/exec` (тело `ExecCommandRequest{Script,TimeoutSeconds,Detached}`) | `ExecCoordinator.RunAsync` | `ExecResult`/`NotFound`/`504` |
-| `GET /api/sessions/{sz}/exec/{jobId}?tail=` | `ExecCoordinator.StatusAsync` | `ExecJobStatus` (+`Error` из `err.txt` при parse-ошибке скрипта) |
+| `POST /api/sessions/{sz}/exec` (тело `ExecCommandRequest{Script,TimeoutSeconds,Detached,Isolated}`) | `ExecCoordinator.RunAsync` | `ExecResult`/`NotFound`/`504`; без явного `TimeoutSeconds` дефолт зависит от `Activity` сессии (`ExecLimits.StressDefaultTimeoutSeconds`, если идёт стресс-прогон — бэклог п.35a) |
+| `GET /api/sessions/{sz}/exec/{jobId}?tail=` | `ExecCoordinator.StatusAsync` | `ExecJobStatus` (+`Error` из `err.txt` при parse-ошибке скрипта; `LastOutputAt` — mtime `out.txt`, `szcli exec --result` печатает по нему «последняя строка N сек назад», пока задача выполняется — бэклог п.208) |
 | `GET /api/sessions/{sz}/exec` | `StatusAsync(sz, "*")` | список фоновых задач (сводка в `Tail`) |
 | `DELETE /api/sessions/{sz}/exec/{jobId}` | `StatusAsync(cancel: true)` | отмена задачи; `Cancelled=true` в ответе |
 
@@ -81,6 +81,15 @@ Exit-коды `szcli exec` (`ExecExitCode`): 0 успех · N — код скр
 | `GET /agent/version` | версия пакета (plain text из `version.txt`) |
 | `GET /agent/package` | `package.zip` (agent+ssh+ключ+testsuite, без appsettings/tools) |
 | `GET /agent/package.sha256` | sha256 пакета (plain text) |
+
+### Итог отката вне SignalR `/agent/revert-status` (`Hub/RevertStatusApi.cs`)
+
+Тот же токен/префикс, что у раздачи пакета. `agent.exe --revert` (watchdog-задача, headless-
+откат после ребута) POST'ит `RevertStatusReport{Sz,Success,Summary}` — в этом режиме нет живого
+SignalR-коннекта, чтобы ответить обычным путём. `SessionRegistry.MarkRevertOutcome`: успех —
+`Remove(sz)`; неудача — `Status=Offline` + `SessionInfo.RevertNote`, и `list`/`watch` показывают
+`⚠ откат` вместо `online`/`offline` (бэклог п.59) — без этого упавший на середине откат оставлял
+доступ на клиенте, а hub считал СЗ штатной.
 
 ### Автообнаружение hub (`DiscoveryProtocol`, UDP `5098`)
 

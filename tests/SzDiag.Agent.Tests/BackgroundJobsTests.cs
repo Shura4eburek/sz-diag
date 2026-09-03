@@ -144,6 +144,41 @@ public class BackgroundJobsTests : IDisposable
     }
 
     [Fact]
+    public async Task Status_WhileRunning_ReportsLastOutputTimestamp()
+    {
+        // Регрессия (бэклог п.208, СЗ 161716): «выполняется (7мин), вывода 0 б» не отличить
+        // на глаз от зависшего скрипта — а именно за этим ack и делался (п.43). Молчащий файл
+        // теперь виден по метке времени последней дозаписи, а не только по счётчику байт.
+        var jobs = Jobs;
+        var job = jobs.Start(Req("'pervaya'; Start-Sleep -Seconds 20"));
+        var before = DateTimeOffset.UtcNow;
+
+        var status = await WaitUntilAsync(jobs, job.JobId!, s => s.Tail.Contains("pervaya"));
+
+        Assert.True(status.Running);
+        Assert.NotNull(status.LastOutputAt);
+        Assert.True(status.LastOutputAt >= before.AddSeconds(-2),
+            $"метка времени должна быть свежей: {status.LastOutputAt} vs {before}");
+        jobs.Stop(job.JobId!);
+    }
+
+    [Fact]
+    public async Task Start_Detached_IgnoresRequestTimeout_JobOutlivesIt()
+    {
+        // Регрессия (бэклог п.180): `--detach` без явного `--timeout` рубил задачу на 120с —
+        // весь смысл detach в том, чтобы пережить долгую работу (chkdsk на живой заявке терял
+        // прогон дважды). TimeoutSeconds в фоновом режиме не должен применяться вовсе.
+        var jobs = Jobs;
+        var job = jobs.Start(new ExecRequest("160705", "r", "Start-Sleep -Seconds 3; 'perezhil'",
+            TimeoutSeconds: 1, Detached: true));
+
+        var status = await WaitUntilAsync(jobs, job.JobId!, s => !s.Running, seconds: 15);
+
+        Assert.False(status.Running, "TimeoutSeconds=1 не должен был убить задачу в фоне");
+        Assert.Contains("perezhil", status.Tail);
+    }
+
+    [Fact]
     public async Task Tail_LimitsLinesButKeepsLatest()
     {
         var jobs = Jobs;
@@ -156,6 +191,134 @@ public class BackgroundJobsTests : IDisposable
         Assert.True(lines.Length <= 5, $"хвост должен быть урезан, а не {lines.Length} строк");
         Assert.Contains("line 50", status.Tail);
         Assert.DoesNotContain("line 1\n", status.Tail);
+    }
+
+    public void Dispose()
+    {
+        try { if (Directory.Exists(_root)) Directory.Delete(_root, recursive: true); } catch { }
+    }
+}
+
+/// <summary>Изолированные (scheduled-task) фоновые задачи — бэклог п.53: `szcli exec --detach`
+/// раньше оборачивал долгий прогон в дочерний процесс агента, и он пропадал вместе с ним
+/// (на живой заявке TM5 исчез посреди прогона без единой строки результата). Проверяем чисто
+/// через `IPowerShellRunner`-стаб: реальную регистрацию scheduled task под SYSTEM в тестах не
+/// поднимаем — она требует прав, которых у тестового раннера может не быть, а остаточная
+/// задача на боксе — ровно тот мусор, с которым борется п.56/99.</summary>
+public class IsolatedBackgroundJobsTests : IDisposable
+{
+    private readonly string _root = Path.Combine(Path.GetTempPath(), $"szjobs-iso-{Guid.NewGuid():N}");
+
+    private sealed class RecordingPs : IPowerShellRunner
+    {
+        public List<string> Scripts { get; } = new();
+        public Func<string, PsResult>? Handler { get; set; }
+
+        public PsResult Run(string script, bool throwOnError = true, TimeSpan? timeout = null)
+        {
+            Scripts.Add(script);
+            return Handler?.Invoke(script) ?? new PsResult(0, "", "");
+        }
+    }
+
+    private static ExecRequest Req(string sz = "160705", string script = "'ok'")
+        => new(sz, Guid.NewGuid().ToString("N"), script, 60, Detached: true, Isolated: true);
+
+    [Fact]
+    public void Start_Isolated_RegistersScheduledTaskAndWritesMarker()
+    {
+        var ps = new RecordingPs();
+        var jobs = new BackgroundJobs(_root, ps);
+
+        var result = jobs.Start(Req());
+
+        Assert.NotNull(result.JobId);
+        Assert.Contains(ps.Scripts, s => s.Contains("Register-ScheduledTask") && s.Contains("Start-ScheduledTask"));
+        var marker = Path.Combine(_root, result.JobId!, "task.txt");
+        Assert.True(File.Exists(marker), "маркер задачи должен лечь на диск — иначе после рестарта агента статус не найти");
+        Assert.Contains("160705", File.ReadAllText(marker));
+        Assert.Contains("изолированно", result.StdOut);
+    }
+
+    [Fact]
+    public void Start_IsolatedWithoutRunner_FallsBackToChildProcess()
+    {
+        // Без IPowerShellRunner изолировать нечем — откатываемся к обычному дочернему
+        // процессу вместо падения задачи целиком, но честно предупреждаем в выводе.
+        var jobs = new BackgroundJobs(_root);
+
+        var result = jobs.Start(Req());
+
+        Assert.NotNull(result.JobId);
+        Assert.Contains("изоляция недоступна", result.StdOut);
+        jobs.Stop(result.JobId!);
+    }
+
+    [Fact]
+    public void Status_IsolatedJob_Running_ReportsRunningTrue()
+    {
+        var ps = new RecordingPs { Handler = _ => new PsResult(0, "Running|", "") };
+        var jobs = new BackgroundJobs(_root, ps);
+        var started = jobs.Start(Req());
+
+        var status = jobs.Status(new ExecStatusRequest("160705", "r", started.JobId!, 10));
+
+        Assert.True(status.Running);
+        Assert.Null(status.ExitCode);
+    }
+
+    [Fact]
+    public void Status_IsolatedJob_Finished_ReportsExitCode()
+    {
+        var ps = new RecordingPs { Handler = _ => new PsResult(0, "Ready|3", "") };
+        var jobs = new BackgroundJobs(_root, ps);
+        var started = jobs.Start(Req());
+
+        var status = jobs.Status(new ExecStatusRequest("160705", "r", started.JobId!, 10));
+
+        Assert.False(status.Running);
+        Assert.Equal(3, status.ExitCode);
+    }
+
+    [Fact]
+    public void Status_IsolatedJob_TaskAbsent_ReportsNotRunning()
+    {
+        // Задачу сняли (ручной cancel, ребут) — не должно выглядеть как «ещё выполняется».
+        var ps = new RecordingPs { Handler = _ => new PsResult(0, "absent", "") };
+        var jobs = new BackgroundJobs(_root, ps);
+        var started = jobs.Start(Req());
+
+        var status = jobs.Status(new ExecStatusRequest("160705", "r", started.JobId!, 10));
+
+        Assert.False(status.Running);
+    }
+
+    [Fact]
+    public void Status_IsolatedJob_SurvivesAgentRestart_ViaTaskMarker()
+    {
+        // Агент перезапустился: задача не в памяти, но task.txt на диске находит её снова —
+        // ровно то, чего не хватало у обычных (дочерних) фоновых задач для реального
+        // переживания краха агента.
+        var ps = new RecordingPs { Handler = _ => new PsResult(0, "Running|", "") };
+        var started = new BackgroundJobs(_root, ps).Start(Req());
+
+        var reopened = new BackgroundJobs(_root, ps);
+        var status = reopened.Status(new ExecStatusRequest("160705", "r", started.JobId!, 10));
+
+        Assert.True(status.Running);
+    }
+
+    [Fact]
+    public void Stop_IsolatedJob_StopsAndUnregistersTask()
+    {
+        var ps = new RecordingPs { Handler = _ => new PsResult(0, "Ready|0", "") };
+        var jobs = new BackgroundJobs(_root, ps);
+        var started = jobs.Start(Req());
+
+        var stopped = jobs.Stop(started.JobId!);
+
+        Assert.True(stopped);
+        Assert.Contains(ps.Scripts, s => s.Contains("Unregister-ScheduledTask") && s.Contains("Stop-ScheduledTask"));
     }
 
     public void Dispose()

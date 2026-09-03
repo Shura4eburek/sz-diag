@@ -77,6 +77,54 @@ public class ExecCoordinatorTests
     }
 
     [Fact]
+    public async Task RunAsync_NoExplicitTimeout_UsesDefault()
+    {
+        var sender = new SpySender();
+        var coordinator = new ExecCoordinator(RegistryWith("160306"), sender);
+
+        var call = coordinator.RunAsync("160306", "Get-Date");
+        var sent = await WaitForRequest(sender);
+        coordinator.Complete(new ExecResult(sent.RequestId, 0, "", ""));
+        await call;
+
+        Assert.Equal(ExecLimits.DefaultTimeoutSeconds, sent.TimeoutSeconds);
+    }
+
+    [Fact]
+    public async Task RunAsync_ActivityShowsStress_RaisesDefaultTimeout()
+    {
+        // Под OCCT/TM5 запуск дочернего powershell.exe сам по себе занимает десятки секунд
+        // (бэклог п.35a, СЗ 161288) — дефолт 120с не даёт машине честно ответить «жив, но туго».
+        var registry = RegistryWith("160306");
+        registry.SetActivity("160306", "стресс: OCCT", DateTimeOffset.UtcNow);
+        var sender = new SpySender();
+        var coordinator = new ExecCoordinator(registry, sender);
+
+        var call = coordinator.RunAsync("160306", "Get-Date");
+        var sent = await WaitForRequest(sender);
+        coordinator.Complete(new ExecResult(sent.RequestId, 0, "", ""));
+        await call;
+
+        Assert.Equal(ExecLimits.StressDefaultTimeoutSeconds, sent.TimeoutSeconds);
+    }
+
+    [Fact]
+    public async Task RunAsync_ExplicitTimeout_OverridesActivityDefault()
+    {
+        var registry = RegistryWith("160306");
+        registry.SetActivity("160306", "стресс: TM5", DateTimeOffset.UtcNow);
+        var sender = new SpySender();
+        var coordinator = new ExecCoordinator(registry, sender);
+
+        var call = coordinator.RunAsync("160306", "Get-Date", timeoutSeconds: 45);
+        var sent = await WaitForRequest(sender);
+        coordinator.Complete(new ExecResult(sent.RequestId, 0, "", ""));
+        await call;
+
+        Assert.Equal(45, sent.TimeoutSeconds);
+    }
+
+    [Fact]
     public async Task Complete_UnknownRequestId_Ignored()
     {
         var coordinator = new ExecCoordinator(RegistryWith("160306"), new SpySender());
