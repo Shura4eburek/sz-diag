@@ -39,11 +39,14 @@ public sealed class HubApiClient : IHubApiClient
         return await _http.GetFromJsonAsync<List<SessionInfo>>("/api/sessions", cts.Token) ?? new();
     }
 
-    public async Task<bool> CloseAsync(string sz, CancellationToken ct = default)
+    public async Task<CloseOutcome> CloseAsync(string sz, CancellationToken ct = default)
     {
         using var cts = Short(ct);
         var resp = await _http.PostAsync($"/api/sessions/{sz}/close", null, cts.Token);
-        return resp.StatusCode == HttpStatusCode.OK;
+        if (resp.StatusCode != HttpStatusCode.OK) return new CloseOutcome(false, null);
+        // Итог отката — не обязательное поле старого протокола: hub мог не успеть его
+        // получить от агента, и тело ответа тогда просто {"closed":true,"revert":null}.
+        return await resp.Content.ReadFromJsonAsync<CloseOutcome>(cts.Token) ?? new CloseOutcome(true, null);
     }
 
     public async Task<bool> AddNoteAsync(string sz, string text, CancellationToken ct = default)

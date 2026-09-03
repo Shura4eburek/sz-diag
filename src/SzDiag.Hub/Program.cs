@@ -56,6 +56,7 @@ builder.Services.AddSingleton<ISzJournal>(sp =>
     return new SzJournal(new KbPaths(opts.KnowledgeBaseRoot));
 });
 builder.Services.AddSingleton<JournalWriter>();
+builder.Services.AddSingleton<RevertResultStore>();
 builder.Services.AddSingleton<IKbBackup>(sp =>
 {
     var opts = sp.GetRequiredService<IOptions<HubOptions>>().Value;

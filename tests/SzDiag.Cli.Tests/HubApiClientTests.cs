@@ -115,17 +115,35 @@ public class HubApiClientTests
     }
 
     [Fact]
-    public async Task Close_Ok_ReturnsTrue()
+    public async Task Close_Ok_ReturnsClosedTrue()
     {
-        var client = NewClient(new StubHandler(HttpStatusCode.OK));
-        Assert.True(await client.CloseAsync("156864"));
+        var client = NewClient(new StubHandler(HttpStatusCode.OK, """{"closed":true,"revert":null}"""));
+        Assert.True((await client.CloseAsync("156864")).Closed);
     }
 
     [Fact]
-    public async Task Close_NotFound_ReturnsFalse()
+    public async Task Close_NotFound_ReturnsClosedFalse()
     {
         var client = NewClient(new StubHandler(HttpStatusCode.NotFound));
-        Assert.False(await client.CloseAsync("000000"));
+        Assert.False((await client.CloseAsync("000000")).Closed);
+    }
+
+    [Fact]
+    public async Task Close_WithRevertResult_ParsesItToo()
+    {
+        // Регрессия (бэклог п.119): «close» должен получить итог отката, если агент успел
+        // прислать его до отключения канала, чтобы не советовать поход к машине зря.
+        var json = """
+        {"closed":true,"revert":{"sz":"156864","done":["sshd","учётка svc-diag"],"failed":[]}}
+        """;
+        var client = NewClient(new StubHandler(HttpStatusCode.OK, json));
+
+        var outcome = await client.CloseAsync("156864");
+
+        Assert.True(outcome.Closed);
+        Assert.NotNull(outcome.Revert);
+        Assert.True(outcome.Revert!.AllClean);
+        Assert.Equal(2, outcome.Revert.Done.Count);
     }
 
     [Fact]

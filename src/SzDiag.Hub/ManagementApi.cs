@@ -27,9 +27,10 @@ public static class ManagementApi
         group.MapPost("/sessions/{sz}/close", async (string sz, SessionCloser closer,
             JournalWriter journal) =>
         {
-            if (!await closer.CloseAsync(sz)) return Results.NotFound();
+            var outcome = await closer.CloseAsync(sz);
+            if (!outcome.Closed) return Results.NotFound();
             journal.Command(sz, "`close` — доступ згорнуто, сесію закрито");
-            return Results.Ok();
+            return Results.Ok(outcome);
         });
 
         // Заметку принимаем даже когда сессии нет: мастер отходит от машины, агент может быть

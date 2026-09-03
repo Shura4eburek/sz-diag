@@ -5,7 +5,7 @@ namespace SzDiag.Cli;
 public interface IHubApiClient
 {
     Task<IReadOnlyList<SessionInfo>> GetSessionsAsync(CancellationToken ct = default);
-    Task<bool> CloseAsync(string sz, CancellationToken ct = default);
+    Task<CloseOutcome> CloseAsync(string sz, CancellationToken ct = default);
 
     /// <summary>Ручной шаг у машины в журнал СЗ. Принимается и когда сессии нет.</summary>
     Task<bool> AddNoteAsync(string sz, string text, CancellationToken ct = default);

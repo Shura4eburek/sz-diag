@@ -87,7 +87,8 @@ switch (command)
         // был ли агент жив в момент close (бэклог п.119).
         var wasOnline = (await client.GetSessionsAsync())
             .Any(s => s.Sz == args[1] && s.Status == SessionStatus.Online);
-        if (await client.CloseAsync(args[1]))
+        var closeOutcome = await client.CloseAsync(args[1]);
+        if (closeOutcome.Closed)
         {
             AnsiConsole.MarkupLineInterpolated($"[green]СЗ {args[1]} закрыта[/] (revert отправлен агенту).");
             // Сводка по вырубонам при закрытии — чтобы вердикт «не воспроизвели» нельзя было
@@ -97,10 +98,24 @@ switch (command)
             // Заморозка обязана сниматься до отдачи машины клиенту — иначе она уедет
             // без обновлений безопасности (бэклог п.34b).
             FreezeCommand.WarnIfStillFrozen(AppContext.BaseDirectory, args[1]);
+            // Итог отката, присланный агентом ДО отключения канала (бэклог п.119) — если он
+            // долетел, полнота отката подтверждена без похода к машине, и гадать не нужно.
+            if (closeOutcome.Revert is { } revert)
+            {
+                if (revert.AllClean)
+                    AnsiConsole.MarkupLineInterpolated(
+                        $"[grey]Откат подтверждён агентом:[/] выполнен полностью ({revert.Done.Count} шагов).");
+                else
+                {
+                    var failedSteps = string.Join(", ", revert.Failed.Select(f => f.Step));
+                    AnsiConsole.MarkupLineInterpolated(
+                        $"[red]Откат подтверждён агентом ЧАСТИЧНО:[/] {revert.Done.Count} шагов ок, {revert.Failed.Count} с ошибкой ({failedSteps}) — szcli client info {args[1]}");
+                }
+            }
             // Следы прогонов агент чистит сам при откате, но 12 ГБ iotest.bin из папки
             // клиента он не тронет — проверять надо ДО закрытия (бэклог п.56/99).
             // По офлайн-СЗ совет «szcli client info» невыполним — агент уже завершён (п.119).
-            if (wasOnline)
+            else if (wasOnline)
                 AnsiConsole.MarkupLineInterpolated(
                     $"[grey]Проверить остатки на клиенте (пока агент жив):[/] szcli client info {args[1]}");
             else

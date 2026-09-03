@@ -76,5 +76,10 @@ public sealed class SignalRHubLink : IHubLink
     public Task ReportActivityAsync(string sz, string activity, DateTimeOffset? since, CancellationToken ct = default)
         => _conn.SendAsync(HubRoutes.ReportActivity, sz, activity, since, ct);
 
+    // InvokeAsync (а не SendAsync): без подтверждения агент мог бы уйти в DisposeAsync
+    // раньше, чем сообщение реально ушло по сети — итог отката потерялся бы молча.
+    public Task SendRevertResultAsync(RevertResult result, CancellationToken ct = default)
+        => _conn.InvokeAsync(HubRoutes.RevertResult, result, ct);
+
     public ValueTask DisposeAsync() => _conn.DisposeAsync();
 }

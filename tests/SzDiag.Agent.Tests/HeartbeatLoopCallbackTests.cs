@@ -42,6 +42,7 @@ public class HeartbeatLoopCallbackTests
             CancellationToken ct = default) => Task.CompletedTask;
         public Task ReportActivityAsync(string sz, string activity, DateTimeOffset? since,
             CancellationToken ct = default) => Task.CompletedTask;
+        public Task SendRevertResultAsync(SzDiag.Contracts.RevertResult result, CancellationToken ct = default) => Task.CompletedTask;
         public ValueTask DisposeAsync() => ValueTask.CompletedTask;
     }
 
@@ -181,6 +182,7 @@ public class HeartbeatLoopCallbackTests
             lock (Activities) Activities.Add(activity);
             return Task.CompletedTask;
         }
+        public Task SendRevertResultAsync(SzDiag.Contracts.RevertResult result, CancellationToken ct = default) => Task.CompletedTask;
         public ValueTask DisposeAsync() => ValueTask.CompletedTask;
     }
 

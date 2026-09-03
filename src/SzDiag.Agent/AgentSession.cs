@@ -1,4 +1,6 @@
-﻿namespace SzDiag.Agent;
+﻿using SzDiag.Contracts;
+
+namespace SzDiag.Agent;
 
 /// <summary>Оркестрация сессии агента: открыть доступ, подключиться, регистрировать,
 /// слать heartbeat, идемпотентно откатывать по любому триггеру.</summary>
@@ -60,7 +62,20 @@ public sealed class AgentSession
 
     private async Task DoRevertAsync()
     {
-        if (_state is not null) _manager.Revert(_state);
+        if (_state is not null)
+        {
+            var outcome = _manager.Revert(_state);
+            // Отправляем ДО DisposeAsync: закрыть канал раньше, чем сводка ушла, значит
+            // потерять единственное подтверждение полноты отката, которое не требует похода
+            // к машине (бэклог п.119). Отправка не должна ронять откат: канал мог уже быть
+            // недоступен (сеть легла раньше отката), и тогда сводка просто теряется.
+            try
+            {
+                var failed = outcome.Failed.Select(f => new RevertResultFailure(f.Step, f.Error)).ToList();
+                await _link.SendRevertResultAsync(new RevertResult(_spec.Sz, outcome.Done.ToList(), failed));
+            }
+            catch { /* канал недоступен — откат всё равно выполнен */ }
+        }
         await _link.DisposeAsync();
         _completed.TrySetResult();
     }
