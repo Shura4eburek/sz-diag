@@ -144,6 +144,22 @@ public class BackgroundJobsTests : IDisposable
     }
 
     [Fact]
+    public async Task Start_Detached_IgnoresRequestTimeout_JobOutlivesIt()
+    {
+        // Регрессия (бэклог п.180): `--detach` без явного `--timeout` рубил задачу на 120с —
+        // весь смысл detach в том, чтобы пережить долгую работу (chkdsk на живой заявке терял
+        // прогон дважды). TimeoutSeconds в фоновом режиме не должен применяться вовсе.
+        var jobs = Jobs;
+        var job = jobs.Start(new ExecRequest("160705", "r", "Start-Sleep -Seconds 3; 'perezhil'",
+            TimeoutSeconds: 1, Detached: true));
+
+        var status = await WaitUntilAsync(jobs, job.JobId!, s => !s.Running, seconds: 15);
+
+        Assert.False(status.Running, "TimeoutSeconds=1 не должен был убить задачу в фоне");
+        Assert.Contains("perezhil", status.Tail);
+    }
+
+    [Fact]
     public async Task Tail_LimitsLinesButKeepsLatest()
     {
         var jobs = Jobs;
