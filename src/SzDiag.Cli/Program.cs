@@ -568,6 +568,12 @@ switch (command)
 
         var detach = args.Any(a => a.Equals("--detach", StringComparison.OrdinalIgnoreCase));
 
+        // До старта, а не после потери данных: синхронный exec копит вывод целиком и отдаёт
+        // его только в конце — обрыв хоста/сети на длинном прогоне уносит всё разом (п.220).
+        if (ExecLongRunHint.ShouldWarn(execTimeout, detach))
+            AnsiConsole.MarkupLineInterpolated(
+                $"[yellow]⚠ таймаут {execTimeout} с без --detach:[/] вывод придёт только по завершении целиком — обрыв по пути хост↔hub↔агент унесёт его весь. Для длинных прогонов — szcli exec <СЗ> ... --detach");
+
         var execRes = await client.ExecAsync(execSz, script, execTimeout, default, detach);
         if (execRes is null)
         {
