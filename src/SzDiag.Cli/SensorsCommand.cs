@@ -99,8 +99,25 @@ public static class SensorsCommand
         var run = Load(stateDir, sz);
         if (run is null)
         {
-            AnsiConsole.MarkupLineInterpolated($"[yellow]По СЗ {sz} наблюдатель не запускался[/] (нет состояния на хосте).");
-            return 1;
+            // Наблюдатель мог быть поднят не командой, а рецептом (`start-sensors.ps1` —
+            // задача `szdiag-lhm-<СЗ>` под SYSTEM, lhmmon пишет своё CSV): hub про такой job
+            // ничего не знает, но факт на клиенте есть (бэклог п.190, СЗ 160705 — `stop` ответил
+            // «наблюдатель не запускался» на живом захвате). Смотрим на клиента напрямую.
+            var probe = await ProbeClientAsync(client, sz);
+            if (probe is null)
+            {
+                AnsiConsole.MarkupLineInterpolated($"[red]СЗ {sz} не найдена[/] среди активных.");
+                return 1;
+            }
+            if (!ProbeFoundWatcher(probe))
+            {
+                AnsiConsole.MarkupLineInterpolated(
+                    $"[yellow]По СЗ {sz} наблюдатель не запускался[/] (нет ни состояния на хосте, ни следов на клиенте).");
+                return 1;
+            }
+            AnsiConsole.MarkupLine($"[grey]Наблюдатель поднят не этой командой[/] (состояния на хосте нет) — " +
+                $"смотрю на клиента напрямую: {Markup.Escape(FormatProbe(probe, DateTimeOffset.Now))}");
+            return 0;
         }
 
         // Сетевые сбои не ловим здесь: их разбирает общий обработчик CLI (CliErrors, п.70/78) —
@@ -134,8 +151,28 @@ public static class SensorsCommand
         var run = Load(stateDir, sz);
         if (run is null)
         {
-            AnsiConsole.MarkupLineInterpolated($"[yellow]По СЗ {sz} наблюдатель не запускался.[/]");
-            return 1;
+            // Тот же фолбэк, что и в status: наблюдатель мог поднять рецепт (бэклог п.190).
+            var probe = await ProbeClientAsync(client, sz);
+            if (probe is null)
+            {
+                AnsiConsole.MarkupLineInterpolated($"[red]СЗ {sz} не найдена[/] среди активных.");
+                return 1;
+            }
+            if (!ProbeFoundWatcher(probe))
+            {
+                AnsiConsole.MarkupLineInterpolated($"[yellow]По СЗ {sz} наблюдатель не запускался.[/]");
+                return 1;
+            }
+
+            var stopRecipe = await client.ExecAsync(sz, StopLhmScript(sz), 30, default, detached: false);
+            if (stopRecipe is null)
+            {
+                AnsiConsole.MarkupLineInterpolated($"[red]СЗ {sz} не найдена[/] среди активных.");
+                return 1;
+            }
+            AnsiConsole.MarkupLineInterpolated(
+                $"[green]СЗ {sz}: наблюдатель (задача {LhmTaskName(sz)}) остановлен.[/]");
+            return 0;
         }
 
         // Наблюдатель — обычный PowerShell-цикл; глушим по имени файла его скрипта.
@@ -224,6 +261,94 @@ public static class SensorsCommand
         if (lastAt is null) return "свежесть неизвестна: хартбит от наблюдателя ещё не пришёл";
         var rowsText = rows is { } n ? $"{n} строк" : "число строк неизвестно";
         return $"{rowsText}, последняя {lastAt:HH:mm:ss} ({StaleMinutes(lastAt, now):N1} мин назад)";
+    }
+
+    /// <summary>Имя задачи, которую заводит рецепт `start-sensors.ps1` (lhmmon под SYSTEM) —
+    /// единая точка, чтобы имя не разъезжалось между C# и `.ps1` (бэклог п.190).</summary>
+    private static string LhmTaskName(string sz) => $"szdiag-lhm-{sz}";
+
+    /// <summary>CSV, в который лог lhmmon пишет по факту у рецепта (`start-sensors.ps1`).</summary>
+    private const string LhmCsvPath = @"C:\OCCT\sensors.csv";
+
+    /// <summary>Факт наличия наблюдателя на клиенте — независимо от того, кто его поднял:
+    /// команда `sensors start` или рецепт `start-sensors.ps1` (бэклог п.190, СЗ 160705).</summary>
+    public sealed record ClientSensorProbe(bool ProcessAlive, string? TaskState, bool CsvExists,
+        int? Rows, DateTimeOffset? LastWrite);
+
+    /// <summary>Скрипт-разведка: задача `szdiag-lhm-<СЗ>`, процесс `lhmmon`, CSV лога. Чистый
+    /// синхронный exec — под полной нагрузкой может не пройти (как любой ad-hoc exec), но это
+    /// уже лучше, чем гарантированное «наблюдатель не запускался».</summary>
+    private static string ProbeScript(string sz)
+    {
+        var task = LhmTaskName(sz).Replace("'", "''");
+        return $$"""
+            $ErrorActionPreference = 'SilentlyContinue'
+            $taskState = $null
+            $q = schtasks /query /tn '{{task}}' /fo LIST 2>$null
+            if ($q) {
+                $line = $q | Select-String '^Status:'
+                if ($line) { $taskState = ($line.Line -replace '^Status:\s*','').Trim() }
+            }
+            $proc = Get-Process lhmmon -ErrorAction SilentlyContinue
+            $csv = '{{LhmCsvPath}}'
+            $exists = Test-Path $csv
+            $rows = $null; $last = $null
+            if ($exists) {
+                $rows = (Get-Content $csv | Measure-Object -Line).Lines
+                $last = (Get-Item $csv).LastWriteTime.ToString('o')
+            }
+            [PSCustomObject]@{
+                ProcessAlive = [bool]$proc
+                TaskState    = $taskState
+                CsvExists    = $exists
+                Rows         = $rows
+                LastWrite    = $last
+            } | ConvertTo-Json -Compress
+            """;
+    }
+
+    /// <summary>Останавливает наблюдателя, поднятого рецептом: гасит процесс и снимает задачу.</summary>
+    private static string StopLhmScript(string sz)
+    {
+        var task = LhmTaskName(sz).Replace("'", "''");
+        return $"Stop-Process -Name lhmmon -Force -ErrorAction SilentlyContinue; " +
+               $"schtasks /end /tn '{task}' 2>$null | Out-Null; " +
+               $"schtasks /delete /tn '{task}' /f 2>$null | Out-Null; 'stopped'";
+    }
+
+    private static async Task<ClientSensorProbe?> ProbeClientAsync(IHubApiClient client, string sz)
+    {
+        var res = await client.ExecAsync(sz, ProbeScript(sz), 20, default, detached: false);
+        return res is null ? null : ParseProbe(res.StdOut);
+    }
+
+    /// <summary>Разбор JSON-ответа разведки. Чистая функция — тестируется без сети (бэклог п.190).</summary>
+    public static ClientSensorProbe? ParseProbe(string? stdout)
+    {
+        if (string.IsNullOrWhiteSpace(stdout)) return null;
+        // ConvertTo-Json — последняя непустая строка вывода: PowerShell мог что-то ворчнуть
+        // раньше (schtasks на нелокализованной консоли, например).
+        var json = stdout.Split('\n').Select(l => l.Trim()).LastOrDefault(l => l.Length > 0);
+        if (json is null) return null;
+        try { return JsonSerializer.Deserialize<ClientSensorProbe>(json); }
+        catch { return null; }
+    }
+
+    /// <summary>Есть ли живой наблюдатель по фактам разведки — задача существует/запущена,
+    /// процесс жив или CSV на месте. Пустой список фактов = «не запускался» ни от кого.</summary>
+    public static bool ProbeFoundWatcher(ClientSensorProbe probe)
+        => probe.ProcessAlive || probe.CsvExists || !string.IsNullOrEmpty(probe.TaskState);
+
+    /// <summary>Строка для человека: задача/процесс/CSV одним взглядом.</summary>
+    public static string FormatProbe(ClientSensorProbe probe, DateTimeOffset now)
+    {
+        var task = probe.TaskState ?? "задача не найдена";
+        var proc = probe.ProcessAlive ? "процесс жив" : "процесс не найден";
+        var csv = probe.CsvExists
+            ? $"CSV {(probe.Rows is { } n ? $"{n} строк" : "есть")}" +
+              (probe.LastWrite is { } w ? $", последняя запись {StaleMinutes(w, now):N1} мин назад" : "")
+            : "CSV не создан";
+        return $"задача: {task}; {proc}; {csv}";
     }
 
     private static SensorRun? Load(string stateDir, string sz)
