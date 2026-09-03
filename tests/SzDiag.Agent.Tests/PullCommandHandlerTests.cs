@@ -133,6 +133,22 @@ public class PullCommandHandlerTests : IDisposable
     }
 
     [Fact]
+    public async Task Handle_FileLockedExclusively_ReportsWhoIsHoldingIt()
+    {
+        // Живой sshd открывает sshd.log без совместного чтения вовсе - FileShare.ReadWrite не
+        // спасает. Молчаливое "занято" бесполезно: нужно решить, ждать закрытия сессии или нет
+        // (бэклог п.104). Прочитать байты всё равно нельзя без VSS, но держателя назвать можно.
+        var path = WriteFile("sshd.log", Bytes(10));
+        using var exclusive = new FileStream(path, FileMode.Open, FileAccess.ReadWrite, FileShare.None);
+
+        var result = await Handler().HandleAsync(new PullRequest("160705", "req-lock", path, 1024 * 1024));
+
+        var file = Assert.Single(result.Files);
+        Assert.True(file.Skipped);
+        Assert.Contains($"({Environment.ProcessId})", file.SkipReason);
+    }
+
+    [Fact]
     public void Resolve_Directory_ReturnsAllFilesWithoutRecursion()
     {
         WriteFile("one.txt", Bytes(3));
