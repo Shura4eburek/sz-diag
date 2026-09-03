@@ -349,6 +349,19 @@ public class DiagnosticProbesTests
     }
 
     [Fact]
+    public void RebootsProbe_ComparesUnsafeShutdownsWithJournal()
+    {
+        // Регрессия (бэклог п.142): Unsafe Shutdowns накопителя - независимое от журнала ОС
+        // доказательство отказа (67 счётчика против 73 Kernel-Power 41 на 160705). Раньше
+        // добывалось только рецептом; теперь должно быть прямо рядом с таймлайном reboots.
+        var run = Body("reboots");
+
+        Assert.Contains("Get-NvmeSmartRows", run);
+        Assert.Contains("Unsafe Shutdowns", run);
+        Assert.Contains("zhurnal OS (Kernel-Power 41)", run);
+    }
+
+    [Fact]
     public void RebootsAndWheaProbes_AlsoPrintTimeZoneLabel()
     {
         // Регрессия (п.49): PE и хост могут жить в разных поясах не только в events -
