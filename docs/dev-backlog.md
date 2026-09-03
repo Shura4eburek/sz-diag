@@ -7806,7 +7806,7 @@ assignment expression is not valid`. Причина — `PowerShellRunner` (`src
 скрипт с него начинается (regex по началу текста), плюс тест на скрипт с параметрами. Критерий
 готовности: `szcli exec` на скрипте, начинающемся с `param()`, отрабатывает и печатает вывод.
 
-## п.227 — время событий, прочитанных из WinPE, смещено на таймзону PE (161498, 26.08)
+## п.227 — ✅ СДЕЛАНО (2026-09-04) — время событий, прочитанных из WinPE, смещено на таймзону PE (161498, 26.08)
 
 **Что случилось.** `Get-WinEvent -Path <офлайн>\System.evtx` из PE отдал KP41 за 24.08 как
 **05:13:33, 05:18:34, 05:41:04**, тогда как в журнале СЗ те же события записаны как
@@ -7819,6 +7819,17 @@ assignment expression is not valid`. Причина — `PowerShellRunner` (`src
 (`ControlSet00N\Control\TimeZoneInformation`) и приводят к ней, с явной пометкой в шапке
 вывода, в какой зоне напечатаны времена. Критерий готовности: разбор одного и того же
 `System.evtx` из PE и из живой винды даёт одинаковые времена.
+
+**Сделано (2026-09-04).** Выбран путь «печатать UTC» (проще и надёжнее реестрового пути —
+не требует `reg load`/`unload` офлайн-хайва): `.ToUniversalTime()` на `TimeCreated`
+симметрично откатывает конвертацию PE и восстанавливает истинный UTC-момент (проверено
+на этой машине: `ConvertTimeFromUtc` → `.ToUniversalTime()` дал точное совпадение с
+исходным UTC). Применено в `pe-offline-events.ps1`, `pe-wer-livekernel.ps1` (плюс
+`FromFileTime` → `FromFileTimeUtc` для дат из `Report.wer`), `pe-session-life.ps1`,
+`pe-offline-whea-thermal.ps1`, `pe-offline-sleep.ps1`, `offline-evtx-tail.ps1` (плюс
+`LastWriteTime` → `LastWriteTimeUtc` для времени файлов дампов — та же болезнь).
+`offline-session-timeline.ps1` и `offline-crash-history.ps1` уже делали это с прошлого
+захода. Заголовки вывода везде помечены «UTC».
 
 ## п.228 — вывод рецепта из PE приезжает кракозябрами на кириллице (161498, 26.08)
 

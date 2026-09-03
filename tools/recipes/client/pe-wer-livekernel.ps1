@@ -14,6 +14,13 @@
 # Сміття (crashpad_log від Edge — на 161556 це 351 звіт із 538) відсікається.
 #
 # param не використовуємо: `szcli exec -f` його не переварює (бэклог п.189).
+#
+# #183 / б.227 (161498, 26.08): `[datetime]::FromFileTime` і `Get-WinEvent`.`TimeCreated`
+# конвертують у ЛОКАЛЬНУ таймзону машини-читача (PE), а не клієнта — таймлайн бреше на різницю
+# часових поясів. `FromFileTimeUtc` дає справжній UTC напряму; `.ToUniversalTime()` коректно
+# повертає той самий UTC-момент для `TimeCreated` незалежно від таймзони PE. Дельти (хв до
+# вимкнона) від зсуву не залежать в будь-якому випадку — рахунок ішов би правильно і без
+# правки, але АБСОЛЮТНИЙ друкований час був невірним.
 
 $Sys = ''
 foreach ($l in [char[]]'CDEFGHIJ') {
@@ -48,7 +55,7 @@ $rows = foreach ($d in ($all | Where-Object { $_.Name -match '^(Kernel_|Critical
     $h = @{}
     foreach ($line in (Get-Content $wer -ErrorAction SilentlyContinue)) {
         if ($line -match '^EventType=(.+)$')           { $h.Type = $Matches[1] }
-        if ($line -match '^EventTime=(\d+)$')          { $h.Time = [datetime]::FromFileTime([int64]$Matches[1]) }
+        if ($line -match '^EventTime=(\d+)$')          { $h.Time = [datetime]::FromFileTimeUtc([int64]$Matches[1]) }
         if ($line -match '^Sig\[(\d+)\]\.Value=(.+)$') { $h["v$($Matches[1])"] = $Matches[2] }
     }
     if ($h.Type -notmatch 'LiveKernelEvent|BlueScreen') { continue }
@@ -63,6 +70,7 @@ $rows = foreach ($d in ($all | Where-Object { $_.Name -match '^(Kernel_|Critical
     }
 }
 if (-not $rows) { 'LiveKernelEvent/BSOD у WER немає' }
+'!!! усі часи нижче — UTC (не локальний час PE, не локальний час клієнта) !!!'
 foreach ($r in ($rows | Sort-Object Time)) {
     $what = if ($codes[$r.Code]) { $codes[$r.Code] } else { "код $($r.Code)" }
     '{0:yyyy-MM-dd HH:mm:ss} {1,-16} {2}' -f $r.Time, $r.Type, $what
@@ -82,7 +90,8 @@ $rows | Where-Object { $_.Type -eq 'LiveKernelEvent' } | Group-Object Code |
 $log = "$Sys\Windows\System32\winevt\Logs\System.evtx"
 if (Test-Path $log) {
     $k41 = (Get-WinEvent -Path $log -ErrorAction SilentlyContinue |
-        Where-Object { $_.Id -eq 41 -and $_.ProviderName -match 'Kernel-Power' }).TimeCreated
+        Where-Object { $_.Id -eq 41 -and $_.ProviderName -match 'Kernel-Power' }).TimeCreated |
+        ForEach-Object { $_.ToUniversalTime() }
     foreach ($r in ($rows | Where-Object { $_.Type -eq 'LiveKernelEvent' } | Sort-Object Time)) {
         $near = $k41 | Where-Object { $_ -ge $r.Time -and ($_ - $r.Time).TotalMinutes -le 120 } |
             Sort-Object | Select-Object -First 1

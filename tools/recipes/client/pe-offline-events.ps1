@@ -13,6 +13,13 @@
 #
 # ВНИМАНИЕ: param обязан быть ПЕРВОЙ инструкцией файла (до правки тут стоял $OutputEncoding
 # раньше param — скрипт не парсился вообще, ни через pwsh -File, ни через `szcli exec -f`).
+#
+# #183 / б.227 (161498, 26.08): `Get-WinEvent -Path`.`TimeCreated` конвертується в ЛОКАЛЬНУ
+# таймзону машини, що ЧИТАЄ evtx (PE, часто Pacific), а не клієнта (Київ, UTC+3) — той самий
+# KP41 показувався як 05:13 замість реальних 16:13, зсув рівно 11 год. `.ToUniversalTime()`
+# коректно повертає СПРАВЖНІЙ UTC-момент незалежно від таймзони PE (перетворення симетричне:
+# .NET додав зсув PE при читанні — той самий зсув віднімається назад). Тому нижче друкується
+# UTC, а не локальний час PE чи клієнта — з цим явно позначено в шапці виводу.
 
 param([string]$Sys = '', [int]$Tail = 60, [int]$Cap = 50)
 $OutputEncoding = [Console]::OutputEncoding = [Text.UTF8Encoding]::new()
@@ -28,10 +35,11 @@ if (-not (Test-Path $log)) { "System.evtx не знайдено ($log)"; exit 1 
 $ev = Get-WinEvent -Path $log -ErrorAction SilentlyContinue
 "журнал: $log"
 "записів: $($ev.Count)"
-"діапазон: $(($ev | Select-Object -Last 1).TimeCreated) .. $(($ev | Select-Object -First 1).TimeCreated)"
+"!!! усі часи нижче — UTC (не локальний час PE, не локальний час клієнта) !!!"
+"діапазон: $(($ev | Select-Object -Last 1).TimeCreated.ToUniversalTime()) .. $(($ev | Select-Object -First 1).TimeCreated.ToUniversalTime())"
 
 function Show($e) {
-    '{0:yyyy-MM-dd HH:mm:ss} [{1}/{2}/{3}] {4}' -f $e.TimeCreated, $e.ProviderName, $e.Id,
+    '{0:yyyy-MM-dd HH:mm:ss} [{1}/{2}/{3}] {4}' -f $e.TimeCreated.ToUniversalTime(), $e.ProviderName, $e.Id,
         $e.LevelDisplayName, (($e.Message -replace '\s+', ' ') -replace '^(.{240}).*', '$1')
 }
 

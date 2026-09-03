@@ -10,6 +10,11 @@
 #
 # Друкує: скільки стартів / чистих завершень / вимкнонів і таблицю «сеанс стартував → прожив N хв».
 # param не використовуємо: `szcli exec -f` його не переварює (бэклог п.189).
+#
+# #183 / б.227 (161498, 26.08): `TimeCreated` конвертується у ЛОКАЛЬНУ таймзону PE, а не
+# клієнта — тому одразу переводимо в `.ToUniversalTime()` (справжній UTC-момент, симетрично
+# незалежний від таймзони PE). Дельти («прожив N хв») від зсуву не залежали й раніше, а от
+# АБСОЛЮТНИЙ друкований час — залежав.
 
 $Sys = ''
 foreach ($l in [char[]]'CDEFGHIJ') {
@@ -20,11 +25,12 @@ if (-not (Test-Path $log)) { "System.evtx не знайдено ($log)"; exit 1 
 
 $ev = Get-WinEvent -Path $log -ErrorAction SilentlyContinue
 "журнал: $log"
-"діапазон: $(($ev | Select-Object -Last 1).TimeCreated) .. $(($ev | Select-Object -First 1).TimeCreated)"
+"!!! усі часи нижче — UTC (не локальний час PE, не локальний час клієнта) !!!"
+"діапазон: $(($ev | Select-Object -Last 1).TimeCreated.ToUniversalTime()) .. $(($ev | Select-Object -First 1).TimeCreated.ToUniversalTime())"
 
-$k41 = ($ev | Where-Object { $_.Id -eq 41  -and $_.ProviderName -match 'Kernel-Power'   }).TimeCreated | Sort-Object
-$b12 = ($ev | Where-Object { $_.Id -eq 12  -and $_.ProviderName -match 'Kernel-General' }).TimeCreated | Sort-Object
-$b13 = ($ev | Where-Object { $_.Id -eq 13  -and $_.ProviderName -match 'Kernel-General' }).TimeCreated | Sort-Object
+$k41 = ($ev | Where-Object { $_.Id -eq 41  -and $_.ProviderName -match 'Kernel-Power'   }).TimeCreated | ForEach-Object { $_.ToUniversalTime() } | Sort-Object
+$b12 = ($ev | Where-Object { $_.Id -eq 12  -and $_.ProviderName -match 'Kernel-General' }).TimeCreated | ForEach-Object { $_.ToUniversalTime() } | Sort-Object
+$b13 = ($ev | Where-Object { $_.Id -eq 13  -and $_.ProviderName -match 'Kernel-General' }).TimeCreated | ForEach-Object { $_.ToUniversalTime() } | Sort-Object
 'стартів ОС: {0}, чистих завершень: {1}, жорстких вимкнонів: {2}' -f $b12.Count, $b13.Count, $k41.Count
 
 '--- вимкнони: коли впав сеанс і скільки прожив ---'
