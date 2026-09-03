@@ -36,6 +36,9 @@ public interface IHubLink
 
     /// <summary>Подписка на команду забора файлов с клиента.</summary>
     void OnPull(Func<SzDiag.Contracts.PullRequest, Task> handler);
+
+    /// <summary>Подтверждение приёма команды забора — до поиска файлов на диске (как у exec).</summary>
+    Task SendPullAckAsync(SzDiag.Contracts.PullAck ack, CancellationToken ct = default);
     Task SendPullChunkAsync(SzDiag.Contracts.PullChunk chunk, CancellationToken ct = default);
     Task SendPullResultAsync(SzDiag.Contracts.PullResult result, CancellationToken ct = default);
 

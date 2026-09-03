@@ -34,6 +34,7 @@ public class HeartbeatLoopCallbackTests
         public void OnPush(Func<SzDiag.Contracts.PushRequest, Task> handler) { }
         public Task SendPushResultAsync(SzDiag.Contracts.PushResult result, CancellationToken ct = default) => Task.CompletedTask;
         public void OnPull(Func<SzDiag.Contracts.PullRequest, Task> handler) { }
+        public Task SendPullAckAsync(SzDiag.Contracts.PullAck ack, CancellationToken ct = default) => Task.CompletedTask;
         public Task SendPullChunkAsync(SzDiag.Contracts.PullChunk chunk,
             CancellationToken ct = default) => Task.CompletedTask;
         public Task SendPullResultAsync(SzDiag.Contracts.PullResult result,
@@ -173,6 +174,7 @@ public class HeartbeatLoopCallbackTests
         public void OnPush(Func<SzDiag.Contracts.PushRequest, Task> handler) { }
         public Task SendPushResultAsync(SzDiag.Contracts.PushResult result, CancellationToken ct = default) => Task.CompletedTask;
         public void OnPull(Func<SzDiag.Contracts.PullRequest, Task> handler) { }
+        public Task SendPullAckAsync(SzDiag.Contracts.PullAck ack, CancellationToken ct = default) => Task.CompletedTask;
         public Task SendPullChunkAsync(SzDiag.Contracts.PullChunk chunk, CancellationToken ct = default) => Task.CompletedTask;
         public Task SendPullResultAsync(SzDiag.Contracts.PullResult result, CancellationToken ct = default) => Task.CompletedTask;
         public Task UploadReportFileAsync(SzDiag.Contracts.UploadReportPart part, CancellationToken ct = default) => Task.CompletedTask;

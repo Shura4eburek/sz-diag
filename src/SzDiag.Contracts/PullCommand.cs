@@ -15,6 +15,12 @@ namespace SzDiag.Contracts;
 public sealed record PullRequest(string Sz, string RequestId, string Path, long MaxBytes,
     bool Recurse = false);
 
+/// <summary>Агент → hub: «команду забора принял» — до всякого поиска файлов на диске.
+/// Как и <see cref="ExecAck"/>: без него «агент не принял команду» и «принял, но не успел
+/// отдать» выглядят одинаковым глухим таймаутом (бэклог п.215, СЗ 161946 — PE-агент молчал
+/// на pull, хотя exec тем же каналом отвечал за секунды).</summary>
+public sealed record PullAck(string RequestId, DateTimeOffset AcceptedAt);
+
 /// <summary>Метаданные одного найденного файла.</summary>
 /// <param name="Skipped">Файл не передавался (обычно — больше <c>MaxBytes</c>).</param>
 /// <param name="SkipReason">Почему пропущен — печатается пользователю.</param>
@@ -74,4 +80,7 @@ public static class PullLimits
     /// <summary>Сколько ждать агента: забор упирается в диск клиента и в сеть, а под
     /// нагрузкой ещё и в планировщик — короткий таймаут дал бы ложный «агент не ответил».</summary>
     public const int TimeoutSeconds = 600;
+
+    /// <summary>Сколько ждать ack приёма команды забора — как у exec (бэклог п.215).</summary>
+    public const int AckSeconds = 30;
 }

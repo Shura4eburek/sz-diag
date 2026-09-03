@@ -185,6 +185,11 @@ public static class AgentCommandWiring
             (chunk, ct) => link.SendPullChunkAsync(chunk, ct));
         link.OnPull(async req =>
         {
+            // Ack уходит ДО поиска файлов на диске — как у exec (бэклог п.35/п.43): иначе
+            // «команда не дошла» и «диск/сеть тормозят» неотличимы, глухой таймаут одинаков
+            // (бэклог п.215, СЗ 161946 — pull в PE молчал до таймаута без единого отклика).
+            try { await link.SendPullAckAsync(new PullAck(req.RequestId, DateTimeOffset.UtcNow)); } catch { }
+
             announce($"Забор файлов для СЗ {req.Sz}: {req.Path}", null);
             PullResult result;
             try { result = await pullHandler.HandleAsync(req); }

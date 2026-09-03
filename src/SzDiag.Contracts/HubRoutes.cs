@@ -37,6 +37,9 @@ public static class HubRoutes
     // Hub -> агент: забрать файл(ы) с клиента на хост.
     public const string Pull = nameof(Pull);
 
+    // Агент -> hub: команда забора принята (до поиска файлов) — как ExecAck (бэклог п.215).
+    public const string PullAck = nameof(PullAck);
+
     // Агент -> hub: кусок файла и итог забора (сопоставляются по RequestId).
     public const string PullChunk = nameof(PullChunk);
     public const string PullResult = nameof(PullResult);
