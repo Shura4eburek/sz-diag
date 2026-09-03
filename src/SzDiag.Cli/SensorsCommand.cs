@@ -54,6 +54,15 @@ public static class SensorsCommand
         var minutes = ArgValue(args, "--minutes") is { } m && int.TryParse(m, out var mm) ? mm : DefaultMinutes;
         var interval = ArgValue(args, "--interval") is { } i && int.TryParse(i, out var ii) ? ii : DefaultIntervalSeconds;
 
+        // Прошлый прогон этой же СЗ мог не быть остановлен явно: CSV не потеряется (у каждого
+        // прогона свой файл с таймстампом в имени — второй физически не может затереть первый),
+        // но состояние на хосте (`sensors/<sz>.json`) сейчас перезатирается молча, и CLI теряет
+        // из виду job предыдущего прогона (его process на клиенте продолжает писать свой CSV
+        // и жрать ресурсы, а `sensors stop`/`status` его больше не видят) — бэклог п.145.
+        var previous = Load(stateDir, sz);
+        if (PreviousRunWarning(previous?.JobId, previous?.CsvPath, previous?.StartedAt) is { } warning)
+            AnsiConsole.MarkupLineInterpolated($"[yellow]⚠ {warning}[/]");
+
         // Пишем в ProgramData, а не рядом с агентом: папка агента может оказаться внутри
         // OneDrive клиента (п.63), а CSV прогона туда уезжать не должен.
         var csvPath = $@"C:\ProgramData\szdiag\sensors\{sz}-{DateTime.Now:yyyyMMdd-HHmmss}.csv";
@@ -150,6 +159,18 @@ public static class SensorsCommand
         var summary = SensorReport.Summarize(parsed.Samples, format: parsed.Format);
         Console.WriteLine(SensorReport.Format(summary));
         return summary.Samples == 0 ? 1 : 0;
+    }
+
+    /// <summary>Текст предупреждения о незакрытом прошлом прогоне — null, если прошлого
+    /// прогона не было. Чистая функция без побочных эффектов — тестируется без файловой
+    /// системы и сети (бэклог п.145).</summary>
+    public static string? PreviousRunWarning(string? previousJobId, string? previousCsvPath,
+        DateTimeOffset? previousStartedAt)
+    {
+        if (previousJobId is null) return null;
+        return $"Прошлый прогон не остановлен явно: job {previousJobId}, CSV {previousCsvPath} " +
+               $"(запущен {previousStartedAt:dd.MM HH:mm}). Новые данные пишутся в отдельный файл — " +
+               "старые не тронуты, но процесс на клиенте мог продолжать работать: szcli exec <СЗ> --jobs";
     }
 
     private static SensorRun? Load(string stateDir, string sz)
