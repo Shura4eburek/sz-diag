@@ -58,13 +58,26 @@ public static class ClientCommand
         if (report.Leftovers.Count == 0)
         {
             AnsiConsole.MarkupLineInterpolated($"[green]СЗ {sz}: остатков нет.[/]");
+            PrintDualPurposeReminder();
             return 0;
         }
 
         AnsiConsole.MarkupLineInterpolated($"[yellow]СЗ {sz}: на клиенте осталось:[/]");
         foreach (var item in report.Leftovers) AnsiConsole.MarkupLineInterpolated($"  [yellow]•[/] {item}");
         AnsiConsole.MarkupLineInterpolated($"[grey]Убрать:[/] szcli client cleanup {sz}");
+        PrintDualPurposeReminder();
         return 1;
+    }
+
+    /// <summary>Напоминание перед тем, как писать «вылечено»: отключение вендорского софта
+    /// часто гасит и пользовательскую функцию заодно (подсветка, фан-профиль, макросы) —
+    /// приборно этого не видно, спрашивать нужно словами (бэклог п.172).</summary>
+    private static void PrintDualPurposeReminder()
+    {
+        AnsiConsole.MarkupLine(
+            "[grey]Если лечение = отключение софта/службы — спроси, что отвалилось вместе с причиной:[/]");
+        foreach (var entry in DualPurposeSoftware.Known)
+            AnsiConsole.MarkupLineInterpolated($"  [grey]•[/] {entry.Name}: {entry.Controls}");
     }
 
     /// <summary>Убрать задачи, драйверы инструментов и наши временные каталоги. Задачи
