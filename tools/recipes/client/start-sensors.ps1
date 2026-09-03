@@ -23,8 +23,12 @@ if (Test-Path $csv) {
     $rows = (@(Get-Content $csv -TotalCount 1) + @(Get-Content $csv -Tail 3)) | ConvertFrom-Csv
     $cols = $rows[0].PSObject.Properties.Name
     "CSV: {0:N1} КБ, колонок {1}" -f ((Get-Item $csv).Length / 1KB), $cols.Count
+    # Единый список для AMD и Intel (бэклог п.160): было заточено под имя AMD-колонки
+    # (`Core (Tctl/Tdie)`), на Intel (`CPU Package`, `CPU Core #N`) не срабатывало ни разу —
+    # приёмка захвата молчала про температуру, хотя она была в CSV. Список — тот же, что
+    # уже проверен в sensors-peek.ps1.
     foreach ($c in $cols) {
-        if ($c -match 'Power\|Package\||Temperature\|Core \(Tctl|Load\|CPU Total') {
+        if ($c -match 'Temperature|Tctl|Power|Fan|Clock|Load') {
             "   {0} = {1}" -f ($c -replace '\|/[^|]*$', ''), $rows[-1].$c
         }
     }
