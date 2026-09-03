@@ -52,6 +52,27 @@ function Say([string]$m) {
 
 Say "СТАРТ записи. Диски: $($Drives -join ', '); файл $FileGB ГБ; блок $BlockMB МБ; лимит $Minutes мин"
 
+# Порог проверяем ДО старта цикла, а не внутри него (бэклог п.171): на 161346 порог не совпал
+# ни с одним диском, а цикл вместо немедленного выхода крутился вхолостую все отведённые минуты
+# (229 КБ мусора в логе за 21 секунду). Если по месту не проходит НИ ОДИН диск — выходим сразу
+# с расчётом, а не запускаем цикл, которому нечего делать.
+$anyFits = $false
+foreach ($drv in $Drives) {
+    $free = (Get-PSDrive $drv.TrimEnd(':') -ErrorAction SilentlyContinue).Free
+    if ($null -eq $free) { Say "  $drv — нет такого диска"; continue }
+    $freeGB = [math]::Round($free / 1GB, 1)
+    $fits = ($freeGB - $FileGB) -ge $MinFreeGB
+    Say ("  {0} — свободно {1} ГБ, файл {2} ГБ, порог {3} ГБ: {4}" -f `
+        $drv, $freeGB, $FileGB, $MinFreeGB, $(if ($fits) { 'ок, войдёт в цикл' } else { 'НЕ пройдёт порог' }))
+    if ($fits) { $anyFits = $true }
+}
+if (-not $anyFits) {
+    Say "СТОП: ни один диск из списка не проходит порог по месту — цикл не стартует"
+    Say "Лог: $Log"
+    $sw.Dispose()
+    return
+}
+
 # Случайные данные генерим один раз: цель — нагрузить накопитель, а не процессор.
 $block = New-Object byte[] ($BlockMB * 1MB)
 [Security.Cryptography.RandomNumberGenerator]::Create().GetBytes($block)
