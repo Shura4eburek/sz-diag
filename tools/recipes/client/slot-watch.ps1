@@ -44,14 +44,23 @@ while ((Get-Date) -lt $deadline) {
     $now = @(Get-PhysicalDisk -ErrorAction SilentlyContinue |
         Where-Object BusType -eq 'NVMe' | Sort-Object FriendlyName |
         ForEach-Object { $_.FriendlyName })
-    $cur = $now -join '|'
-    if ($cur -ne $prev) {
-        $flaps++
-        $gone = $baseline | Where-Object { $_ -notin $now }
-        $back = $now | Where-Object { $_ -notin ($prev -split '\|') }
-        if ($gone) { Say "!!! ПРОПАЛ С ШИНЫ: $($gone -join ', ')  (состав сейчас: $cur)" }
-        if ($back) { Say ">>> ВЕРНУЛСЯ: $($back -join ', ')" }
-        $prev = $cur
+    # Грабля (161346, 26.08, бэклог п.214): под OCCT Combined задавленный WMI вернул ПУСТОЙ
+    # список — оба диска (включая системный) прочитались как «пропали с шины» на 27 минут,
+    # хотя uptime не сбрасывался и ErrorLogEntries не росли. Пустой ответ — это отказ ИСТОЧНИКА
+    # (WMI не ответил), а не событие на шине: реальным пропаданием считаем только исчезновение
+    # ЧАСТИ состава при живом (непустом) ответе.
+    if ($now.Count -eq 0) {
+        Say "!! WMI не ответил (Get-PhysicalDisk вернул пустой список) — не считаю это пропаданием, жду следующего опроса"
+    } else {
+        $cur = $now -join '|'
+        if ($cur -ne $prev) {
+            $flaps++
+            $gone = $baseline | Where-Object { $_ -notin $now }
+            $back = $now | Where-Object { $_ -notin ($prev -split '\|') }
+            if ($gone) { Say "!!! ПРОПАЛ С ШИНЫ: $($gone -join ', ')  (состав сейчас: $cur)" }
+            if ($back) { Say ">>> ВЕРНУЛСЯ: $($back -join ', ')" }
+            $prev = $cur
+        }
     }
     # События контроллера идут и без исчезновения диска — это ранняя стадия того же отказа
     if (((Get-Date) - $lastEventCheck).TotalSeconds -ge 30) {
