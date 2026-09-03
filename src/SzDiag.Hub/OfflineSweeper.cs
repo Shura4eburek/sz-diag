@@ -25,7 +25,14 @@ public sealed class OfflineSweeper : BackgroundService
         {
             // Потеря связи — тоже факт диагностики: под нагрузкой heartbeat лагает, и потом
             // важно знать, когда именно машина замолчала (вырубоном это само по себе не является).
-            foreach (var sz in _registry.MarkStaleOffline(_options.HeartbeatTimeout))
+            var stale = _registry.MarkStaleOffline(_options.HeartbeatTimeout);
+
+            // Признак 2 планового обесточивания (бэклог п.130): heartbeat пропал у нескольких
+            // СЗ разом в одном цикле — похоже на свет в помещении, а не на дефект одной машины.
+            if (stale.Count >= _options.MassOfflineMinSessions)
+                _registry.RecordMassOfflineEvent();
+
+            foreach (var sz in stale)
                 _journal.Machine(sz, "зв'язок втрачено (heartbeat не приходить)");
         }
     }

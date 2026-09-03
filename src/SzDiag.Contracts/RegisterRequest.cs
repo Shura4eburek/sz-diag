@@ -34,10 +34,16 @@ public static class ShutdownKind
     /// (бэклог п.100). Дефектом не считается.</summary>
     public const string Maintenance = "maintenance";
 
-    /// <summary>Считать ли событие вырубоном для счётчика `⚡N`. Кнопка и штатное выключение —
-    /// не считаются; неизвестное считается (лучше лишний вопрос, чем пропущенный дефект).</summary>
+    /// <summary>Плановое обесточивание сервиса (рубильник на ночь): ребут вне рабочих часов
+    /// либо совпал с массовой одновременной пропажей heartbeat у нескольких СЗ разом
+    /// (бэклог п.130). Дефектом не считается — иначе рубильник искажает счётчик ⚡.</summary>
+    public const string PlannedOutage = "planned-outage";
+
+    /// <summary>Считать ли событие вырубоном для счётчика `⚡N`. Кнопка, штатное выключение и
+    /// плановое обесточивание — не считаются; неизвестное считается (лучше лишний вопрос, чем
+    /// пропущенный дефект).</summary>
     public static bool CountsAsFailure(string? kind)
-        => kind is not (PowerButton or Clean or Maintenance);
+        => kind is not (PowerButton or Clean or Maintenance or PlannedOutage);
 
     /// <summary>Человеческая подпись для CLI.</summary>
     public static string Describe(string? kind) => kind switch
@@ -47,6 +53,7 @@ public static class ShutdownKind
         Bsod => "BSOD",
         Clean => "штатно",
         Maintenance => "обслуживание",
+        PlannedOutage => "плановое обесточивание",
         _ => "неизвестно",
     };
 }

@@ -165,4 +165,30 @@ public class SessionRegistryTests
 
         Assert.Equal("Тест OCCT", reg.GetActive().Single().Activity);
     }
+
+    // Плановое обесточивание сервиса (бэклог п.130): пропажа heartbeat у нескольких СЗ разом
+    // не должна засчитываться как дефект одной машины.
+    [Fact]
+    public void WasMassOfflineNear_NoEventYet_ReturnsFalse()
+        => Assert.False(NewRegistry().WasMassOfflineNear(DateTimeOffset.UtcNow, TimeSpan.FromMinutes(30)));
+
+    [Fact]
+    public void WasMassOfflineNear_WithinWindow_ReturnsTrue()
+    {
+        var reg = NewRegistry();
+        var at = new DateTimeOffset(2026, 8, 12, 6, 0, 0, TimeSpan.Zero);
+        reg.RecordMassOfflineEvent(at);
+
+        Assert.True(reg.WasMassOfflineNear(at + TimeSpan.FromMinutes(10), TimeSpan.FromMinutes(30)));
+    }
+
+    [Fact]
+    public void WasMassOfflineNear_OutsideWindow_ReturnsFalse()
+    {
+        var reg = NewRegistry();
+        var at = new DateTimeOffset(2026, 8, 12, 6, 0, 0, TimeSpan.Zero);
+        reg.RecordMassOfflineEvent(at);
+
+        Assert.False(reg.WasMassOfflineNear(at + TimeSpan.FromHours(2), TimeSpan.FromMinutes(30)));
+    }
 }

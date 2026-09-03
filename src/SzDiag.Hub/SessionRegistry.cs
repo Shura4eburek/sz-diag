@@ -20,8 +20,19 @@ public sealed class SessionRegistry
 
     private readonly ConcurrentDictionary<string, Entry> _bySz = new();
     private readonly TimeProvider _time;
+    private DateTimeOffset? _lastMassOfflineAt;
 
     public SessionRegistry(TimeProvider? time = null) => _time = time ?? TimeProvider.System;
+
+    /// <summary>Признак 2 планового обесточивания (бэклог п.130): пропажа heartbeat сразу у
+    /// нескольких СЗ — это свет, а не дефект одной машины. <see cref="OfflineSweeper"/> вызывает
+    /// это, когда в одном цикле offline ушло сразу несколько сессий.</summary>
+    public void RecordMassOfflineEvent(DateTimeOffset? at = null) => _lastMassOfflineAt = at ?? _time.GetUtcNow();
+
+    /// <summary>Была ли недавняя массовая пропажа heartbeat в пределах <paramref name="window"/>
+    /// от момента <paramref name="at"/> — используется при классификации конкретного ребута.</summary>
+    public bool WasMassOfflineNear(DateTimeOffset at, TimeSpan window)
+        => _lastMassOfflineAt is { } t && (at - t).Duration() <= window;
 
     /// <summary>Что произошло при регистрации агента.</summary>
     /// <param name="Rebooted">Boot-time сменился — машина реально перезагрузилась.</param>

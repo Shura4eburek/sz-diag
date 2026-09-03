@@ -55,6 +55,25 @@ public sealed class HubOptions
     /// пишет «THREAD POOL STARVATION» в лог. На живой заявке (СЗ 160306, бэклог п.50) здоровый
     /// hub сразу после рестарта держал 26 потоков, залипший — 3674. 0 — сторож выключен.</summary>
     public int ThreadPoolWarnThreshold { get; set; } = 300;
+
+    /// <summary>Рабочие часы сервиса («08:00») — начало окна, вне которого ребут метится
+    /// плановым обесточиванием, а не дефектом (бэклог п.130, СЗ 161346: рубильник на ночь
+    /// искажал счётчик ⚡). Оба конца (`ServiceHoursStart`/`ServiceHoursEnd`) должны быть
+    /// заданы, иначе классификация по часам выключена.</summary>
+    public string? ServiceHoursStart { get; set; }
+
+    /// <summary>Конец рабочих часов сервиса («19:00»). См. <see cref="ServiceHoursStart"/>.</summary>
+    public string? ServiceHoursEnd { get; set; }
+
+    /// <summary>В пределах какого окна после массовой одновременной пропажи heartbeat у
+    /// нескольких СЗ разом ребут ещё считается тем же плановым обесточиванием (бэклог п.130) —
+    /// признак, не зависящий от расписания: если свет пропал у всех разом, это не дефект
+    /// конкретной машины.</summary>
+    public TimeSpan MassOfflineWindow { get; set; } = TimeSpan.FromMinutes(30);
+
+    /// <summary>Сколько СЗ должны потерять heartbeat в одном цикле <see cref="OfflineSweeper"/>,
+    /// чтобы это засчиталось массовой пропажей (а не одна машина сдохла сама).</summary>
+    public int MassOfflineMinSessions { get; set; } = 2;
 }
 
 public sealed class KbBackupOptions
