@@ -21,6 +21,48 @@
 if (-not (Test-Path 'C:\OCCT')) { New-Item -ItemType Directory 'C:\OCCT' | Out-Null }
 Remove-Item 'C:\OCCT\stop-sleep-test' -Force -ErrorAction SilentlyContinue
 
+# #180 / б.224 (161716, 26.08): три чистых цикла «сон -> RTC-пробуждение» отработали, но у
+# машины оказался пароль на учётке пользователя — после ПЕРВОГО же пробуждения сессия
+# перестала пускать: с холодного старта работает автологин, а разблокировка после S3 требует
+# ввод (автологин Windows применяется ТОЛЬКО при полной загрузке, а не при выходе из сна).
+# Мастер у корпуса решил, что мы "накинули пароль", и собрался грузиться с WinPE. Приборно:
+# `PasswordLastSet` у учётки — задолго до сервиса. Проверяем ДО первого сна, а не постфактум.
+$ConfirmRisk = $false   # выставь $true, только если сознательно принимаешь риск (заперанная сессия)
+
+$logonUser = (Get-CimInstance Win32_ComputerSystem).UserName   # DOMAIN\user или PC\user
+$hasPassword = $false
+$acct = $null
+if ($logonUser) {
+    $shortName = $logonUser.Split('\')[-1]
+    $acct = Get-LocalUser -Name $shortName -ErrorAction SilentlyContinue
+    if ($acct) { $hasPassword = $null -ne $acct.PasswordLastSet }
+}
+$autoLogon = $false
+try {
+    $wl = Get-ItemProperty 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Winlogon' -ErrorAction Stop
+    $autoLogon = ($wl.AutoAdminLogon -eq '1')
+} catch { }
+# CONSOLELOCK ("Require a password on wakeup") — не на каждой сборке отдаётся алиасом
+# powercfg (проверено: на части систем `powercfg /aliases` его вообще не перечисляет), поэтому
+# отсутствие вывода трактуем КОНСЕРВАТИВНО как "лочит" — это только доп. строка в отчёт,
+# на решение "стоп/продолжать" ниже влияет только $hasPassword.
+$consoleLock = (powercfg /q SCHEME_CURRENT SUB_NONE CONSOLELOCK 2>&1) -join "`n"
+$lockOnWake = $consoleLock -notmatch 'Current AC Power Setting Index:\s*0x00000000'
+
+"текущий пользователь сессии : $logonUser"
+"пароль у учётки (PasswordLastSet) : $hasPassword"
+"AutoAdminLogon (действует только при полной загрузке, НЕ после сна) : $autoLogon"
+"требование пароля при пробуждении (CONSOLELOCK) : $lockOnWake"
+
+if ($hasPassword -and -not $ConfirmRisk) {
+    'ОСТАНОВЛЕНО: у учётки есть пароль, а автологин после СНА (в отличие от загрузки) Windows не'
+    'применяет — после первого же пробуждения машина попросит пароль, которого у нас нет, и'
+    'сессия окажется заперта до прихода мастера. Если это осознанный риск (пароль известен,'
+    'кто-то будет рядом) - выставь $ConfirmRisk = $true и запусти рецепт заново.'
+    return
+}
+if ($hasPassword) { 'риск подтверждён явно ($ConfirmRisk = $true) — продолжаем' }
+
 # ПРЕДОХРАНИТЕЛЬ (161498, 26.08): забытый цикл живёт вечно и делает машину недоступной —
 # окно бодрствования 90 с, за него не успевает доехать ни szcli exec, ни стоп-рецепт.
 # На 161498 цикл от 24.08 воскрес 26.08 при включении машины и снова уложил её спать;
