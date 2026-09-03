@@ -4718,7 +4718,7 @@ periodExecutions[1] PowerSupply  executedDuration 00:05:00
 
 ---
 
-### 128. Расписание OCCT из одного периода не запускается: «file does not exists» — про существующий файл
+### 128. ✅ СДЕЛАНО (2026-09-04) — Расписание OCCT из одного периода не запускается: «file does not exists» — про существующий файл
 
 **Боль (2026-08-11, СЗ 161346).** Догон одного теста (`CpuLinpack` 40 мин) не пошёл: `szcli test run`
 отрапортовал «прогон запущен», через минуту — «готов · последний: OCCT ✓», по сенсорам нагрузки
@@ -4748,6 +4748,13 @@ Error : Could not load the schedule file - file does not exists
 
 **Критерий готовности.** Расписание из одного периода запускается; расписание, которое OCCT не
 принял, обнаруживается до прогона, а не по нулевой нагрузке в CSV.
+
+**Сделано (2026-09-04).** `check-occt-schedule.ps1` проверяет тип `Periods` по сырому тексту
+файла (`"Periods"\s*:\s*\[`) до `ConvertFrom-Json` — после парсинга скаляр `{…}` и массив
+`[{…}]` неотличимы. `TestRunner.RunApp`: ранний выход для `RunToCompletion=true` с настроенным
+`ArtifactFile`, но без появившегося файла (OCCT не отработал расписание), теперь пишет
+предупреждение в `Output`, а не тихое «✓» (тест `Run_AppStep_RunToCompletion_
+EarlyExitWithoutArtifact_WarnsInsteadOfSilentOk`).
 
 ---
 

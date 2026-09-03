@@ -194,6 +194,16 @@ public sealed class TestRunner
                        "вероятно крэш, лицензия или нет условий запуска";
             output = string.IsNullOrEmpty(output) ? note : note + "\n\n" + output;
         }
+        // До-завершения с ожидаемым артефактом (напр. HTML-отчёт OCCT), но ранний выход не оставил
+        // его — тул не прогнал расписание, а вышел сразу (б.128, 161346: OCCT не принял schedule.json
+        // и упал за секунды, а UI показывал «✓», как для честного завершения).
+        if (earlyExit && step.RunToCompletion && step.ArtifactFile is not null && artifactName is null)
+        {
+            var note = $"⚠ процесс '{procName}' завершился раньше расписания (~{waited}с) и не оставил " +
+                       $"ожидаемый артефакт ('{step.ArtifactFile}') — вероятно, конфигурация/расписание " +
+                       "не принялось, тест фактически не отработал";
+            output = string.IsNullOrEmpty(output) ? note : note + "\n\n" + output;
+        }
         // До-завершения, но упёрлись в предохранитель — тоже сигнал (тул не закрылся сам).
         if (timedOut && step.RunToCompletion)
         {
