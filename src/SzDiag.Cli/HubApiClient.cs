@@ -225,4 +225,16 @@ public sealed class HubApiClient : IHubApiClient
         var resp = await _http.PostAsync(url, null, cts.Token);
         return resp.StatusCode == HttpStatusCode.OK;
     }
+
+    public async Task<string?> GetHubVersionAsync(CancellationToken ct = default)
+    {
+        try
+        {
+            using var cts = Short(ct);
+            var resp = await _http.GetAsync("/api/version", cts.Token);
+            if (resp.StatusCode != HttpStatusCode.OK) return null;
+            return await resp.Content.ReadAsStringAsync(cts.Token);
+        }
+        catch { return null; }   // hub недоступен — --version не должен падать из-за этого
+    }
 }

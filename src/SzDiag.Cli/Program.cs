@@ -30,9 +30,12 @@ if (command is "--help" or "-h" or "help" or "/?")
 }
 
 // Версия и дата сборки: протухший бинарь в dist виден сразу, а не по археологии (п.198).
+// Версия hub — рядом: «cli свежий, hub протух неделю назад» иначе не видно вовсе (п.165).
 if (command is "--version" or "-v" or "version")
 {
     Console.WriteLine(CliCommands.Describe());
+    var hubVersion = await client.GetHubVersionAsync();
+    Console.WriteLine(hubVersion is null ? "hub: не ответил" : hubVersion);
     return 0;
 }
 

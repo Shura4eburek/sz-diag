@@ -24,6 +24,10 @@ public static class ManagementApi
 
         group.MapGet("/sessions", (SessionRegistry reg) => Results.Ok(reg.GetActive()));
 
+        // Версия/дата сборки hub — `szcli --version` печатает рядом со своей, чтобы
+        // рассинхрон («cli свежий, hub протух неделю назад») был виден сразу (бэклог п.165).
+        group.MapGet("/version", () => Results.Text(HubBuildInfo.Describe()));
+
         group.MapPost("/sessions/{sz}/close", async (string sz, SessionCloser closer,
             JournalWriter journal) =>
         {

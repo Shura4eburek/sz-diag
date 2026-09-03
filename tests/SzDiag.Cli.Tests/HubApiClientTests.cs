@@ -31,7 +31,7 @@ public class HubApiClientTests
         }
     }
 
-    private static HubApiClient NewClient(StubHandler handler)
+    private static HubApiClient NewClient(HttpMessageHandler handler)
     {
         var http = new HttpClient(handler) { BaseAddress = new Uri("http://hub") };
         return new HubApiClient(http, "mgmt-token");
@@ -220,6 +220,35 @@ public class HubApiClientTests
 
         Assert.Contains("/api/sessions/156864/diag", handler.LastRequest!.RequestUri!.AbsolutePath);
         Assert.Contains("sections=storage", handler.LastRequest!.RequestUri!.Query);
+    }
+
+    [Fact]
+    public async Task GetHubVersion_Ok_ReturnsText()
+    {
+        var handler = new StubHandler(HttpStatusCode.OK, "hub 1.0.0, сборка 2026-09-04 12:00");
+        var client = NewClient(handler);
+
+        var version = await client.GetHubVersionAsync();
+
+        Assert.Equal("/api/version", handler.LastRequest!.RequestUri!.AbsolutePath);
+        Assert.Equal("hub 1.0.0, сборка 2026-09-04 12:00", version);
+    }
+
+    [Fact]
+    public async Task GetHubVersion_HubUnreachable_ReturnsNullInsteadOfThrowing()
+    {
+        // Регрессия (бэклог п.165): протухший/недоступный hub не должен ронять `--version` —
+        // операторy нужна хотя бы своя версия CLI.
+        var handler = new ThrowingHandler();
+        var client = NewClient(handler);
+
+        Assert.Null(await client.GetHubVersionAsync());
+    }
+
+    private sealed class ThrowingHandler : HttpMessageHandler
+    {
+        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken ct)
+            => throw new HttpRequestException("hub недоступен");
     }
 
     [Fact]

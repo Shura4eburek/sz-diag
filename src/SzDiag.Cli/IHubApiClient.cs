@@ -29,6 +29,9 @@ public interface IHubApiClient
     Task<RebootTimeline?> GetRebootsAsync(string sz, CancellationToken ct = default);
     Task<bool> AddMaintenanceAsync(MaintenanceWindow window, CancellationToken ct = default);
     Task<IReadOnlyList<MaintenanceWindow>> GetMaintenanceAsync(string sz, CancellationToken ct = default);
+
+    /// <summary>Версия/дата сборки hub — null, если hub не ответил (протух молча — бэклог п.165).</summary>
+    Task<string?> GetHubVersionAsync(CancellationToken ct = default);
 }
 
 /// <summary>Итог запуска прогона: hub возвращает текст причины, и CLI обязан его показать —
