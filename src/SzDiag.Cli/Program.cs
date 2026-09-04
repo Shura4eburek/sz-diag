@@ -94,10 +94,20 @@ switch (command)
         // отказами по истории этой же СЗ: без него close закрывал заявку молча, хотя все
         // данные для сравнения уже лежали в SQLite (бэклог п.159, СЗ 160306 — закрыли через
         // 18 минут при характерном интервале ~53 часа).
+        // Отдельный --skip-leftovers — для проверки остатков на клиенте (ниже): раньше один
+        // и тот же --force снимал обе независимые защиты разом, и оператор, форсирующий
+        // закрытие по недостаточному наблюдению, молча терял и проверку остатков (review W2
+        // I-1) — модель угроз требует, чтобы «весь наш след откатывается без остатка» нельзя
+        // было выключить случайно вместе с другим флагом.
         var forceIdx = Array.FindIndex(args, 2, args.Length - 2,
             a => a.Equals("--force", StringComparison.OrdinalIgnoreCase));
         var forced = forceIdx >= 0;
-        var forceReason = forced && forceIdx + 1 < args.Length ? string.Join(' ', args[(forceIdx + 1)..]) : null;
+        var skipLeftovers = args.Any(a => a.Equals("--skip-leftovers", StringComparison.OrdinalIgnoreCase));
+        var forceReason = forced
+            ? string.Join(' ', args[(forceIdx + 1)..]
+                .TakeWhile(a => !a.Equals("--skip-leftovers", StringComparison.OrdinalIgnoreCase)))
+            : null;
+        if (string.IsNullOrWhiteSpace(forceReason)) forceReason = null;
 
         // Статус — ДО закрытия: после него сессия уходит из активных, и не понять,
         // был ли агент жив в момент close (бэклог п.119).
@@ -116,13 +126,27 @@ switch (command)
                 if (!forced)
                 {
                     AnsiConsole.MarkupLineInterpolated(
-                        $"[grey]Закрити всупереч цьому:[/] szcli close {closeSz} --force \"причина\"");
+                        $"[grey]Закрыть вопреки этому:[/] szcli close {closeSz} --force \"причина\"");
                     return 2;
                 }
-                if (string.IsNullOrWhiteSpace(forceReason))
-                    AnsiConsole.MarkupLine("[grey]Закрито з --force (причина не вказана).[/]");
-                else
-                    AnsiConsole.MarkupLineInterpolated($"[grey]Закрито з --force:[/] {Markup.Escape(forceReason)}");
+                var reasonText = forceReason ?? "причина не указана";
+                AnsiConsole.MarkupLineInterpolated($"[grey]Закрыто с --force:[/] {Markup.Escape(reasonText)}");
+                // Причина форсированного закрытия — в журнал СЗ, а не только в терминал:
+                // критерий #98 требует видеть заявку, закрытую без достаточного наблюдения,
+                // постфактум — из самого hub, а не по памяти того, кто её вёл (review W2 I-3).
+                try
+                {
+                    var reasonForJournal = forceReason ?? "причина не вказана";
+                    await client.AddNoteAsync(closeSz,
+                        $"закрито достроково (--force): спостереження {observed:d\\.hh\\:mm\\:ss} " +
+                        $"при характерному інтервалі {timelineBefore!.CharacteristicInterval!.Value:d\\.hh\\:mm\\:ss} " +
+                        $"— {reasonForJournal}");
+                }
+                catch (Exception ex) when (CliErrors.IsExpected(ex))
+                {
+                    AnsiConsole.MarkupLineInterpolated(
+                        $"[yellow]Причину --force не удалось записать в журнал СЗ:[/] {Markup.Escape(ex.Message)}");
+                }
             }
         }
 
@@ -148,8 +172,9 @@ switch (command)
         // Не закрывать МОЛЧА, пока на клиенте остаются файлы, доставленные push'ом (тулы,
         // рабочие папки рецептов) — раньше close только советовал "проверить остатки", и
         // 101 МБ prime95/lhmmon + C:\OCCT переживали закрытие СЗ (бэклог п.158, СЗ 160306).
-        // --force пропускает проверку явным решением оператора (тот же флаг, что и выше).
-        if (wasOnline && !forced)
+        // --skip-leftovers пропускает проверку явным решением оператора — ОТДЕЛЬНЫЙ от --force
+        // флаг (review W2 I-1): иначе форс наблюдения по #98 молча снимал и эту защиту.
+        if (wasOnline && !skipLeftovers)
         {
             ExecResult? inv = null;
             try
@@ -170,8 +195,19 @@ switch (command)
                         $"[red]СЗ {closeSz} не закрыта:[/] на клиенте остались наши файлы:");
                     foreach (var item in report.Leftovers) AnsiConsole.MarkupLineInterpolated($"  [yellow]•[/] {item}");
                     AnsiConsole.MarkupLineInterpolated($"[grey]Убрать:[/] szcli client cleanup {closeSz}");
-                    AnsiConsole.MarkupLineInterpolated($"[grey]Или закрыть без проверки:[/] szcli close {closeSz} --force");
+                    AnsiConsole.MarkupLineInterpolated($"[grey]Или закрыть без проверки:[/] szcli close {closeSz} --skip-leftovers");
                     return 6;
+                }
+                // Не блокируем на собственных служебных каталогах (jobs/sensors под
+                // ProgramData\szdiag) — они появляются после ЛЮБОГО exec --detach/sensors
+                // start, и close отказывал бы почти всегда (review W2 I-2), приучая к
+                // --skip-leftovers. Оставляем предупреждением: список виден, но не блокирует.
+                var nonBlocking = report.Leftovers.Where(l => !CloseLeftoverGuard.IsBlocking(l)).ToList();
+                if (nonBlocking.Count > 0)
+                {
+                    AnsiConsole.MarkupLineInterpolated(
+                        $"[yellow]На клиенте остались служебные файлы (не блокируют закрытие):[/]");
+                    foreach (var item in nonBlocking) AnsiConsole.MarkupLineInterpolated($"  [grey]•[/] {item}");
                 }
             }
         }

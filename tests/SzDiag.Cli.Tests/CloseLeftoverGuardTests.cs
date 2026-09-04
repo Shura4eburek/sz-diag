@@ -28,4 +28,25 @@ public class CloseLeftoverGuardTests
     [Fact]
     public void HasDeliveredFiles_Empty_DoesNotBlock()
         => Assert.False(CloseLeftoverGuard.HasDeliveredFiles(Array.Empty<string>()));
+
+    // review W2 I-2: `каталог C:\ProgramData\szdiag\jobs: 0.1 МБ` появляется после ЛЮБОГО
+    // `exec --detach`, `каталог …\sensors` — после любого `sensors start`. Раньше guard блокировал
+    // на ЛЮБОМ слове «каталог», и close отказывал бы почти всегда в реальном потоке работы.
+    [Fact]
+    public void HasDeliveredFiles_OwnJobsDir_DoesNotBlock()
+        => Assert.False(CloseLeftoverGuard.HasDeliveredFiles(
+            new[] { "каталог C:\\ProgramData\\szdiag\\jobs: 0.1 МБ" }));
+
+    [Fact]
+    public void HasDeliveredFiles_OwnSensorsDir_DoesNotBlock()
+        => Assert.False(CloseLeftoverGuard.HasDeliveredFiles(
+            new[] { "каталог C:\\ProgramData\\szdiag\\sensors: 2.4 МБ" }));
+
+    [Fact]
+    public void IsBlocking_DistinguishesOwnDirsFromDeliveredAndRecipeDirs()
+    {
+        Assert.False(CloseLeftoverGuard.IsBlocking("каталог C:\\ProgramData\\szdiag\\jobs: 0.1 МБ"));
+        Assert.True(CloseLeftoverGuard.IsBlocking("каталог C:\\OCCT: 5.2 МБ"));
+        Assert.True(CloseLeftoverGuard.IsBlocking("доставленный инструмент prime95: 34 МБ"));
+    }
 }

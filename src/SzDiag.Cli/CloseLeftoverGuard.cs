@@ -16,7 +16,14 @@ public static class CloseLeftoverGuard
     /// Только эти пункты блокируют close: он не заменяет `client info` целиком, а ловит
     /// ровно то, для чего заводился (бэклог п.158).</summary>
     public static bool HasDeliveredFiles(IReadOnlyList<string> leftovers)
-        => leftovers.Any(l =>
-            l.Contains("доставленный инструмент", StringComparison.OrdinalIgnoreCase)
-            || l.Contains("каталог", StringComparison.OrdinalIgnoreCase));
+        => leftovers.Any(IsBlocking);
+
+    /// <summary>Блокирует close только «доставленный инструмент …» и рабочие каталоги
+    /// РЕЦЕПТОВ (<see cref="ClientTraces.RecipeWorkDirs"/>, напр. C:\OCCT). Собственные
+    /// служебные каталоги (`ProgramData\szdiag\jobs`/`sensors`) НЕ блокируют: они появляются
+    /// после ЛЮБОГО `exec --detach`/`sensors start` — раньше любое слово «каталог» в остатках
+    /// блокировало close почти всегда, приучая оператора к обходу защиты (review W2 I-2).</summary>
+    public static bool IsBlocking(string leftover)
+        => leftover.Contains("доставленный инструмент", StringComparison.OrdinalIgnoreCase)
+           || ClientTraces.RecipeWorkDirs.Any(d => leftover.Contains(d, StringComparison.OrdinalIgnoreCase));
 }

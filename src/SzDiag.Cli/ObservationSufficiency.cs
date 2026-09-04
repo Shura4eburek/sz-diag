@@ -14,10 +14,12 @@ public static class ObservationSufficiency
         if (characteristicInterval is not { } characteristic || characteristic <= TimeSpan.Zero) return null;
         if (observed >= characteristic) return null;
 
-        return $"⚠ спостереження {Format(observed)} при характерному інтервалі {Format(characteristic)}: " +
-               "заміну НЕ підтверджено — це закриття за рішенням майстра, а не за результатом.";
+        // Консольный вывод CLI — по-русски (CLAUDE.md; украинский только в kb/журнале СЗ),
+        // review W2 I-5: строка раньше уезжала на украинский вместе с остальным блоком close.
+        return $"⚠ наблюдение {Format(observed)} при характерном интервале {Format(characteristic)}: " +
+               "замена НЕ подтверждена — это закрытие по решению мастера, а не по результату.";
     }
 
     private static string Format(TimeSpan t)
-        => t.TotalHours >= 1 ? $"{t.TotalHours:0.#} год" : $"{t.TotalMinutes:0} хв";
+        => t.TotalHours >= 1 ? $"{t.TotalHours:0.#} ч" : $"{t.TotalMinutes:0} мин";
 }

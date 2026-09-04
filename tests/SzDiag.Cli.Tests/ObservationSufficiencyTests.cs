@@ -13,8 +13,8 @@ public class ObservationSufficiencyTests
         var msg = ObservationSufficiency.Warn(TimeSpan.FromMinutes(18), TimeSpan.FromHours(53));
 
         Assert.NotNull(msg);
-        Assert.Contains("18 хв", msg);
-        Assert.Contains("53 год", msg);
+        Assert.Contains("18 мин", msg);
+        Assert.Contains("53 ч", msg);
     }
 
     [Fact]
