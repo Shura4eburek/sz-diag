@@ -1,4 +1,4 @@
-# Запустить программу в ИНТЕРАКТИВНОЙ сессии пользователя, когда агент живёт под SYSTEM.
+﻿# Запустить программу в ИНТЕРАКТИВНОЙ сессии пользователя, когда агент живёт под SYSTEM.
 # Грабля (123123, 2026-08-27): после ребута агент поднимается автостарт-задачей под
 # NT AUTHORITY\СИСТЕМА в session 0. Оттуда GUI не существует, и всё ломается МОЛЧА:
 #   - `setup.exe /auto upgrade` стартует и мгновенно умирает, папки $WINDOWS.~BT не появляются;
@@ -13,9 +13,15 @@ param(
     [string]$TaskName = 'szdiag-run-in-session',
     [switch]$KeepTask
 )
-$sessionUser = (quser 2>$null | Select-Object -Skip 1 | ForEach-Object { ($_ -replace '^\s*>?', '').Split(' ')[0] } | Select-Object -First 1)
-if (-not $sessionUser) { throw 'нет активной сессии пользователя — интерактивно запускать некуда' }
-$full = ($env:COMPUTERNAME + '\' + $sessionUser)
+# Имя пользователя — из Win32_ComputerSystem, как в open-in-explorer.ps1 (#194): из session 0
+# вывод quser идёт без маркера '>', парсер отдавал пустоту, и регистрация задачи падала
+# 0x80070534. quser остаётся запасным вариантом на случай, если WMI недоступен.
+$full = (Get-CimInstance Win32_ComputerSystem).UserName
+if (-not $full) {
+    $line = quser 2>$null | Select-Object -Skip 1 | Select-Object -First 1
+    if ($line) { $full = $env:COMPUTERNAME + '\' + ($line -replace '^\s*>?', '').Split(' ')[0] }
+}
+if (-not $full) { throw 'нет активной сессии пользователя — интерактивно запускать некуда' }
 ('сессия: ' + $full)
 $act = New-ScheduledTaskAction -Execute $Exe -Argument $Args
 $pr  = New-ScheduledTaskPrincipal -UserId $full -LogonType Interactive -RunLevel Highest

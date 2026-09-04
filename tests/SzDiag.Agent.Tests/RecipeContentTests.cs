@@ -143,6 +143,22 @@ public class RecipeContentTests
     [Fact]
     public void StartTm5_ParsesAsValidPowerShell() => AssertAllParse("start-tm5.ps1");
 
+    [Fact]
+    public void RunInSession_UsesComputerSystemUserNameWithQuserFallback()
+    {
+        // #194 (review final T-7): из session 0 quser отдаёт строку без маркера '>' —
+        // парсер получал пустой $sessionUser, и регистрация задачи падала 0x80070534.
+        // Win32_ComputerSystem.UserName — тот же приём, что уже есть в open-in-explorer.ps1;
+        // quser остаётся запасным вариантом на случай, если WMI недоступен.
+        var text = Recipe("run-in-session.ps1");
+
+        Assert.Contains("Win32_ComputerSystem", text);
+        Assert.Contains("quser", text);
+    }
+
+    [Fact]
+    public void RunInSession_ParsesAsValidPowerShell() => AssertAllParse("run-in-session.ps1");
+
     /// <summary>DiskZoneMap живёт в SzDiag.Contracts (генерируется CLI, а не читается с диска
     /// как рецепт), но синтаксис сгенерированного PowerShell проверяем тем же способом.</summary>
     [Fact]
