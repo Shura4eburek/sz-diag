@@ -40,6 +40,15 @@ $sched.Periods = @(foreach ($p in $plan) {
     # Донор кладёт Priority=Normal — под ним `exec --detach` не проходит вовсе (ack не
     # доходит, бэклог п.127/201). BelowNormal — дешёвый обратимый шаг, освобождает
     # OS-планировщику приоритет для процесса агента, саму нагрузку теста не меняет.
+    # I-12 (ревью волны 2): у PowerSupplyConfig (в отличие от Gpu3d/Vram/GpuUnreal/Cpu*)
+    # свойства Priority в исходном JSON нет — прямое присваивание отсутствующего свойства
+    # объекту из ConvertFrom-Json давало "The property 'Priority' cannot be found", и фаза
+    # PowerSupply (пик потребления, где ack агента страдает сильнее всего) оставалась на
+    # Normal. Заводим свойство через Add-Member, ТОЛЬКО если его ещё нет, — присваивание
+    # ниже дальше работает как обычно для всех четырёх конфигов.
+    if (-not $c.PowerSupplyConfig.PSObject.Properties['Priority']) {
+        $c.PowerSupplyConfig | Add-Member -NotePropertyName Priority -NotePropertyValue $null -Force
+    }
     $c.Gpu3dConfig.Priority       = 'BelowNormal'
     $c.VramConfig.Priority        = 'BelowNormal'
     $c.GpuUnrealConfig.Priority   = 'BelowNormal'

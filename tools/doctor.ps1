@@ -35,6 +35,11 @@ Write-Host "== sz-diag doctor ==" -ForegroundColor Cyan
 # которого сам freshness-guard делался. Считаем транзитивные `<ProjectReference>` из .csproj
 # заново при каждом прогоне — список не может отстать от кода, потому что не хранится отдельно.
 function Get-TransitiveProjectDirs([string]$csprojRelPath) {
+    # [System.IO.Path]::GetRelativePath — .NET Core 2.0+/.NET Standard 2.1, отсутствует в
+    # .NET Framework 4.x, на котором работает Windows PowerShell 5.1 (C-6 ревью волны 2:
+    # `powershell.exe -File tools\doctor.ps1` падал на первой же проверке методом, которого
+    # нет). Считаем относительный путь строкой вручную — без зависимости от рантайма хоста.
+    $rootFull = (Resolve-Path $Root).Path.TrimEnd('\', '/')
     $seen = New-Object System.Collections.Generic.HashSet[string]
     $queue = New-Object System.Collections.Generic.Queue[string]
     $queue.Enqueue($csprojRelPath.Replace('\', '/'))
@@ -49,8 +54,11 @@ function Get-TransitiveProjectDirs([string]$csprojRelPath) {
         $refs = @($xml.Project.ItemGroup.ProjectReference.Include) | Where-Object { $_ }
         foreach ($r in $refs) {
             $refFull = [System.IO.Path]::GetFullPath((Join-Path (Split-Path $full -Parent) $r))
-            $refRel = [System.IO.Path]::GetRelativePath($Root, $refFull).Replace('\', '/')
-            $queue.Enqueue($refRel)
+            $refRel = $refFull
+            if ($refFull.StartsWith($rootFull, [System.StringComparison]::OrdinalIgnoreCase)) {
+                $refRel = $refFull.Substring($rootFull.Length).TrimStart('\', '/')
+            }
+            $queue.Enqueue($refRel.Replace('\', '/'))
         }
     }
     return $result
@@ -63,9 +71,12 @@ if (-not (Test-Path $package)) {
     Bad "пакета агента нет ($package) — прогони .\tools\build-dist.ps1"
 } else {
     $packageTime = (Get-Item $package).LastWriteTime
-    # Код агента — весь транзитивный граф от SzDiag.Agent, плюс Updater (точка входа на клиенте,
-    # свой отдельный .csproj, не зависящий от Agent).
-    $paths = @(Get-TransitiveProjectDirs "src/SzDiag.Agent/SzDiag.Agent.csproj") + "src/SzDiag.Updater"
+    # Код агента — весь транзитивный граф от SzDiag.Agent, плюс весь граф Updater'а (точка
+    # входа на клиенте, свой отдельный .csproj, не зависящий от Agent). Раньше Updater
+    # дописывался голым литералом и его собственные ссылки (`<ProjectReference>`) не
+    # обходились — тот же дрейф ручного списка, который R-I4 убирал, только на уровень ниже.
+    $paths = @(Get-TransitiveProjectDirs "src/SzDiag.Agent/SzDiag.Agent.csproj") +
+        @(Get-TransitiveProjectDirs "src/SzDiag.Updater/SzDiag.Updater.csproj")
     $lastCommit = & git -C $Root log -1 --format="%cI|%h|%s" -- $paths 2>$null
     if (-not $lastCommit) {
         Info "git не ответил — свежесть пакета не проверить"

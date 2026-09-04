@@ -50,12 +50,38 @@ for ($i = 0; $i -lt $WorkerCount; $i++) {
 Start-Sleep -Seconds $ValidateAfterSeconds
 
 $alive = 0
+$aliveItems = @()
 foreach ($item in $procs) {
     $item.Process.Refresh()
-    if (-not $item.Process.HasExited) { $alive++ }
+    if (-not $item.Process.HasExited) { $alive++; $aliveItems += $item }
 }
 $cpu = (Get-CimInstance Win32_Processor -ErrorAction SilentlyContinue | Measure-Object -Property LoadPercentage -Average).Average
-"через $ValidateAfterSeconds c: живых воркеров=$alive/$($procs.Count), загрузка CPU=$cpu%"
+$cpuSource = 'Win32_Processor.LoadPercentage'
+# I-13 (ревью волны 2): Win32_Processor.LoadPercentage — тот же мёртвый на части клиентских
+# машин счётчик, что описан в #151 (process-io-top.ps1). Measure-Object -Average по null-у
+# отдаёт 0, а не $null, и "0 -lt 60"/"$null -lt 60" в PowerShell тоже true — двенадцать честно
+# жгущих CPU воркеров получали "нагрузка не пошла" от сломанного датчика, а не от реального
+# простоя. Если счётчик молчит (null/0) при живых воркерах — меряем реальное CPU-время самих
+# процессов за короткое окно вместо того, чтобы доверять единственному источнику.
+if ($alive -gt 0 -and (($null -eq $cpu) -or ($cpu -eq 0))) {
+    $before = @{}
+    foreach ($item in $aliveItems) { $item.Process.Refresh(); $before[$item.Process.Id] = $item.Process.TotalProcessorTime }
+    $probeSec = 2
+    Start-Sleep -Seconds $probeSec
+    $consumed = [TimeSpan]::Zero
+    foreach ($item in $aliveItems) {
+        try { $item.Process.Refresh() } catch { continue }
+        if ($item.Process.HasExited -or -not $before.ContainsKey($item.Process.Id)) { continue }
+        $delta = $item.Process.TotalProcessorTime - $before[$item.Process.Id]
+        if ($delta.Ticks -gt 0) { $consumed += $delta }
+    }
+    $capacitySec = $probeSec * $aliveItems.Count
+    if ($capacitySec -gt 0) {
+        $cpu = [math]::Round(100.0 * $consumed.TotalSeconds / $capacitySec, 1)
+        $cpuSource = "суммарное CPU-время $($aliveItems.Count) живых процессов за $probeSec c (счётчик LoadPercentage молчал)"
+    }
+}
+"через $ValidateAfterSeconds c: живых воркеров=$alive/$($procs.Count), загрузка CPU=$cpu% ($cpuSource)"
 
 $requiredAlive = [math]::Ceiling($procs.Count * $MinAliveFraction)
 if ($alive -lt $requiredAlive -or $cpu -lt $MinCpuLoadPercent) {

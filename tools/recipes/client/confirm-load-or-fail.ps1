@@ -30,9 +30,25 @@ if (-not $Csv) {
 }
 "файл: $Csv"
 
-# Только Import-Csv/ConvertFrom-Csv: ручной split по запятой врёт (первая ячейка шапки
-# склеена с BOM, индексы уезжают) — та же грабля, что в check-load.ps1.
-$rows = (@(Get-Content $Csv -TotalCount 1) + @(Get-Content $Csv -Tail 5)) | ConvertFrom-Csv
+# I-20 (ревью волны 2): наблюдатель голодает под нагрузкой (SensorWatcher это документирует,
+# бэклог п.206) и может умереть, оставив CSV с последней строкой на 100% многочасовой давности —
+# без проверки свежести это ложный PASS ровно там, где ложный FAIL правил C-7. Если файл не
+# обновлялся дольше 2×$WaitSec, считаем наблюдение оборвавшимся, а не подтверждённым.
+$age = (Get-Date) - (Get-Item $Csv).LastWriteTime
+if ($age.TotalSeconds -gt (2 * $WaitSec)) {
+    "FAIL: CSV не обновлялся {0:N0} с (порог {1} с) — наблюдатель, похоже, умер, данные устарели." -f $age.TotalSeconds, (2 * $WaitSec)
+    exit 1
+}
+
+# C-7 (ревью волны 2): ConvertFrom-Csv по умолчанию режет по запятой, а штатный наблюдатель
+# `szcli sensors start` пишет `;` (SensorWatcher/SensorReport.ParseAny) — с неверным
+# разделителем вся шапка склеивается в одну колонку, Get-Val ничего не находит, и рецепт
+# выдаёт FAIL при 100% CPU/GPU (воспроизведено на реальной шапке под PS 5.1). Разделитель
+# определяем по шапке — та же логика, что уже в sensors-peek.ps1.
+$head = Get-Content $Csv -TotalCount 1
+$delim = if (($head -split ';').Count -gt ($head -split ',').Count) { ';' } else { ',' }
+
+$rows = (@(Get-Content $Csv -TotalCount 1) + @(Get-Content $Csv -Tail 5)) | ConvertFrom-Csv -Delimiter $delim
 if (-not $rows -or $rows.Count -eq 0) { "FAIL: CSV пуст."; exit 1 }
 $last = $rows[-1]
 $cols = $last.PSObject.Properties.Name
