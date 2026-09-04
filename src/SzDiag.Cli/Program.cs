@@ -200,6 +200,11 @@ switch (command)
     case "client" when args.Length >= 2:
         return await ClientCommand.RunAsync(client, args);
 
+    // disk snapshot: карта скоростей + SMART + журнал в один файл, с меткой «до/после»
+    // destructive-операции (форматирование, чистая установка, апдейт прошивки) — бэклог п.213.
+    case "disk" when args.Length >= 2 && args[1].Equals("snapshot", StringComparison.OrdinalIgnoreCase):
+        return await DiskSnapshotCommand.RunAsync(client, args[1..], AppContext.BaseDirectory);
+
     // agent set <СЗ> Ключ=значение: правка конфига агента с хоста. WatchdogHours применяется
     // сразу (перевзвод задачи), остальное — при следующем открытии доступа (бэклог п.86).
     case "agent" when args.Length >= 4 && args[1].Equals("set", StringComparison.OrdinalIgnoreCase):
