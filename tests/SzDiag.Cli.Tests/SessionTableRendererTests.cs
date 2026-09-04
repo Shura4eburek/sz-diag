@@ -157,9 +157,14 @@ public class SessionTableRendererTests
     }
 
     [Fact]
-    public void Render_LongOffline_ShowsLikelyFailureLabel()
+    public void Render_LongOffline_ShowsNeutralNoConnectionLabel_NotConfirmedFailure()
     {
-        // После 10+ минут молчания «лаг» — уже неправдоподобное объяснение (бэклог п.42).
+        // После 10+ минут молчания «лаг» — уже неправдоподобное объяснение (бэклог п.42), но
+        // «ВЫРУБОН» здесь тоже не годится (Important-1, ревью волны 1): единственное
+        // достоверное подтверждение — смена boot-time при реконнекте, а её, пока СЗ офлайн,
+        // ещё попросту не было. CLAUDE.md прямо: «под многочасовым OCCT 10 минут молчания —
+        // штатная картина», значит и подпись обязана быть нейтральной, а не уверенным
+        // диагнозом.
         var now = new DateTimeOffset(2026, 9, 4, 12, 0, 0, TimeSpan.Zero);
         var lastSeen = now - TimeSpan.FromMinutes(15);
         var sessions = new List<SessionInfo>
@@ -169,7 +174,8 @@ public class SessionTableRendererTests
 
         var text = RenderToText(SessionTableRenderer.Render(sessions, now));
 
-        Assert.Contains("ВЫРУБОН", text);
+        Assert.Contains("нет связи", text);
+        Assert.DoesNotContain("ВЫРУБОН", text);
         Assert.DoesNotContain("лаг?", text);
     }
 
