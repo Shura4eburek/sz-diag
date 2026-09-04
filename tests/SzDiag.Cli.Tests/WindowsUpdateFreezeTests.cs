@@ -187,6 +187,42 @@ public class WindowsUpdateFreezeTests
         Assert.Contains("Remove-ItemProperty", script);
         Assert.DoesNotContain("NoAutoUpdate -Value ", script);
     }
+
+    [Fact]
+    public void TaskDisableScript_DisablesBothOrchestratorFolders()
+    {
+        // Бэклог п.39/113: под учёткой агента (админ) эти задачи не поддаются («Access is
+        // denied» — владелец SYSTEM/TrustedInstaller). Отдельный скрипт нужен для повтора
+        // ровно этих строк под SYSTEM через `exec --as-system`.
+        var script = WindowsUpdateFreeze.BuildTaskDisableScript();
+
+        foreach (var folder in WindowsUpdateFreeze.TaskFolders)
+            Assert.Contains($"Get-ScheduledTask -TaskPath '{folder}'", script);
+        Assert.Contains("Disable-ScheduledTask", script);
+    }
+
+    [Fact]
+    public void TaskEnableScript_NoPreviousTaskState_EnablesAllOrchestratorTasks()
+    {
+        var script = WindowsUpdateFreeze.BuildTaskEnableScript(new Dictionary<string, string>());
+
+        foreach (var folder in WindowsUpdateFreeze.TaskFolders)
+            Assert.Contains($"Get-ScheduledTask -TaskPath '{folder}'", script);
+        Assert.Contains("Enable-ScheduledTask", script);
+    }
+
+    [Fact]
+    public void TaskEnableScript_WithPreviousReadyTask_EnablesOnlyThatTask()
+    {
+        var previous = new Dictionary<string, string>
+        {
+            [@"task:\Microsoft\Windows\UpdateOrchestrator\Schedule Scan"] = "Ready",
+        };
+
+        var script = WindowsUpdateFreeze.BuildTaskEnableScript(previous);
+
+        Assert.Contains(@"Enable-ScheduledTask -TaskPath '\Microsoft\Windows\UpdateOrchestrator\' -TaskName 'Schedule Scan'", script);
+    }
 }
 
 public class FreezeCommandStateTests : IDisposable
