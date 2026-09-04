@@ -64,16 +64,25 @@ $background = @(
     @{ Kind = 'proc'; Name = 'msedgewebview2' }
 )
 
+# #141 (ревью волны 1, R-C1): раньше сообщения печатались голыми строками-выражениями, из-за
+# чего они попадали в тот же возвращаемый ПОТОК, что и $true/$false — на вызове
+# `-not (Kill-Candidate $s)` PowerShell заворачивает вызов в подвыражение, весь поток целиком
+# уходит в -not (а не на экран: `(cmd)` в выражении полностью поглощает вывод, не показывая
+# его), и на непустом массиве вида @('пропуск...', $false) `-not` всегда $false — continue не
+# срабатывал НИКОГДА, и отсутствующий кандидат получал полные 3 минуты ожидания и мог быть
+# объявлен «ГИПОТЕЗОЙ». Write-Host — отдельный от возвращаемого значения канал (но всё ещё
+# попадает в перехваченный stdout дочернего powershell.exe, проверено), поэтому строки снова
+# видно оператору, а возвращает функция ровно один $true/$false.
 function Kill-Candidate($s) {
     if ($s.Kind -eq 'svc') {
         $svc = Get-Service $s.Name -ErrorAction SilentlyContinue
-        if (-not $svc -or $svc.Status -ne 'Running') { "   пропуск службы {0} (нет/не запущена)" -f $s.Name; return $false }
-        "== стоп службы {0}" -f $s.Name
+        if (-not $svc -or $svc.Status -ne 'Running') { Write-Host ("   пропуск службы {0} (нет/не запущена)" -f $s.Name); return $false }
+        Write-Host ("== стоп службы {0}" -f $s.Name)
         Stop-Service $s.Name -Force -ErrorAction SilentlyContinue
     } else {
         $p = Get-Process $s.Name -ErrorAction SilentlyContinue
-        if (-not $p) { "   пропуск процесса {0} (не запущен)" -f $s.Name; return $false }
-        "== гашу процесс {0} (pid {1})" -f $s.Name, (($p | Select-Object -Expand Id) -join ',')
+        if (-not $p) { Write-Host ("   пропуск процесса {0} (не запущен)" -f $s.Name); return $false }
+        Write-Host ("== гашу процесс {0} (pid {1})" -f $s.Name, (($p | Select-Object -Expand Id) -join ','))
         $p | Stop-Process -Force -ErrorAction SilentlyContinue
     }
     return $true
