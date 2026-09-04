@@ -57,4 +57,36 @@ public class PowerEventsReaderTests
         Assert.Contains("PowerButtonTimestamp", script);
         Assert.All(script, c => Assert.True(c < 128, "тело скрипта — строго ASCII"));
     }
+
+    [Fact]
+    public void Script_AlsoReadsPairedEventLog6008And6005()
+    {
+        // Регрессия (бэклог п.223, СЗ 161716): время отказа бралось из TimeCreated события 41,
+        // которое пишется при СЛЕДУЮЩЕЙ загрузке. Парный 6008 несёт реальное время отказа в
+        // своих Properties[0/1] (время/дата), а 6005 - момент старта сеанса для длительности.
+        var script = PowerEventsReader.BuildScript(30);
+
+        Assert.Contains("Id=6008", script);
+        Assert.Contains("Id=6005", script);
+    }
+
+    [Fact]
+    public void Parse_FourthField_IsUptimeBeforeSeconds()
+    {
+        var events = PowerEventsReader.Parse(
+            Line("2026-08-05T13:00:58.0000000+00:00", "0", "0") + ";3600");
+
+        Assert.Equal(3600, Assert.Single(events).UptimeBeforeSeconds);
+        Assert.Equal(TimeSpan.FromHours(1), Assert.Single(events).UptimeBefore);
+    }
+
+    [Fact]
+    public void Parse_WithoutFourthField_UptimeIsNull_BackwardCompatible()
+    {
+        // Старые записи/старая версия агента шлют только 3 поля - парсер не имеет права
+        // падать или требовать четвёртое.
+        var events = PowerEventsReader.Parse(Line("2026-08-05T13:00:58.0000000+00:00", "0", "0"));
+
+        Assert.Null(Assert.Single(events).UptimeBeforeSeconds);
+    }
 }

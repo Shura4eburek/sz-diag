@@ -293,13 +293,18 @@ public sealed class SqliteSessionStore : ISessionStore
             await using var insert = conn.CreateCommand();
             insert.CommandText = """
                 INSERT INTO reboots (sz, at, prev_boot, new_boot, uptime_before, activity, kind, source, bugcheck)
-                VALUES ($sz, $at, NULL, NULL, NULL, NULL, $kind, $source, $bugcheck);
+                VALUES ($sz, $at, NULL, NULL, $uptime, NULL, $kind, $source, $bugcheck);
                 """;
             insert.Parameters.AddWithValue("$sz", report.Sz);
             insert.Parameters.AddWithValue("$at", at);
             insert.Parameters.AddWithValue("$kind", evt.Kind);
             insert.Parameters.AddWithValue("$source", RebootSource.Journal);
             insert.Parameters.AddWithValue("$bugcheck", evt.Bugcheck != 0 ? evt.Bugcheck : DBNull.Value);
+            // Длительность сеанса от 6005 до 6008 (бэклог п.223) - раньше журнальные записи
+            // всегда шли с NULL, и «Продержалась» в `szcli reboots` оставалась прочерком даже
+            // когда агент это время уже знал.
+            insert.Parameters.AddWithValue("$uptime",
+                evt.UptimeBeforeSeconds.HasValue ? evt.UptimeBeforeSeconds.Value : DBNull.Value);
             await insert.ExecuteNonQueryAsync(ct);
             added++;
         }

@@ -77,7 +77,16 @@ public sealed record MaintenanceWindow(
 /// <summary>Событие питания из журнала клиента — то, что агент приносит hub при регистрации.</summary>
 /// <param name="Kind">Классификация по полям события (<see cref="ShutdownKind"/>).</param>
 /// <param name="Bugcheck">Стоп-код BSOD (decimal из события; 0 — BSOD не было).</param>
-public sealed record PowerEvent(DateTimeOffset At, string Kind, long Bugcheck = 0);
+/// <param name="UptimeBeforeSeconds">Сколько шёл сеанс от предыдущей загрузки (EventLog 6005)
+/// до самого отказа — не наскозь между загрузками, которое включает время простоя в
+/// выключенном состоянии (бэклог п.223, СЗ 161716: сквозной счёт «13,5 часов» на деле был
+/// ~6 часами тремя сеансами со штатными выключениями между ними).</param>
+public sealed record PowerEvent(DateTimeOffset At, string Kind, long Bugcheck = 0,
+    long? UptimeBeforeSeconds = null)
+{
+    public TimeSpan? UptimeBefore =>
+        UptimeBeforeSeconds is { } s ? TimeSpan.FromSeconds(s) : null;
+}
 
 /// <summary>Пачка событий из журнала клиента.</summary>
 public sealed record PowerEventsReport(string Sz, IReadOnlyList<PowerEvent> Events);
