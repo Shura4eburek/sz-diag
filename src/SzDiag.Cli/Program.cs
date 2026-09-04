@@ -61,6 +61,8 @@ var szArgIndex = command switch
     // szcli sz fetch <СЗ>: номер третий. У `sz release` номера нет — ветка не сработает.
     "sz" when args.Length >= 3 && args[1].Equals("fetch", StringComparison.OrdinalIgnoreCase) => 2,
     "test" or "diag" when args.Length >= 3 => 2,
+    "app" when args.Length >= 3 && (args[1].Equals("run", StringComparison.OrdinalIgnoreCase)
+        || args[1].Equals("restart", StringComparison.OrdinalIgnoreCase)) => 2,
     _ => -1
 };
 if (szArgIndex > 0 && !SzNumber.IsValid(args[szArgIndex]))
@@ -207,6 +209,12 @@ switch (command)
     // инструментов, наши временные каталоги) — бэклог п.56/88/99.
     case "client" when args.Length >= 2:
         return await ClientCommand.RunAsync(client, args);
+
+    // app run|restart: GUI-приложение клиента elevated в его интерактивной сессии — агент
+    // под SYSTEM живёт в session 0, откуда Start-Process не создаёт окна (бэклог, пункт
+    // без номера — SignalRGB/OCCT/TM5 повторяли одну и ту же ad-hoc задачу трижды).
+    case "app" when args.Length >= 2:
+        return await AppCommand.RunAsync(client, args[1..]);
 
     // agent set <СЗ> Ключ=значение: правка конфига агента с хоста. WatchdogHours применяется
     // сразу (перевзвод задачи), остальное — при следующем открытии доступа (бэклог п.86).
@@ -703,6 +711,8 @@ static void PrintUsage()
                 [grey]забрать файлы (маска [/]*.dmp[grey], папка или несколько путей) в[/] hub\pulled\<СЗ>\<время>\
                 [grey]-r — с подпапками (LiveKernelReports держит дампы в[/] WATCHDOG*[grey])[/]
               [yellow]szcli agent restart[/] [blue]<СЗ>[/] [grey][[--ssh]][/]  поднять агента заново (задачей под SYSTEM); --ssh — в обход exec-канала
+              [yellow]szcli app run[/] [blue]<СЗ>[/] [grey]<exe> [[--args "..."]] [[--elevated]] [[--wait N]][/]   GUI elevated в сессии пользователя
+              [yellow]szcli app restart[/] [blue]<СЗ>[/] [grey]<имя> [[--launcher <exe>]][/]   погасить/поднять службу/перезапустить лаунчер
               [yellow]szcli agent set[/] [blue]<СЗ>[/] [grey]WatchdogHours=12[/]  правка конфига агента с хоста
               [yellow]szcli client[/] [grey]info|cleanup <СЗ>[/]  следы прогонов на клиенте и их уборка
               [yellow]szcli maintenance[/] [blue]<СЗ>[/] [grey]"причина" [[--from 18:30]] [[--until 19:15]] | --list[/]
