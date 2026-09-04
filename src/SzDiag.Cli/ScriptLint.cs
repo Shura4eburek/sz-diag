@@ -1,3 +1,4 @@
+using System.Linq;
 using System.Text.RegularExpressions;
 
 namespace SzDiag.Cli;
@@ -21,6 +22,76 @@ public static class ScriptLint
     private static readonly Regex Concat = new(
         @"(['""]\s*\+)|(\+\s*['""])", RegexOptions.Compiled);
 
+    /// <summary>Содержимое одинарных/двойных строковых литералов — чтобы не путать запятую
+    /// или `+`, которые оказались ВНУТРИ строки (напр. `-join ', '` или текст с запятой),
+    /// с настоящим разделителем списка/конкатенацией снаружи строк (бэклог п.185, СЗ ловила
+    /// ложные срабатывания на собственных рецептах: `'снято: ' + ($killed -join ', ')` и
+    /// `"жив ($($kid.Name), pid=...)"` — запятая была частью текста, а не элементом массива).</summary>
+    private static readonly Regex StringLiteral = new(
+        @"'[^'\n]*'|""[^""\n]*""", RegexOptions.Compiled);
+
+    private static readonly Regex FunctionDecl = new(
+        @"function\s+([A-Za-z0-9_.-]+)\s*(\([^)]*\))?\s*\{", RegexOptions.Compiled);
+
+    /// <summary>Прячет содержимое строковых литералов (оставляя пустые кавычки), чтобы
+    /// эвристики ниже не путали пунктуацию ВНУТРИ текста с реальным синтаксисом скрипта.</summary>
+    private static string MaskStringLiterals(string line) =>
+        StringLiteral.Replace(line, m => m.Value.Length > 0 ? m.Value[0].ToString() + m.Value[^1] : m.Value);
+
+    /// <summary>Глубина вложенности скобок `(){}[]` в префиксе строки до <paramref name="index"/>
+    /// (не включая символ на этой позиции).</summary>
+    private static int DepthAt(string line, int index)
+    {
+        var depth = 0;
+        for (var i = 0; i < index && i < line.Length; i++)
+        {
+            var c = line[i];
+            if (c is '(' or '{' or '[') depth++;
+            else if (c is ')' or '}' or ']') depth--;
+        }
+        return depth;
+    }
+
+    /// <summary>Индекс ближайшей неЗакрытой открывающей скобки, охватывающей позицию
+    /// <paramref name="index"/>, либо -1, если позиция на верхнем уровне (скобок нет вовсе).</summary>
+    private static int FindEnclosingOpenIndex(string line, int index)
+    {
+        var stack = new Stack<int>();
+        for (var i = 0; i < index && i < line.Length; i++)
+        {
+            var c = line[i];
+            if (c is '(' or '{' or '[') stack.Push(i);
+            else if (c is ')' or '}' or ']' && stack.Count > 0) stack.Pop();
+        }
+        return stack.Count > 0 ? stack.Peek() : -1;
+    }
+
+    /// <summary>`(` сразу после имени (без пробела) — синтаксис вызова метода/функции
+    /// (`.Insert(`, `::Round(`, `CreateFileW(`), а не PowerShell-конструктор списка. У вызова
+    /// каждый аргумент между запятыми — самостоятельное выражение с обычным приоритетом
+    /// операторов, туда правило «запятая сильнее +» не относится (иначе `$out.Insert($idx,
+    /// $k + '=' + $v)` и Win32-обёртки NVMe (`CreateFileW(@"…" + n, 0, …)`) ловились ложно —
+    /// бэклог п.185).</summary>
+    private static bool IsCallParen(string line, int openParenIndex) =>
+        openParenIndex > 0 && line[openParenIndex] == '('
+        && (char.IsLetterOrDigit(line[openParenIndex - 1]) || line[openParenIndex - 1] == '_');
+
+    /// <summary>Есть ли на строке запятая на той же глубине вложенности скобок, что и найденная
+    /// конкатенация (настоящий сосед по одному и тому же списку/массиву), при условии, что эта
+    /// глубина не находится внутри безопасного вызова метода/функции.</summary>
+    private static bool HasSiblingCommaAtSameDepth(string line, int matchIndex)
+    {
+        var enclosing = FindEnclosingOpenIndex(line, matchIndex);
+        if (enclosing >= 0 && IsCallParen(line, enclosing)) return false;
+
+        var matchDepth = DepthAt(line, matchIndex);
+        for (var i = 0; i < line.Length; i++)
+        {
+            if (line[i] == ',' && DepthAt(line, i) == matchDepth) return true;
+        }
+        return false;
+    }
+
     /// <summary>Предупреждения по тексту скрипта. Пустой список — подозрительного не нашли.</summary>
     public static IReadOnlyList<string> Check(string script)
     {
@@ -30,16 +101,25 @@ public static class ScriptLint
 
         foreach (var raw in text.Split('\n'))
         {
-            var line = raw.Trim().TrimEnd('\r').Trim();
-            if (line.Length == 0) continue;
+            var rawLine = raw.Trim().TrimEnd('\r').Trim();
+            if (rawLine.Length == 0) continue;
+
+            // Маскируем текст ВНУТРИ строковых литералов — запятая или «+» там ничего
+            // не ломает, это просто содержимое строки, а не синтаксис списка.
+            var line = MaskStringLiterals(rawLine);
 
             var match = Concat.Match(line);
             if (!match.Success) continue;
             // Запятая рядом с конкатенацией = элемент списка. Без неё «+» ничего не ломает.
             if (!line.Contains(',')) continue;
-            // Скобка перед конкатенацией фиксирует приоритет — это правильный способ записи.
-            var head = line[..match.Index];
-            if (head.Count(c => c == '(') > head.Count(c => c == ')')) continue;
+            // Опасна только запятая на ТОМ ЖЕ уровне вложенности скобок, что и сама
+            // конкатенация — это и значит «сосед по списку». Запятая внутри дополнительных
+            // скобок — это уже аргумент оператора (-replace/-f/-join) или вызова функции,
+            // а не элемент того же массива (бэклог п.185: `-replace 'a', 'b'`,
+            // `-f $x, $y` и bare-аргументы внешней команды `--format=csv,noheader` ложно
+            // ловились как «список развалится», хотя запятая жила в СВОЁМ, более глубоком
+            // выражении).
+            if (!HasSiblingCommaAtSameDepth(line, match.Index)) continue;
 
             dangerous = true;
             break;
@@ -54,6 +134,82 @@ public static class ScriptLint
                 + "— или собери текст here-string @\"…\"@.");
         }
 
+        CheckFunctionReturnPollution(text, warnings);
+
         return warnings;
+    }
+
+    /// <summary>Бэклог п.195 (СЗ 161190): всё, что «голой» строкой попало в тело функции,
+    /// входит в её возвращаемое значение вместе с $true/$false из if/return — непустой
+    /// массив в булевом контексте истинен, и первый же промежуточный вывод объявляется
+    /// вердиктом. Предупреждаем, только если результат функции реально где-то проверяется
+    /// (`if (Имя …)`) или присваивается — иначе это неопасный побочный вывод.</summary>
+    private static void CheckFunctionReturnPollution(string text, List<string> warnings)
+    {
+        foreach (Match decl in FunctionDecl.Matches(text))
+        {
+            var name = decl.Groups[1].Value;
+            var braceIndex = decl.Index + decl.Length - 1; // позиция открывающей '{'
+            var body = ExtractBalancedBody(text, braceIndex);
+            if (body == null) continue;
+            if (!HasBareStringStatement(body)) continue;
+
+            var usage = new Regex(
+                @"(if\s*\(\s*|=\s*)" + Regex.Escape(name) + @"\b", RegexOptions.Compiled);
+            var usedAsValue = usage.Matches(text)
+                .Cast<Match>()
+                .Any(m => m.Index < decl.Index || m.Index >= decl.Index + decl.Length);
+            if (!usedAsValue) continue;
+
+            warnings.Add(
+                $"функция «{name}» держит «голые» строки в теле — они попадут в её "
+                + "возвращаемое значение вместе с $true/$false из if/return, и непустой "
+                + "массив в булевом контексте всегда истинен (бэклог п.195). Замени вывод "
+                + "статуса на $script:-переменную или Write-Host, а `return` оставь только "
+                + "для итогового значения.");
+            break;
+        }
+    }
+
+    /// <summary>Вытаскивает тело `{ … }` начиная с открывающей скобки по индексу
+    /// <paramref name="openBraceIndex"/> (наивный подсчёт глубины, без учёта строк/комментариев —
+    /// для целей линтера этого достаточно).</summary>
+    private static string? ExtractBalancedBody(string text, int openBraceIndex)
+    {
+        if (openBraceIndex < 0 || openBraceIndex >= text.Length || text[openBraceIndex] != '{')
+            return null;
+
+        var depth = 0;
+        for (var i = openBraceIndex; i < text.Length; i++)
+        {
+            if (text[i] == '{') depth++;
+            else if (text[i] == '}')
+            {
+                depth--;
+                if (depth == 0) return text.Substring(openBraceIndex + 1, i - openBraceIndex - 1);
+            }
+        }
+
+        return null;
+    }
+
+    /// <summary>Ищет в теле функции самостоятельный оператор, который является ЦЕЛИКОМ
+    /// строковым литералом (не присвоен, не передан в Write-Host/return/throw и т.п.) —
+    /// именно такие строки незаметно всасываются в возврат функции.</summary>
+    private static bool HasBareStringStatement(string body)
+    {
+        foreach (var raw in body.Split(';', '\n'))
+        {
+            var stmt = raw.Trim().TrimEnd('\r').Trim();
+            if (stmt.Length < 2) continue;
+
+            var quote = stmt[0];
+            if (quote != '\'' && quote != '"') continue;
+            if (stmt[^1] != quote) continue;
+
+            return true;
+        }
+
+        return false;
     }
 }

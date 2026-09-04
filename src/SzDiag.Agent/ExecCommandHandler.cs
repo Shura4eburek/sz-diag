@@ -54,7 +54,10 @@ public sealed class ExecCommandHandler
                 var state = j.Running
                     ? "выполняется"
                     : j.ExitCode is { } c ? $"завершена (exit {c})" : "не из этой жизни агента";
-                return $"{j.JobId}  {state}, старт {j.StartedAt:dd.MM HH:mm:ss}, вывода {j.OutputBytes} б";
+                // Скрипт видно СРАЗУ в списке — раньше «фоновых задач: 2» ничего не говорило о
+                // том, что именно грузит машину (бэклог п.126/183, СЗ 161346).
+                var script = string.IsNullOrEmpty(j.ScriptPreview) ? "" : $"\n    {j.ScriptPreview}";
+                return $"{j.JobId}  {state}, старт {j.StartedAt:dd.MM HH:mm:ss}, вывода {j.OutputBytes} б{script}";
             }));
         return new ExecJobStatus(request.RequestId, "*", false, null, text, DateTimeOffset.Now, 0);
     }

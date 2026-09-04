@@ -49,7 +49,10 @@ public sealed class DiagReportRunner
         // CIM-пробы быстрые, но события/reliability могут занять секунды — уводим с потока SignalR.
         var output = await Task.Run(() => _runner.Run(runSuite, sz, _hostname, now, OnStep), ct);
 
-        var md = DiagReportBuilder.Build(output.Report);
+        // Дёшево (File.Exists, без PowerShell) и обязательно видно в шапке — забытая
+        // заморозка WU иначе всплывает только на закрытии СЗ (бэклог п.139/150).
+        var report = output.Report with { WuFrozen = WindowsUpdateFreezeGuard.IsMarked() };
+        var md = DiagReportBuilder.Build(report);
         await _link.UploadReportFileAsync(
             new UploadReportPart(sz, timestamp, "diag.md", Encoding.UTF8.GetBytes(md)), ct);
 

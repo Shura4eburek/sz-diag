@@ -20,6 +20,22 @@ public class WindowsUpdateFreezeTests
         Assert.Contains("-Name Start -Value 4", script);
     }
 
+    // Бэклог п.150 (СЗ 161716): Stop-Service на wuauserv молча не срабатывает — служба
+    // остаётся Running, а freeze рапортует «применилось не всё». Нужен принудительный kill
+    // хост-процесса svchost этой службы, а не только Start=4 в реестре.
+    [Fact]
+    public void Freeze_ForceKillsHostProcess_WhenServiceStaysRunning()
+    {
+        var script = WindowsUpdateFreeze.BuildFreezeScript();
+
+        foreach (var svc in WindowsUpdateFreeze.Services)
+        {
+            Assert.Contains($"Win32_Service -Filter \"Name='{svc}'\"", script);
+        }
+        Assert.Contains("Stop-Process -Id", script);
+        Assert.Contains("-Force", script);
+    }
+
     [Fact]
     public void Freeze_PointsClientAtNonexistentWsus()
     {

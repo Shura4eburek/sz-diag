@@ -77,7 +77,7 @@ try
 switch (command)
 {
     case "list":
-        AnsiConsole.Write(SessionTableRenderer.Render(await client.GetSessionsAsync()));
+        AnsiConsole.Write(SessionTableRenderer.Render(await client.GetSessionsAsync(), isFrozen: IsFrozenLocal));
         break;
 
     case "watch":
@@ -177,6 +177,11 @@ switch (command)
     // инструментов, наши временные каталоги) — бэклог п.56/88/99.
     case "client" when args.Length >= 2:
         return await ClientCommand.RunAsync(client, args);
+
+    // stress stop: снять ВСЮ нагрузку одной командой — процессы, lhmmon, фоновые
+    // exec --detach задачи, задачи планировщика, драйверы (бэклог п.126/183).
+    case "stress" when args.Length >= 2:
+        return await StressCommand.RunAsync(client, args);
 
     // agent set <СЗ> Ключ=значение: правка конфига агента с хоста. WatchdogHours применяется
     // сразу (перевзвод задачи), остальное — при следующем открытии доступа (бэклог п.86).
@@ -371,6 +376,15 @@ switch (command)
             return 2;
         }
         break;
+    }
+
+    // diag status: упавший/висящий прогон обязан быть виден, а не выглядеть пустой папкой
+    // (бэклог п.6, СЗ 160306) — сводит Activity сессии (обновляется на каждом шаге прогона
+    // агентом) и самый свежий diag.md на диске, без нового похода к агенту.
+    case "diag" when args.Length >= 3 && args[1].Equals("status", StringComparison.OrdinalIgnoreCase):
+    {
+        var reportsDir = new KbPaths(options.KbRoot).ReportsDir(args[2]);
+        return await DiagStatusCommand.RunAsync(client, args[2], reportsDir);
     }
 
     // Секции принимаем и через запятую, и несколькими аргументами; опечатка — ошибка, а не
@@ -680,6 +694,7 @@ static void PrintUsage()
                 [grey]прогон тестов; метка конфигурации обязательна («EXPO 6000, штатный БП»),[/]
                 [grey]повторить ту же — --same-config[/]
               [yellow]szcli diag run[/] [blue]<СЗ>[/] [grey][[storage,events|…]][/]  диагностика (снапшот; секции точечно)
+              [yellow]szcli diag status[/] [blue]<СЗ>[/]  идёт ли прогон/упал ли он, плюс путь к свежему отчёту
                 [grey]секции: system cpu memory gpu storage temps drivers events reboots whea livekernel reliability battery[/]
                 [grey]можно через запятую или пробел; all — все; алиасы: hw ram disks video bsod tdr temp[/]
               [yellow]szcli exec[/] [blue]<СЗ>[/] [grey]"<powershell>" | -f <файл> [[--timeout <сек>]] [[--detach [[--isolated]]]] [[--as-system]][/]
@@ -698,6 +713,7 @@ static void PrintUsage()
               [yellow]szcli agent restart[/] [blue]<СЗ>[/]  поднять агента заново (задачей под SYSTEM, без похода к машине)
               [yellow]szcli agent set[/] [blue]<СЗ>[/] [grey]WatchdogHours=12[/]  правка конфига агента с хоста
               [yellow]szcli client[/] [grey]info|cleanup <СЗ>[/]  следы прогонов на клиенте и их уборка
+              [yellow]szcli stress stop[/] [blue]<СЗ>[/]  снять ВСЮ нагрузку разом (процессы, lhmmon, фон, драйверы)
               [yellow]szcli maintenance[/] [blue]<СЗ>[/] [grey]"причина" [[--from 18:30]] [[--until 19:15]] | --list[/]
                 [grey]метка «работали руками»: события питания в окне — не вырубон[/]
               [yellow]szcli kb[/] …               работа с базой знаний ([grey]record/summary/search/rm[/])
@@ -743,6 +759,10 @@ static async Task PrintRebootSummaryAsync(IHubApiClient client, string sz)
 static string ResolveLocal(string path)
     => Path.IsPathRooted(path) ? path : Path.Combine(AppContext.BaseDirectory, path);
 
+// Проверка чисто хостовая (файл рядом с szcli) — без сети, безопасно дёргать на каждый
+// тик watch/list (бэклог п.139).
+static bool IsFrozenLocal(string sz) => FreezeCommand.IsFrozen(AppContext.BaseDirectory, sz);
+
 static async Task WatchAsync(IHubApiClient client)
 {
     AnsiConsole.Write(new Rule("[bold]sz-diag[/] — онлайн-СЗ").LeftJustified());
@@ -750,7 +770,7 @@ static async Task WatchAsync(IHubApiClient client)
     // никто не догадывается набрать посреди заявки (бэклог п.198/205/211).
     AnsiConsole.MarkupLineInterpolated($"[grey]{Markup.Escape(CliCommands.Describe())}[/] · Ctrl+C для выхода.\n");
 
-    var table = SessionTableRenderer.Render(Array.Empty<SzDiag.Contracts.SessionInfo>());
+    var table = SessionTableRenderer.Render(Array.Empty<SzDiag.Contracts.SessionInfo>(), isFrozen: IsFrozenLocal);
     await AnsiConsole.Live(table)
         .AutoClear(false)
         .Overflow(VerticalOverflow.Ellipsis)
@@ -774,7 +794,8 @@ static async Task WatchAsync(IHubApiClient client)
                     continue;
                 }
 
-                ctx.UpdateTarget(SessionTableRenderer.Render(sessions).Caption($"обновлено {DateTime.Now:HH:mm:ss}"));
+                ctx.UpdateTarget(SessionTableRenderer.Render(sessions, isFrozen: IsFrozenLocal)
+                    .Caption($"обновлено {DateTime.Now:HH:mm:ss}"));
                 ctx.Refresh();
                 await Task.Delay(1000);
             }

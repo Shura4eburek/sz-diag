@@ -1,4 +1,4 @@
-namespace SzDiag.Contracts;
+﻿namespace SzDiag.Contracts;
 
 /// <summary>Следы, которые мы оставляем на клиентской машине, и их уборка.
 ///
@@ -77,18 +77,24 @@ public static class ClientTraces
             """;
     }
 
-    /// <summary>Уборка: снять задачи с нашим префиксом, выгрузить и удалить драйверы
-    /// инструментов, вычистить наши временные каталоги.</summary>
-    /// <param name="keepTasks">Задачи, которые снимать НЕЛЬЗЯ (текущая сессия: sshd, watchdog,
-    /// автостарт) — иначе уборка обрубит доступ сама себе.</param>
-    public static string BuildCleanupScript(IReadOnlyList<string>? keepTasks = null)
+    /// <summary>Процессы стресс-тулов, включая подтесты, что переживают закрытие оболочки
+    /// (бэклог п.213), и `lhmmon` — обычная уборка его сознательно не трогает (наблюдатель
+    /// должен жить, пока идёт тест), но «снять ВСЮ нагрузку разом» обязан выключить и его
+    /// тоже: иначе `wipe-tools` спотыкается о занятый файл (бэклог п.126/183).</summary>
+    public static readonly string[] StressProcessNames =
+    {
+        "OCCTCmd", "OCCT", "furmark", "TM5", "3DMarkCmd", "prime95", "y-cruncher", "Kagari",
+        "linpack", "gpu3d-Win64-Shipping", "gpu_unreal", "memtest*", "lhmmon",
+    };
+
+    /// <summary>Общая часть уборки/аварийной остановки: снять наши задачи планировщика (кроме
+    /// `keepTasks` — рабочего доступа текущей сессии) и выгрузить драйверы инструментов.</summary>
+    private static string TasksAndDriversScript(IReadOnlyList<string>? keepTasks)
     {
         var keep = string.Join(",", (keepTasks ?? Array.Empty<string>()).Select(t => $"'{t}'"));
         var services = string.Join(",", ToolServices.Select(s => $"'{s}'"));
-        var dirs = string.Join(",", TempDirs.Select(d => $"'{d}'"));
         var jobsDir = TempDirs[0].Replace("'", "''");
         return $$"""
-            $ErrorActionPreference = 'SilentlyContinue'
             $keep = @({{keep}})
             # Изолированная (scheduled-task) фоновая задача переживает падение агента специально
             # (бэклог п.53), но снятие самой задачи ниже НЕ убивает дерево процессов —
@@ -114,6 +120,19 @@ public static class ClientTraces
                     'снят драйвер: ' + $svc
                 }
             }
+            """;
+    }
+
+    /// <summary>Уборка: снять задачи с нашим префиксом, выгрузить и удалить драйверы
+    /// инструментов, вычистить наши временные каталоги.</summary>
+    /// <param name="keepTasks">Задачи, которые снимать НЕЛЬЗЯ (текущая сессия: sshd, watchdog,
+    /// автостарт) — иначе уборка обрубит доступ сама себе.</param>
+    public static string BuildCleanupScript(IReadOnlyList<string>? keepTasks = null)
+    {
+        var dirs = string.Join(",", TempDirs.Select(d => $"'{d}'"));
+        return $$"""
+            $ErrorActionPreference = 'SilentlyContinue'
+            {{TasksAndDriversScript(keepTasks)}}
             foreach ($dir in @({{dirs}})) {
                 if (Test-Path $dir) {
                     Remove-Item $dir -Recurse -Force -ErrorAction SilentlyContinue
@@ -121,6 +140,39 @@ public static class ClientTraces
                 }
             }
             'cleanup-done'
+            """;
+    }
+
+    /// <summary>«Снять ВСЮ нагрузку одной командой» — процессы стресс-тулов и `lhmmon`,
+    /// фоновые `exec --detach`-задачи, что гоняют наши скрипты, задачи планировщика и
+    /// драйверы инструментов. НЕ трогает временные каталоги — это забота `client cleanup`/
+    /// `wipe-tools`, которым здесь освобождается путь (файлы больше не заняты).
+    ///
+    /// Боль (бэклог п.126, СЗ 161346): рецепт задавил канал управления, `exec` не проходил,
+    /// а оператор успел остановить только OCCT руками — фоновая дисковая нагрузка продолжала
+    /// давить машину ещё 180 минут незамеченной. Боль (бэклог п.183): `stop-stress.ps1`
+    /// сознательно не трогал `lhmmon`, поэтому его процесс/задача/драйвер `R0lhmmon`
+    /// переживали «остановку», и `wipe-tools` спотыкался об занятую папку.</summary>
+    /// <param name="keepTasks">Задачи текущей сессии (sshd/watchdog/автостарт) — не трогать.</param>
+    public static string BuildStressStopScript(IReadOnlyList<string>? keepTasks = null)
+    {
+        var names = string.Join(",", StressProcessNames.Select(n => $"'{n}'"));
+        return $$"""
+            $ErrorActionPreference = 'SilentlyContinue'
+            $killed = @()
+            foreach ($n in @({{names}})) {
+                $p = Get-Process $n -ErrorAction SilentlyContinue
+                if ($p) { $p | Stop-Process -Force -ErrorAction SilentlyContinue; $killed += "$n x$($p.Count)" }
+            }
+            $jobs = @(Get-CimInstance Win32_Process -Filter "Name='powershell.exe'" -ErrorAction SilentlyContinue |
+                Where-Object { $_.CommandLine -and $_.CommandLine -match 'szdiag\\jobs' })
+            foreach ($j in $jobs) {
+                Stop-Process -Id $j.ProcessId -Force -ErrorAction SilentlyContinue
+                $killed += "job pid=$($j.ProcessId)"
+            }
+            if ($killed.Count -eq 0) { 'процессов не было — снимать нечего' } else { 'снято: ' + ($killed -join ', ') }
+            {{TasksAndDriversScript(keepTasks)}}
+            'stress-stop-done'
             """;
     }
 

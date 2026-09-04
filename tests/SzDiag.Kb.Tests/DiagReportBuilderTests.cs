@@ -1,4 +1,4 @@
-using SzDiag.Kb;
+﻿using SzDiag.Kb;
 using Xunit;
 
 namespace SzDiag.Kb.Tests;
@@ -78,5 +78,36 @@ public class DiagReportBuilderTests
         var md = Build(new TestStepResult("Диски", TestStepKind.Command, Output: "OK", ExitCode: 0));
 
         Assert.Contains("Секций запрошено: 1, выполнено: 1.", md);
+    }
+
+    // Бэклог п.139/150: заморозку WU не ставили неделями, и это было незаметно, пока не
+    // закрывали СЗ. Незащищённая машина обязана кричать прямо в шапке diag.md.
+    [Fact]
+    public void WuNotFrozen_WarnsInHeader()
+    {
+        var md = DiagReportBuilder.Build(new TestReport("161716", "PC-1", At,
+            new[] { new TestStepResult("Диски", TestStepKind.Command, Output: "OK", ExitCode: 0) },
+            WuFrozen: false));
+
+        Assert.Contains("Windows Update НЕ заморожен", md);
+    }
+
+    [Fact]
+    public void WuFrozen_NoWarningPrinted()
+    {
+        var md = DiagReportBuilder.Build(new TestReport("161716", "PC-1", At,
+            new[] { new TestStepResult("Диски", TestStepKind.Command, Output: "OK", ExitCode: 0) },
+            WuFrozen: true));
+
+        Assert.DoesNotContain("НЕ заморожен", md);
+    }
+
+    [Fact]
+    public void WuFreezeUnknown_NoWarningPrinted()
+    {
+        // test run (не read-only diag) — проверка неприменима, шуметь незачем.
+        var md = Build(new TestStepResult("Диски", TestStepKind.Command, Output: "OK", ExitCode: 0));
+
+        Assert.DoesNotContain("заморожен", md);
     }
 }

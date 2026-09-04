@@ -168,13 +168,16 @@ public class ExecCommandHandlerTests
         {
             var jobs = new BackgroundJobs(root);
             var handler = new ExecCommandHandler(new StubPs(new PsResult(0, "", "")), jobs);
-            var started = jobs.Start(new ExecRequest("160306", "r1", "Start-Sleep -Seconds 60", 60,
+            var started = jobs.Start(new ExecRequest("160306", "r1", "iostress.ps1 -DiskLoad", 60,
                 Detached: true));
 
             var st = handler.Status(new ExecStatusRequest("160306", "r2", "*", 10));
 
             Assert.Null(st.Error);
             Assert.Contains(started.JobId!, st.Tail);
+            // Бэклог п.126/183 (СЗ 161346): счётчик задач ничего не говорил о том, ЧТО именно
+            // грузит машину — оператор снял OCCT, а диск-стресс продолжал давить незамеченным.
+            Assert.Contains("iostress.ps1", st.Tail);
             jobs.Stop(started.JobId!);
         }
         finally

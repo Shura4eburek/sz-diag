@@ -1,3 +1,4 @@
+using System.Linq;
 using System.Text.Json;
 using Spectre.Console;
 using SzDiag.Contracts;
@@ -140,9 +141,47 @@ public static class SensorsCommand
 
         File.Delete(StatePath(stateDir, sz));
         AnsiConsole.MarkupLineInterpolated($"[green]СЗ {sz}: наблюдатель остановлен.[/]");
-        AnsiConsole.MarkupLineInterpolated($"[grey]Забрать CSV:[/] szcli pull {sz} \"{run.CsvPath}\"");
+
+        // Бэклог п.7: раньше CSV нужно было забирать руками и заново писать разбор на каждой
+        // заявке. Теперь `stop` сам подтягивает файл и кладёт готовую сводку в журнал СЗ —
+        // «была ли нагрузка настоящей» видно без отдельного ритуала.
+        await AutoCollectAsync(client, sz, run.CsvPath);
         return 0;
     }
+
+    /// <summary>Забрать CSV на хост, разобрать и положить сводку в журнал СЗ. Неудача здесь —
+    /// не критична (наблюдатель уже остановлен, CSV на клиенте цел) — оператор заберёт руками.</summary>
+    private static async Task AutoCollectAsync(IHubApiClient client, string sz, string csvPath)
+    {
+        try
+        {
+            var pulled = await client.PullAsync(sz, csvPath);
+            var saved = pulled?.Files.FirstOrDefault(f => f.SavedPath is not null)?.SavedPath;
+            if (saved is null)
+            {
+                AnsiConsole.MarkupLineInterpolated(
+                    $"[yellow]CSV не забрался автоматически — забери руками:[/] szcli pull {sz} \"{csvPath}\"");
+                return;
+            }
+
+            var parsed = SensorReport.ParseAny(await File.ReadAllTextAsync(saved));
+            var summary = SensorReport.Format(SensorReport.Summarize(parsed.Samples, format: parsed.Format));
+            AnsiConsole.MarkupLineInterpolated($"[grey]CSV забран:[/] {saved}");
+            Console.WriteLine(summary);
+
+            await client.AddNoteAsync(sz, BuildJournalNote(Path.GetFileName(csvPath), summary));
+            AnsiConsole.MarkupLine("[grey]Сводка добавлена в журнал СЗ.[/]");
+        }
+        catch (Exception ex)
+        {
+            AnsiConsole.MarkupLineInterpolated(
+                $"[yellow]Автозабор CSV не удался ({ex.Message}) — забери руками:[/] szcli pull {sz} \"{csvPath}\"");
+        }
+    }
+
+    /// <summary>Текст записи в журнал СЗ по итогам прогона сенсоров — чистая функция ради тестов.</summary>
+    public static string BuildJournalNote(string csvFileName, string summaryText)
+        => $"Сводка сенсоров ({csvFileName}):\n{summaryText}";
 
     /// <summary>Разбор забранного CSV — считает, сколько времени нагрузка реально держалась.</summary>
     private static int Report(string csvPath)

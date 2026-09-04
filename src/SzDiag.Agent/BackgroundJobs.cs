@@ -1,4 +1,4 @@
-using System.Collections.Concurrent;
+﻿using System.Collections.Concurrent;
 using System.Diagnostics;
 using System.Text;
 using SzDiag.Contracts;
@@ -16,8 +16,13 @@ namespace SzDiag.Agent;
 /// переживает жёсткий вырубон, ровно как самодельный наблюдатель-CSV, который приходилось
 /// городить руками (п.64). Хвост читается коротким запросом в любой момент.</summary>
 /// <summary>Краткая сводка по фоновой задаче для списка `szcli exec --jobs`.</summary>
+/// <param name="ScriptPreview">Первая непустая строка присланного скрипта — раньше `list`/
+/// `exec --jobs` показывал только счётчик («фоновых задач: 2») без единого намёка, ЧТО
+/// именно грузит машину: на 161346 остановленный оператором OCCT молчал, а фоновая задача
+/// с диск-стрессом продолжала давить систему ещё 180 минут никем не опознанной (бэклог
+/// п.126/183).</param>
 public sealed record ExecJobSummary(string JobId, bool Running, int? ExitCode,
-    DateTimeOffset StartedAt, long OutputBytes);
+    DateTimeOffset StartedAt, long OutputBytes, string? ScriptPreview = null);
 
 public sealed class BackgroundJobs
 {
@@ -322,7 +327,8 @@ public sealed class BackgroundJobs
             }
             var size = 0L;
             try { size = new FileInfo(job.OutPath).Length; } catch { }
-            result[job.Id] = new ExecJobSummary(job.Id, running, exitCode, job.StartedAt, size);
+            result[job.Id] = new ExecJobSummary(job.Id, running, exitCode, job.StartedAt, size,
+                ReadScriptPreview(Path.Combine(_root, job.Id)));
         }
 
         // Задачи с диска (агент мог перезапуститься): состояние процесса неизвестно —
@@ -336,7 +342,7 @@ public sealed class BackgroundJobs
                 var size = 0L;
                 try { size = new FileInfo(Path.Combine(dir, "out.txt")).Length; } catch { }
                 result[id] = new ExecJobSummary(id, false, null,
-                    new DirectoryInfo(dir).CreationTime, size);
+                    new DirectoryInfo(dir).CreationTime, size, ReadScriptPreview(dir));
             }
         }
 
@@ -348,6 +354,25 @@ public sealed class BackgroundJobs
     private static readonly TimeSpan IsolatedStateCacheTtl = TimeSpan.FromSeconds(30);
 
     private readonly ConcurrentDictionary<string, (bool Running, DateTime At)> _isolatedRunningCache = new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>Первая непустая строка `user.ps1` этой задачи, обрезанная до разумной длины —
+    /// именно ПО НЕЙ на живой заявке узнают, что за скрипт крутится, не вспоминая jobId.</summary>
+    private static string? ReadScriptPreview(string jobDir)
+    {
+        try
+        {
+            var path = Path.Combine(jobDir, "user.ps1");
+            if (!File.Exists(path)) return null;
+            foreach (var line in File.ReadLines(path))
+            {
+                var trimmed = line.Trim();
+                if (trimmed.Length == 0) continue;
+                return trimmed.Length > 80 ? trimmed[..80] + "…" : trimmed;
+            }
+            return null;
+        }
+        catch { return null; }
+    }
 
     /// <summary>Сколько задач сейчас реально выполняется. Нужно колонке активности: «была
     /// занята» должна отвечать по текущему состоянию, а не по последней команде (бэклог п.73).

@@ -96,6 +96,47 @@ public class ClientTracesTests
         Assert.Contains(@"C:\ProgramData\szdiag\tools", script);
     }
 
+    // Бэклог п.126/183 (СЗ 161346, 161312): «стоп OCCT» не снимал фоновый дисковый стресс и
+    // lhmmon — единая команда должна бить всё разом.
+    [Fact]
+    public void StressStop_KillsKnownStressProcessesAndLhmmon()
+    {
+        var script = ClientTraces.BuildStressStopScript();
+
+        foreach (var name in new[] { "OCCTCmd", "prime95", "y-cruncher", "lhmmon" })
+            Assert.Contains($"'{name}'", script);
+        Assert.Contains("Stop-Process -Force", script);
+    }
+
+    [Fact]
+    public void StressStop_KillsDetachedExecJobProcesses()
+    {
+        var script = ClientTraces.BuildStressStopScript();
+
+        Assert.Contains("szdiag\\\\jobs", script);
+        Assert.Contains("Stop-Process -Id", script);
+    }
+
+    [Fact]
+    public void StressStop_AlsoRemovesTasksAndDrivers_ButKeepsSessionTasks()
+    {
+        var script = ClientTraces.BuildStressStopScript(new[] { "szdiag-sshd-160306" });
+
+        Assert.Contains("R0lhmmon", script);
+        Assert.Contains("Unregister-ScheduledTask", script);
+        Assert.Contains("'szdiag-sshd-160306'", script);
+        Assert.Contains("$keep -notcontains", script);
+    }
+
+    [Fact]
+    public void StressStop_DoesNotWipeTempDirs()
+    {
+        // Файлы — забота client cleanup/wipe-tools; stress stop только освобождает путь.
+        var script = ClientTraces.BuildStressStopScript();
+
+        Assert.DoesNotContain("Remove-Item", script);
+    }
+
     [Fact]
     public void Cleanup_KillsIsolatedJobProcessTree_BeforeUnregisteringTask()
     {
