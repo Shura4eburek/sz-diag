@@ -181,6 +181,33 @@ public class TestRunnerTests
     }
 
     [Fact]
+    public void Run_AppStep_NeverRedirectsStandardStreams()
+    {
+        // Регрессия-страж (бэклог п.40, СЗ 160636): OCCTCmd.exe читает клавиши ("Use Q to
+        // exit") и при перенаправленных потоках сразу получает EOF и тихо умирает за ~45 с -
+        // ни строки в логах. Рабочий запуск - только в своей консоли (`start` в отдельном
+        // окне), никогда с -RedirectStandardOutput/-RedirectStandardError.
+        var exe = Path.GetTempFileName();
+        try
+        {
+            var exec = new RecordingExecutor();
+            var runner = new TestRunner(exec, new FakeCapturer(new ScreenCapture(null, "n/a")));
+            var suite = new TestSuite { Steps = new[]
+            {
+                new TestStep("app", "OCCT", Exe: exe, Args: "test --schedule=x --auto-start",
+                    DurationSeconds: 1, KillImage: "occtcmd.exe"),
+            } };
+
+            runner.Run(suite, "156864", "PC-1", At);
+
+            var launch = Assert.Single(exec.Commands, c => c.StartsWith("Start-Process"));
+            Assert.DoesNotContain("-RedirectStandardOutput", launch);
+            Assert.DoesNotContain("-RedirectStandardError", launch);
+        }
+        finally { File.Delete(exe); }
+    }
+
+    [Fact]
     public void Run_AppStep_RunToCompletion_CleanExit_NoErrorCapturesArtifact_NoKill()
     {
         var exe = Path.GetTempFileName();
