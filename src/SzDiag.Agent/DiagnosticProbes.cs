@@ -125,7 +125,7 @@ public static class DiagnosticProbes
         // различения corrected/uncorrected (а все 393 были неисправимы), и поверх всего
         // `HealthStatus: Healthy` (бэклог п.27).
         Probe("storage", "Диски (SMART / здоровье / разделы / pagefile)",
-            NvmeSmart.PowerShellPrologue() + """
+            NvmeSmart.PowerShellPrologue() + DiskNumberHistory.PowerShellPrologue() + """
             Get-PhysicalDisk -ErrorAction SilentlyContinue |
                 Select-Object DeviceId, FriendlyName, MediaType, BusType,
                     @{n='GB';e={[math]::Round($_.Size/1GB)}}, HealthStatus, OperationalStatus |
@@ -249,6 +249,62 @@ public static class DiagnosticProbes
                     Format-Table -Auto | Out-String
             } else { "none" }
 
+            "=== Svodka diskovyh sobytiy po Harddisk N (rezolv NA MOMENT SOBYTIYA) ==="
+            # 396 sobytiy 'disk Id=51' na 160705 chut ne uehali v akt klientu kak 'oshibok
+            # nakopitelya net' - ni odna sektsiya ih ne agregirovala i ne privyazyvala k
+            # ustroystvu (backlog p.141). Nomer HarddiskN/RaidPortN plyvet ot zagruzki k
+            # zagruzke (poryadok podklyucheniya) - karta 'na seychas' primenennaya k arhivnoy
+            # oshibke mozhet dat ZERKALNUYU privyazku: na 161346 diski fizicheski pomenyalis
+            # mestami mezhdu sobytiyami i sverkoy (backlog p.133). Rezolvim po istorii
+            # Partition/Diagnostic 1006 na moment KAZHDOGO sobytiya, ne po tekushchey karte.
+            if ($diskEvents.Count -gt 0) {
+                $diskHistory = Get-DiskNumberHistory
+                $kp41Times = @()
+                try {
+                    $kp41Times = @(Get-WinEvent -FilterHashtable @{ LogName='System'; ProviderName='Microsoft-Windows-Kernel-Power'; Id=41 } -ErrorAction Stop |
+                        Select-Object -ExpandProperty TimeCreated)
+                } catch { }
+
+                $rows = foreach ($e in $diskEvents) {
+                    $diskNum = $null
+                    if ($e.Message -match 'Harddisk(\d+)') { $diskNum = [int]$Matches[1] }
+                    $resolved = $null
+                    if ($null -ne $diskNum) { $resolved = Resolve-DiskAtTime $diskHistory $diskNum $e.TimeCreated }
+                    # Gruppiruem NE po nomeru, a po (nomer + serial na tot moment) - esli
+                    # slot pomenyal fizicheskiy disk vnutri okna, oni ne skhlopnutsya v odnu
+                    # stroku s odnim 'model=' na oba.
+                    $identity = if ($resolved) { "$diskNum|$($resolved.Serial)" } else { "$diskNum|?" }
+                    $nearShutdown = $false
+                    if ($kp41Times.Count -gt 0) {
+                        $nearShutdown = [bool]@($kp41Times | Where-Object { [math]::Abs(($_ - $e.TimeCreated).TotalMinutes) -le 5 }).Count
+                    }
+                    [PSCustomObject]@{ Time = $e.TimeCreated; Disk = $diskNum; Identity = $identity; Resolved = $resolved; NearShutdown = $nearShutdown }
+                }
+                foreach ($g in ($rows | Group-Object Identity | Sort-Object Count -Descending)) {
+                    $sample = $g.Group[0]
+                    $label = if ($null -ne $sample.Disk) { "Harddisk$($sample.Disk)" } else { "(nomer diska ne opredelen iz Message)" }
+                    $modelText = if ($sample.Resolved) { "{0} [SN {1}]" -f $sample.Resolved.Model, $sample.Resolved.Serial }
+                                 else { "model NEIZVESTEN na tu datu (istorii Partition/Diagnostic 1006 net)" }
+                    # Sovpadenie serial s TEKUSHCHIM USB-diskom - eto semnyy nositel, k
+                    # defektu sistemnogo diska otnosheniya obychno ne imeet (backlog p.141).
+                    $removableMark = ''
+                    if ($sample.Resolved -and $sample.Resolved.Serial) {
+                        $curMatch = @($dmap.Values | Where-Object { "$($_.SerialNumber)".Trim() -eq $sample.Resolved.Serial }) | Select-Object -First 1
+                        if ($curMatch -and $curMatch.InterfaceType -eq 'USB') { $removableMark = ' [SEMNYY NOSITEL - USB]' }
+                    }
+                    $first = ($g.Group | Sort-Object Time | Select-Object -First 1).Time
+                    $last = ($g.Group | Sort-Object Time -Descending | Select-Object -First 1).Time
+                    $nearCount = @($g.Group | Where-Object NearShutdown).Count
+                    "{0}: {1} sobytiy, {2:dd.MM.yyyy}-{3:dd.MM.yyyy}, {4}{5}, ryadom s Kernel-Power 41 (+-5 min): {6}" -f `
+                        $label, $g.Count, $first, $last, $modelText, $removableMark, $nearCount
+                }
+                "Podskazka: sobytiya semnyh nositeley (USB-fleshki i pr.) k defektu sistemnogo diska"
+                "otnosheniya NE imeyut - eto ne 'oshibok nakopitelya net', a 'oshibki na drugom ustroystve'."
+
+                "--- Smena nomerov diskov za dostupnuyu istoriyu (Partition/Diagnostic 1006) ---"
+                Write-DiskSlotSwaps $diskHistory
+            }
+
             "=== Toma ==="
             Get-Volume -ErrorAction SilentlyContinue | Where-Object DriveLetter |
                 Select-Object DriveLetter, FileSystemLabel,
@@ -266,11 +322,25 @@ public static class DiagnosticProbes
             } catch { "ACPI thermal zones unavailable (common on desktops): $($_.Exception.Message)" }
             """),
 
+        // Get-PnpDevice БЕЗ -PresentOnly возвращает ВСЮ историю устройств, когда-либо
+        // подключавшихся под этой ОС — на 161190 (Ryzen 5 3600 + RTX 3050) секция напечатала
+        // 300+ строк, среди них 9800X3D x16, 7800X3D x16, 7500F x12, ASUS AURA, Gigabyte
+        // A620M: железо ДРУГИХ сборок, на которых гонялся тот же переносной образ сервиса
+        // (тот же hostname DESKTOP-5GUF215 встречается на 160697 и 160587). Вывод читался
+        // как "на машине куча проблемных устройств" (бэклог п.167).
         Probe("drivers", "Проблемные устройства / драйверы", """
-            $bad = Get-PnpDevice -ErrorAction SilentlyContinue | Where-Object { $_.Status -ne 'OK' }
-            if ($bad) {
+            $all = @(Get-PnpDevice -ErrorAction SilentlyContinue)
+            $present = @(Get-PnpDevice -PresentOnly -ErrorAction SilentlyContinue)
+            # Ustroystvo bez Status voobshe (ne 'OK', ne 'Error' - pusto) - eto ne 'Unknown'
+            # problema, a otsutstvie dannyh; pechatat ego kak problemnoe nelzya.
+            $bad = @($present | Where-Object { $_.Status -and $_.Status -ne 'OK' })
+            if ($bad.Count -gt 0) {
                 $bad | Select-Object Status, Class, FriendlyName, InstanceId | Format-Table -Auto | Out-String
-            } else { "No problem devices (all Status=OK)." }
+            } else { "No problem devices among devices present now (all Status=OK)." }
+            $ghosts = $all.Count - $present.Count
+            if ($ghosts -gt 0) {
+                "prizrakov proshlogo zheleza: {0} (ustroystva otsutstvuyut seychas - istoriya DRUGOY sborki, na kotoroy gonyalsya etot obraz)" -f $ghosts
+            }
             """),
 
         // Никогда не мешаем шумные и редкие события в одной выборке с общим MaxEvents: на
@@ -278,16 +348,17 @@ public static class DiagnosticProbes
         // Id=55 (Kernel-Processor-Power пишет по штуке на поток CPU), а Kernel-Power 41 не
         // попал вообще — и диагноз уехал на 180 градусов (бэклог п.31).
         Probe("events", "События: критические/ошибки + счётчики по Id",
-            TimeZoneNote.PowerShellPrologue() + """
+            EventWindow.PowerShellPrologue() + TimeZoneNote.PowerShellPrologue() + """
             Write-TzNote
-            $since = (Get-Date).AddDays(-7)
-            "=== Schetchiki po Id (System, Critical/Error, 7 dney) ==="
+            Write-EventWindowNote
+            $since = (Get-Date).AddDays(-$SZ_EVENT_WINDOW_DAYS)
+            "=== Schetchiki po Id (System, Critical/Error, $SZ_EVENT_WINDOW_DAYS dney) ==="
             $sys = @(Get-WinEvent -FilterHashtable @{ LogName='System'; Level=1,2; StartTime=$since } -ErrorAction SilentlyContinue)
             if ($sys.Count -gt 0) {
                 "TOTAL: {0}" -f $sys.Count
                 $sys | Group-Object ProviderName, Id | Sort-Object Count -Descending | Select-Object -First 20 |
                     ForEach-Object { "{0}: {1}" -f $_.Name, $_.Count }
-            } else { "System: 0 sobytiy urovnya Critical/Error za 7 dney (yavnyy nol, a ne molchanie)" }
+            } else { "System: 0 sobytiy urovnya Critical/Error za $SZ_EVENT_WINDOW_DAYS dney (yavnyy nol, a ne molchanie)" }
 
             "=== System (Critical/Error, poslednie 40) ==="
             $sys | Sort-Object TimeCreated -Descending | Select-Object -First 40 |
@@ -295,14 +366,14 @@ public static class DiagnosticProbes
                 Format-Table -Auto | Out-String
             if ($sys.Count -gt 40) { "... {0} earlier events not listed (schetchiki vyshe)" -f ($sys.Count - 40) }
 
-            "=== Application (Critical/Error, 3 dnya) ==="
-            $app = @(Get-WinEvent -FilterHashtable @{ LogName='Application'; Level=1,2; StartTime=(Get-Date).AddDays(-3) } -ErrorAction SilentlyContinue)
+            "=== Application (Critical/Error, $SZ_EVENT_WINDOW_DAYS dney) ==="
+            $app = @(Get-WinEvent -FilterHashtable @{ LogName='Application'; Level=1,2; StartTime=$since } -ErrorAction SilentlyContinue)
             if ($app.Count -gt 0) {
                 "TOTAL: {0}" -f $app.Count
                 $app | Sort-Object TimeCreated -Descending | Select-Object -First 25 |
                     Select-Object TimeCreated, Id, ProviderName, @{n='Message';e={($_.Message -split "`r?`n")[0]}} |
                     Format-Table -Auto | Out-String
-            } else { "Application: 0 sobytiy urovnya Critical/Error za 3 dnya" }
+            } else { "Application: 0 sobytiy urovnya Critical/Error za $SZ_EVENT_WINDOW_DAYS dney" }
 
             "=== Redkie kritichnye Id - BEZ limita, za vsyu istoriyu ==="
             # There are only a few of them, nothing to trim; absence must be an explicit zero.
@@ -329,9 +400,10 @@ public static class DiagnosticProbes
         // установки ОС) читался как «сломалось в процессе эксплуатации». Событий этого типа
         // единицы-десятки, читать их все дёшево.
         Probe("reboots", "Перезагрузки: Kernel-Power 41 + dirty shutdown + BSOD-коды",
-            TimeZoneNote.PowerShellPrologue() + BugcheckCodes.PowerShellPrologue() +
+            EventWindow.PowerShellPrologue() + TimeZoneNote.PowerShellPrologue() + BugcheckCodes.PowerShellPrologue() +
             HardwareWindow.PowerShellPrologue() + NvmeSmart.PowerShellPrologue() + """
             Write-TzNote
+            Write-JournalDepthNote
             "=== Okno etogo zheleza ==="
             Write-HwWindow
 
@@ -448,8 +520,9 @@ public static class DiagnosticProbes
         // Поля MCA (банк, MciStat, тип ошибки) раньше приходилось доставать отдельным exec
         // из EventData XML — теперь они в отчёте (п.18).
         Probe("whea", "Аппаратные ошибки железа (WHEA-Logger, все уровни)",
-            TimeZoneNote.PowerShellPrologue() + CperDecoder.PowerShellPrologue() + HardwareWindow.PowerShellPrologue() + """
+            EventWindow.PowerShellPrologue() + TimeZoneNote.PowerShellPrologue() + CperDecoder.PowerShellPrologue() + HardwareWindow.PowerShellPrologue() + """
             Write-TzNote
+            Write-JournalDepthNote
             "=== Okno etogo zheleza ==="
             Write-HwWindow
             $whea = @()
@@ -569,6 +642,87 @@ public static class DiagnosticProbes
                 "=== FULL TEXT of last 2 (component: CPU/PCIe/memory) ==="
                 $whea | Select-Object -First 2 | ForEach-Object { ("[{0}] Id={1}" -f $_.TimeCreated, $_.Id); $_.Message }
             }
+            """),
+
+        // THERMTRIP (аппаратный термозащитный сброс) НЕ ЛОГИРУЕТСЯ В ПРИНЦИПЕ: питание
+        // снимается в железе, ОС не получает ни прерывания, ни шанса на запись. На выходе
+        // Kernel-Power 41 + BugcheckCode=0 + пустые дампы — ровно то же, что от просадки БП
+        // или КЗ по +5В. На 160636 фильтр тротлинга без явного ProviderName поймал ЧУЖОЕ
+        // событие с тем же Id (Microsoft-Windows-Time-Service) и дал ложный вывод «тротлинга
+        // нет»; вдобавок 4.5ч OCCT на открытом стенде в прохладном сервисе не воспроизвели
+        // дефект, который у клиента проявлялся за 1-15ч в закрытом корпусе (бэклог п.36b).
+        Probe("thermal", "Тепловой профиль (тротлинг + распределение вырубонов по времени суток)",
+            TimeZoneNote.PowerShellPrologue() + EventWindow.PowerShellPrologue() + HardwareWindow.PowerShellPrologue() + """
+            Write-TzNote
+            Write-JournalDepthNote
+            "=== Okno etogo zheleza ==="
+            Write-HwWindow
+
+            "!!! THERMTRIP NE LOGIRUETSYA V PRINTSIPE: apparatnyy termozashchitnyy sbros snimaet"
+            "pitanie v zheleze, OS ne poluchaet ni preryvaniya, ni shansa na zapis. Otsutstvie"
+            "sobytiy nizhe NE ISKLYUCHAET teplovoy stsenariy - eto otvet 'net dannyh o trotlinge',"
+            "a ne 'peregrev isklyuchen'."
+
+            "=== Kernel-Processor-Power Id 37/86 (trotling, YAVNYY ProviderName) ==="
+            # Filtr BEZ ProviderName lovit CHUZHIE sobytiya s tem zhe Id: na 160636 Id=37 bez
+            # ProviderName dal Microsoft-Windows-Time-Service, i vyvod byl "trotlinga net" -
+            # eto byla oshibka, a ne fakt (backlog p.36b, smezhno s p.31).
+            $thr = @()
+            try {
+                $thr = @(Get-WinEvent -FilterHashtable @{ LogName='System'; ProviderName='Microsoft-Windows-Kernel-Processor-Power'; Id=37,86 } -ErrorAction Stop)
+            } catch { }
+            $thrSplit = Split-ByHwWindow $thr
+            $thr = @($thrSplit.Ours)
+            if ($thrSplit.Foreign.Count -gt 0) {
+                "VNIMANIE: {0} sobytiy trotlinga otbrosheno kak istoriya DRUGOGO zheleza." -f $thrSplit.Foreign.Count
+            }
+            if ($thr.Count -gt 0) {
+                "TOTAL: {0}, first {1:yyyy-MM-dd HH:mm:ss}, last {2:yyyy-MM-dd HH:mm:ss}" -f `
+                    $thr.Count, $thr[-1].TimeCreated, $thr[0].TimeCreated
+                $thr | Group-Object Id | ForEach-Object { "Id {0}: {1}" -f $_.Name, $_.Count }
+            } else {
+                "Kernel-Processor-Power 37/86: 0 (eto NE dokazatelstvo otsutstviya peregreva - sm. VNIMANIE pro THERMTRIP vyshe)"
+            }
+
+            "=== Raspredelenie hard-off (Kernel-Power 41) po vremeni sutok ==="
+            # Kosvennyy priznak teplovogo stsenariya: vyrubony vecherom/nochyu posle chasov
+            # raboty v zharkoy komnate chashche ukazyvayut na nakoplenie tepla v korpuse, chem
+            # ravnomernoe raspredelenie po sutkam.
+            $kp = @()
+            try { $kp = @(Get-WinEvent -FilterHashtable @{ LogName='System'; ProviderName='Microsoft-Windows-Kernel-Power'; Id=41 } -ErrorAction Stop) } catch { }
+            $kpSplit = Split-ByHwWindow $kp
+            $kp = @($kpSplit.Ours)
+            if ($kp.Count -gt 0) {
+                $buckets = $kp | Group-Object {
+                    $h = $_.TimeCreated.Hour
+                    if ($h -ge 6 -and $h -lt 12) { 'utro (06-12)' }
+                    elseif ($h -ge 12 -and $h -lt 18) { 'den (12-18)' }
+                    elseif ($h -ge 18 -and $h -lt 24) { 'vecher (18-24)' }
+                    else { 'noch (00-06)' }
+                }
+                $buckets | Sort-Object Count -Descending | ForEach-Object { "{0}: {1}" -f $_.Name, $_.Count }
+                $eveningOrNight = @($kp | Where-Object { $_.TimeCreated.Hour -ge 18 -or $_.TimeCreated.Hour -lt 6 }).Count
+                if (($eveningOrNight / $kp.Count) -ge 0.66) {
+                    "!!! Bolshinstvo hard-off prihoditsya na vecher/noch ({0} iz {1}) - kosvennyy priznak" -f $eveningOrNight, $kp.Count
+                    "priznak teplovogo stsenariya (nakoplenie tepla v zakrytom korpuse za den ekspluatatsii)."
+                }
+            } else {
+                "Kernel-Power 41: 0 sobytiy - raspredelyat po vremeni sutok nechego."
+            }
+
+            "=== Delta hotspot-core ==="
+            "Ne vychislyaetsya etoy probay: nuzhen pryamoy dostup k sensoram (LibreHardwareMonitor/"
+            "lhmmon), kotorogo net cherez WMI/Get-WinEvent. Gonyat otdelnym zahodom lhmmon pod"
+            "nagruzkoy (sm. tools/recipes) - eto ne 'net dannyh, znachit vsyo OK'."
+
+            "=== Metodika teplovogo stsenariya ==="
+            "Proveryat v SOBRANNOM korpuse, ne na otkrytom stende: na otkrytom stende greyutsya"
+            "kristally, no ne vozduh vokrug korpusa - progon v prohladnom servise mozhet NE"
+            "vosproizvesti defekt, kotoryy u klienta proyavlyaetsya za chasy raboty v zakrytom obieme."
+            "Logirovat temperaturu vhodyashchego vozduha (datchik platy 'Temperature #1' cherez"
+            "lhmmon) i sravnivat so stendom."
+            "V voprosnik po zayavke - punkt 'gde stoit sistemnik' (nisha, shkaf,"
+            "vplotnuyu k stene, batareya) - eto polovina diagnoza pri hard-off bez sledov."
             """),
 
         // TDR и прочие живые дампы ядра BSOD не вызывают — машина продолжает работать, и в

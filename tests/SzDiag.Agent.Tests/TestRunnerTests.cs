@@ -187,6 +187,9 @@ public class TestRunnerTests
         var artifact = Path.GetTempFileName();
         var artifactBytes = new byte[] { 4, 2, 4, 2 };
         File.WriteAllBytes(artifact, artifactBytes);
+        // Свежий артефакт этого прогона: помечаем временем в будущем, иначе он всегда
+        // окажется "старше" стартового штампа шага (файл создан ДО runner.Run) — п.61.
+        File.SetLastWriteTime(artifact, DateTime.Now.AddMinutes(1));
         try
         {
             var png = new byte[] { 5, 5 };
@@ -308,5 +311,125 @@ public class TestRunnerTests
             Assert.Contains(exec.Commands, c => c.StartsWith("taskkill"));
         }
         finally { File.Delete(exe); }
+    }
+
+    [Fact]
+    public void Run_AppStep_StaleArtifact_NotUploaded_ReportsPastRun()
+    {
+        // Регрессия (б.125, п.61, СЗ 161346): агент залил occt-report.html от ПРОШЛОГО
+        // прогона (LastWriteTime 12:28), хотя папка отчёта датирована 12:59 — новый прогон
+        // шёл 174 мин и был прерван до записи отчёта. «3 часа под нагрузкой, 0 ошибок»
+        // оказалось выводом на основании 10-минутного файла.
+        var exe = Path.GetTempFileName();
+        var artifact = Path.GetTempFileName();
+        File.WriteAllBytes(artifact, new byte[] { 1, 2, 3 });
+        File.SetLastWriteTime(artifact, DateTime.Now.AddHours(-1));   // файл от прошлого запуска
+        try
+        {
+            var exec = new RecordingExecutor();   // IsProcessAlive -> "" -> процесс не жив (самозавершился)
+            var runner = new TestRunner(exec, new FakeCapturer(new ScreenCapture(null, "n/a")), initialGraceSeconds: 0);
+            var suite = new TestSuite { Steps = new[]
+            {
+                new TestStep("app", "OCCT", Exe: exe, Args: "test", DurationSeconds: 5,
+                    KillImage: "occtcmd.exe", RunToCompletion: true, ArtifactFile: artifact),
+            } };
+
+            var output = runner.Run(suite, "156864", "PC-1", At);
+
+            var step = output.Report.Steps.Single();
+            Assert.Null(step.ArtifactFile);
+            Assert.Empty(output.Artifacts);
+            Assert.NotNull(step.Output);
+            Assert.Contains("ПРОШЛОГО запуска", step.Output);
+        }
+        finally { File.Delete(exe); File.Delete(artifact); }
+    }
+
+    [Fact]
+    public void Run_AppStep_ScheduleLongerThanTimeout_RefusesToStart()
+    {
+        // Регрессия (б.129, п.66): расписание на 1ч55мин (45+30+40) при durationSeconds=4500с
+        // (75 мин) — на 75-й минуте раннер убил процесс, третий период не стартовал вовсе.
+        // Ловим рассинхрон ДО старта, вместо того чтобы рубить прогон молча на середине.
+        var exe = Path.GetTempFileName();
+        var workDir = Path.GetDirectoryName(exe)!;
+        var schedule = Path.Combine(workDir, Guid.NewGuid() + "-schedule.json");
+        File.WriteAllText(schedule, """
+            { "Periods": [
+                { "TestType": "CpuOcct", "Duration": "00:45:00", "IsInfinite": false },
+                { "TestType": "PowerSupply", "Duration": "00:30:00", "IsInfinite": false },
+                { "TestType": "CpuLinpack", "Duration": "00:40:00", "IsInfinite": false }
+            ] }
+            """);
+        try
+        {
+            var exec = new RecordingExecutor();
+            var runner = new TestRunner(exec, new FakeCapturer(new ScreenCapture(null, "n/a")), initialGraceSeconds: 0);
+            var suite = new TestSuite { Steps = new[]
+            {
+                new TestStep("app", "OCCT", Exe: exe, Args: $"test --schedule=\"{schedule}\"",
+                    DurationSeconds: 75 * 60, KillImage: "occtcmd.exe", RunToCompletion: true,
+                    ArtifactFile: Path.Combine(workDir, "occt-report.html")),
+            } };
+
+            var output = runner.Run(suite, "156864", "PC-1", At);
+
+            var step = output.Report.Steps.Single();
+            Assert.NotNull(step.Error);
+            Assert.Contains("CpuLinpack", step.Error);
+            Assert.Contains("НЕ ЗАПУЩЕН", step.Error);
+            Assert.DoesNotContain(exec.Commands, c => c.StartsWith("Start-Process"));
+        }
+        finally { File.Delete(exe); File.Delete(schedule); }
+    }
+
+    private sealed class AlwaysAliveExecutor : ICommandExecutor
+    {
+        public List<string> Commands { get; } = new();
+        public CommandResult Run(string command)
+        {
+            Commands.Add(command);
+            return command.Contains("Get-Process -Name")
+                ? new CommandResult(0, "1", "")
+                : new CommandResult(0, "", "");
+        }
+    }
+
+    [Fact]
+    public void Run_AppStep_KilledByTimeout_ListsScheduledPeriodsNotReached()
+    {
+        // Регрессия (б.129, п.66): "процесс не завершился за 4500с — убит по таймауту"
+        // читалось как "тест затянулся", хотя фактически прогон не выполнен на треть —
+        // третий период вообще не стартовал. Сообщение обязано его назвать.
+        // Первый период — бесконечный (напр. PowerSupply-транзиенты): это НЕ повод отказать
+        // в старте (таймаут для него — штатный способ завершения), но период ПОСЛЕ него
+        // до собственного старта не доживает — сообщение обязано назвать и его.
+        var exe = Path.GetTempFileName();
+        var workDir = Path.GetDirectoryName(exe)!;
+        var schedule = Path.Combine(workDir, Guid.NewGuid() + "-schedule.json");
+        File.WriteAllText(schedule, """
+            { "Periods": [
+                { "TestType": "PowerSupply", "Duration": "00:00:00", "IsInfinite": true },
+                { "TestType": "CpuLinpack", "Duration": "00:00:01", "IsInfinite": false }
+            ] }
+            """);
+        try
+        {
+            var exec = new AlwaysAliveExecutor();   // процесс "жив" все время окна ожидания
+            var runner = new TestRunner(exec, new FakeCapturer(new ScreenCapture(null, "n/a")), initialGraceSeconds: 0);
+            var suite = new TestSuite { Steps = new[]
+            {
+                new TestStep("app", "OCCT", Exe: exe, Args: $"test --schedule=\"{schedule}\"",
+                    DurationSeconds: 1, KillImage: "occtcmd.exe", RunToCompletion: true),
+            } };
+
+            var output = runner.Run(suite, "156864", "PC-1", At);
+
+            var step = output.Report.Steps.Single();
+            Assert.NotNull(step.Output);
+            Assert.Contains("НЕПОЛНЫЙ", step.Output);
+            Assert.Contains("CpuLinpack", step.Output);
+        }
+        finally { File.Delete(exe); File.Delete(schedule); }
     }
 }

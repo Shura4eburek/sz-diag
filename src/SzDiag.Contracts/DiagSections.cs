@@ -13,7 +13,7 @@ public static class DiagSections
     public static IReadOnlyList<string> All { get; } = new[]
     {
         "system", "cpu", "memory", "gpu", "storage",
-        "temps", "drivers", "events", "reboots", "whea", "livekernel", "reliability", "battery"
+        "temps", "drivers", "events", "reboots", "whea", "thermal", "livekernel", "reliability", "battery"
     };
 
     /// <summary>Привычные синонимы: так секции зовут в переписке и в голове, и именно
@@ -38,6 +38,9 @@ public static class DiagSections
             ["temp"] = "temps",
             ["temperature"] = "temps",
             ["event"] = "events",
+            ["thermtrip"] = "thermal",
+            ["throttle"] = "thermal",
+            ["throttling"] = "thermal",
         };
 
     /// <summary>Разбирает пользовательский ввод в список канонических секций.

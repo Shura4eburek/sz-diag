@@ -12,6 +12,19 @@
 $Days = 30
 
 $since = (Get-Date).AddDays(-$Days)
+
+# Глубина журнала — рядом с окном поиска (бэклог п.123): без неё «Kernel-Power 41 за 30 дн.: 0»
+# нельзя отличить от «журнал короче окна, и там просто нет данных».
+$oldest = Get-WinEvent -LogName System -Oldest -MaxEvents 1 -ErrorAction SilentlyContinue
+if ($oldest) {
+    "Окно поиска: $Days дн. (с $($since.ToString('dd.MM.yyyy'))). Самое старое событие в журнале System: $($oldest.TimeCreated.ToString('dd.MM.yyyy HH:mm'))."
+    if ($oldest.TimeCreated -gt $since) {
+        "ВНИМАНИЕ: журнал НЕ ДОСТАЁТ до начала окна поиска — «пусто» ниже может значить «журнал короткий», а не «дефекта нет»."
+    }
+} else {
+    "Окно поиска: $Days дн. (с $($since.ToString('dd.MM.yyyy'))). Глубину журнала System определить не удалось."
+}
+
 $ev = Get-WinEvent -FilterHashtable @{ LogName = 'System'; Id = 41; StartTime = $since } -ErrorAction SilentlyContinue
 if (-not $ev) { "Kernel-Power 41 за $Days дн.: нет"; }
 else {

@@ -122,6 +122,47 @@ public sealed class TestRunner
         var waited = 0;
         string? shotFile = null;
 
+        // Расписание OCCT (schedule.json) длиннее таймаута шага — прогон рубится молча
+        // на середине, третий период не стартует вовсе (бэклог п.129, СЗ 161346). Ловим
+        // рассинхрон ДО старта процесса: не подстраиваемся под тул неверным допущением, а
+        // отказываемся стартовать и говорим, какие периоды всё равно не уместятся.
+        IReadOnlyList<OcctSchedule.Period>? scheduleInfo = null;
+        if (step.RunToCompletion)
+        {
+            var scheduleMatch = System.Text.RegularExpressions.Regex.Match(args, "--schedule=\"([^\"]+)\"");
+            var schedulePath = scheduleMatch.Success ? scheduleMatch.Groups[1].Value : null;
+            if (schedulePath is not null && File.Exists(schedulePath))
+            {
+                try
+                {
+                    var parsed = OcctSchedule.TryParsePeriods(File.ReadAllText(schedulePath));
+                    if (parsed is not null)
+                    {
+                        scheduleInfo = parsed;
+                        if (!OcctSchedule.HasInfinitePeriod(parsed))
+                        {
+                            var total = OcctSchedule.TotalFiniteDuration(parsed);
+                            if (total.TotalSeconds > dur)
+                            {
+                                var missed = OcctSchedule.PeriodsNotReached(parsed, dur);
+                                steps.Add(new TestStepResult(step.Name, TestStepKind.App, Command: cmdLine,
+                                    Error: $"расписание '{schedulePath}' рассчитано на {total:hh\\:mm\\:ss}, " +
+                                           $"а таймаут шага — {dur}с ({TimeSpan.FromSeconds(dur):hh\\:mm\\:ss}); " +
+                                           $"не уместятся периоды: {string.Join(", ", missed)}. " +
+                                           "Прогон НЕ ЗАПУЩЕН — подними durationSeconds шага или укороти расписание."));
+                                return;
+                            }
+                        }
+                    }
+                }
+                catch { /* не смогли прочитать/разобрать расписание — не блокируем прогон догадкой */ }
+            }
+        }
+
+        // Время старта шага — эталон свежести артефакта (п.125/б.61): файл, лежащий в папке
+        // отчёта, но датированный ДО этого момента, принадлежит прошлому прогону.
+        var stepStart = DateTime.Now;
+
         try
         {
             var argPart = string.IsNullOrWhiteSpace(args) ? "" : $" -ArgumentList '{args}'";
@@ -175,14 +216,31 @@ public sealed class TestRunner
             try { if (File.Exists(resolvedResult)) output = File.ReadAllText(resolvedResult); } catch { /* нет лога — не критично */ }
 
         // Опц. файл-артефакт (напр. HTML-отчёт OCCT): заливается на hub, в отчёте — ссылкой.
+        // Файл сверяется по LastWriteTime со стартом шага (б.125/п.61, СЗ 161346): агент
+        // забрал occt-report.html, лежавший по пути artifactFile, не проверив время — прогон
+        // шёл 174 мин и был прерван до записи отчёта, а залитый файл оказался от ПРОШЛОГО
+        // запуска (12:28 против старта 12:59). Итог читался как «3 часа под нагрузкой, ошибок
+        // 0», хотя реальное основание — 10 минут прошлого прогона.
         string? artifactName = null;
+        string? staleArtifactNote = null;
         var resolvedArtifact = Resolve(step.ArtifactFile);
         if (resolvedArtifact is not null && File.Exists(resolvedArtifact))
         {
             try
             {
-                artifactName = Path.GetFileName(resolvedArtifact);
-                artifacts[artifactName] = File.ReadAllBytes(resolvedArtifact);
+                var artifactWritten = File.GetLastWriteTime(resolvedArtifact);
+                if (artifactWritten < stepStart)
+                {
+                    staleArtifactNote = $"⚠ тест не сохранил результат ЭТОГО прогона: файл артефакта " +
+                        $"'{Path.GetFileName(resolvedArtifact)}' датирован {artifactWritten:yyyy-MM-dd HH:mm:ss}, " +
+                        $"старше старта шага ({stepStart:yyyy-MM-dd HH:mm:ss}) — это отчёт ПРОШЛОГО запуска, " +
+                        "прогон прерван и его результат в kb не заливается";
+                }
+                else
+                {
+                    artifactName = Path.GetFileName(resolvedArtifact);
+                    artifacts[artifactName] = File.ReadAllBytes(resolvedArtifact);
+                }
             }
             catch { artifactName = null; /* не смогли прочитать — не критично */ }
         }
@@ -196,20 +254,31 @@ public sealed class TestRunner
         }
         // До-завершения с ожидаемым артефактом (напр. HTML-отчёт OCCT), но ранний выход не оставил
         // его — тул не прогнал расписание, а вышел сразу (б.128, 161346: OCCT не принял schedule.json
-        // и упал за секунды, а UI показывал «✓», как для честного завершения).
-        if (earlyExit && step.RunToCompletion && step.ArtifactFile is not null && artifactName is null)
+        // и упал за секунды, а UI показывал «✓», как для честного завершения). Стухший артефакт
+        // (staleArtifactNote) — отдельный, более точный диагноз, этот не дублируем поверх него.
+        if (earlyExit && step.RunToCompletion && step.ArtifactFile is not null && artifactName is null && staleArtifactNote is null)
         {
             var note = $"⚠ процесс '{procName}' завершился раньше расписания (~{waited}с) и не оставил " +
                        $"ожидаемый артефакт ('{step.ArtifactFile}') — вероятно, конфигурация/расписание " +
                        "не принялось, тест фактически не отработал";
             output = string.IsNullOrEmpty(output) ? note : note + "\n\n" + output;
         }
-        // До-завершения, но упёрлись в предохранитель — тоже сигнал (тул не закрылся сам).
+        // До-завершения, но упёрлись в предохранитель — тоже сигнал (тул не закрылся сам). Если
+        // расписание разобрали заранее — называем периоды, которые не успели стартовать
+        // (бэклог п.129): «затянулся» и «не выполнен на треть» — разные диагнозы.
         if (timedOut && step.RunToCompletion)
         {
-            var note = $"⚠ процесс '{procName}' не завершился за {dur}с — убит по таймауту";
+            var note = $"⚠ процесс '{procName}' не завершился за {dur}с — убит по таймауту, прогон НЕПОЛНЫЙ";
+            if (scheduleInfo is not null)
+            {
+                var missed = OcctSchedule.PeriodsNotReached(scheduleInfo, dur);
+                if (missed.Count > 0)
+                    note += $"; не выполнены периоды расписания: {string.Join(", ", missed)}";
+            }
             output = string.IsNullOrEmpty(output) ? note : note + "\n\n" + output;
         }
+        if (staleArtifactNote is not null)
+            output = string.IsNullOrEmpty(output) ? staleArtifactNote : staleArtifactNote + "\n\n" + output;
 
         steps.Add(new TestStepResult(step.Name, TestStepKind.App, Command: cmdLine,
             Output: output, ScreenshotFile: shotFile, ArtifactFile: artifactName, Error: launchError));

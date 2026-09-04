@@ -12,7 +12,7 @@ public class DiagnosticProbesTests
         var expected = new[]
         {
             "system", "cpu", "memory", "gpu", "storage",
-            "temps", "drivers", "events", "reboots", "whea", "livekernel", "reliability", "battery"
+            "temps", "drivers", "events", "reboots", "whea", "thermal", "livekernel", "reliability", "battery"
         };
         Assert.Equal(expected, DiagnosticProbes.Sections);
         // Каталог проб и словарь для валидации в CLI обязаны совпадать: иначе szcli либо
@@ -133,6 +133,53 @@ public class DiagnosticProbesTests
     }
 
     [Fact]
+    public void ThermalProbe_ExplicitlyWarnsThermtripIsNotLogged()
+    {
+        // Регрессия (бэклог п.36b, СЗ 160636): THERMTRIP (аппаратный термозащитный сброс) не
+        // логируется в принципе — питание снимается в железе, ОС не получает шанса на запись.
+        // Отсутствие событий тротлинга легко (и неверно) читается как "перегрев исключён".
+        var run = Body("thermal");
+
+        Assert.Contains("THERMTRIP", run);
+        Assert.Contains("NE LOGIRUETSYA", run);
+        Assert.Contains("NE ISKLYUCHAET teplovoy stsenariy", run);
+    }
+
+    [Fact]
+    public void ThermalProbe_FiltersThrottlingByExplicitProviderName()
+    {
+        // Регрессия (бэклог п.36b, СЗ 160636): фильтр Id=37 без ProviderName поймал ЧУЖОЕ
+        // событие (Microsoft-Windows-Time-Service) и дал ложный вывод "тротлинга нет".
+        var run = Body("thermal");
+
+        Assert.Contains("ProviderName='Microsoft-Windows-Kernel-Processor-Power'; Id=37,86", run);
+        Assert.Contains("YAVNYY ProviderName", run);
+    }
+
+    [Fact]
+    public void ThermalProbe_BucketsHardOffByTimeOfDay()
+    {
+        // Распределение вырубонов по времени суток — косвенный признак теплового сценария
+        // (вечер/жара после часов работы в закрытом корпусе).
+        var run = Body("thermal");
+
+        Assert.Contains("Kernel-Power", run);
+        Assert.Contains("vecher (18-24)", run);
+        Assert.Contains("po vremeni sutok", run);
+    }
+
+    [Fact]
+    public void ThermalProbe_SeparatesFromOtherHardwareHistory()
+    {
+        var run = Body("thermal");
+
+        Assert.Contains("Write-HwWindow", run);
+        Assert.Contains("Split-ByHwWindow", run);
+        Assert.Contains("Write-TzNote", run);
+        Assert.Contains("Write-JournalDepthNote", run);
+    }
+
+    [Fact]
     public void MemoryProbe_ReadsVoltageForXmpDetection()
     {
         // Регрессия (бэклог п.8): на 160467 Speed=ConfiguredClockSpeed=4800 не давал понять,
@@ -189,6 +236,20 @@ public class DiagnosticProbesTests
         Assert.Contains("Win32_DiskDrive", run);
         Assert.Contains("Harddisk", run);
         Assert.Contains("SCSIPort", run);
+    }
+
+    [Fact]
+    public void DriversProbe_FiltersToPresentDevicesAndCollapsesGhosts()
+    {
+        // Регрессия (бэклог п.167, СЗ 161190): без -PresentOnly секция печатала 300+ строк
+        // устройств ДРУГИХ сборок (9800X3D/7800X3D/7500F и т.п.), на которых гонялся тот же
+        // переносной образ сервиса — вывод читался как "на машине куча проблемных устройств".
+        var run = Body("drivers");
+
+        Assert.Contains("-PresentOnly", run);
+        Assert.Contains("prizrakov proshlogo zheleza", run);
+        // Пустой Status - это "нет данных", а не "Unknown"/проблема.
+        Assert.Contains("$_.Status -and $_.Status -ne 'OK'", run);
     }
 
     [Fact]
@@ -338,6 +399,61 @@ public class DiagnosticProbesTests
     }
 
     [Fact]
+    public void StorageProbe_SummarizesJournalDiskEventsByDeviceAndFlagsRemovable()
+    {
+        // Регрессия (бэклог п.141, СЗ 160705): 396 событий `disk Id=51` чуть не уехали в акт
+        // клиенту как "ошибок накопителя нет" — ни одна секция их не агрегировала и не
+        // привязывала к устройству. Все 396 оказались за один день на USB-флешке
+        // (Harddisk1, съёмный), 0 из 396 рядом с вырубоном.
+        var run = Body("storage");
+
+        Assert.Contains("Svodka diskovyh sobytiy po Harddisk N", run);
+        Assert.Contains("SEMNYY NOSITEL", run);
+        Assert.Contains("Kernel-Power 41", run);
+        Assert.Contains("InterfaceType -eq 'USB'", run);
+    }
+
+    [Fact]
+    public void StorageProbe_ResolvesDiskAtEventTime_NotTodaysMap()
+    {
+        // Регрессия (бэклог п.133, СЗ 161346): диски физически поменяли местами 29.07 между
+        // 12:11 и 13:57 - карта "на сейчас" (Win32_DiskDrive) дала ЗЕРКАЛЬНУЮ привязку старых
+        // ошибок: указала на диск из заказа вместо клиентского, хотя все ошибки были на
+        // клиентском ДО перестановки. Резолв обязан идти по истории Partition/Diagnostic 1006
+        // на момент КАЖДОГО события, а не по текущему состоянию.
+        var run = Body("storage");
+
+        Assert.Contains("Get-DiskNumberHistory", run);
+        Assert.Contains("Resolve-DiskAtTime", run);
+        Assert.Contains("NA MOMENT SOBYTIYA", run);
+        // Молчаливая подстановка сегодняшней модели на архивную ошибку хуже, чем её
+        // отсутствие: вердикт строится на ней.
+        Assert.Contains("model NEIZVESTEN na tu datu", run);
+    }
+
+    [Fact]
+    public void StorageProbe_ReportsDiskSlotSwapsSeparately()
+    {
+        // Критерий готовности п.70/133: перестановки дисков за окно перечислены отдельным
+        // блоком - "диски поменялись местами" маскирует дефект слота и рвёт статистику.
+        var run = Body("storage");
+
+        Assert.Contains("Write-DiskSlotSwaps", run);
+        Assert.Contains("Smena nomerov diskov", run);
+    }
+
+    [Fact]
+    public void DiskNumberHistory_Prologue_IsAsciiAndReadsPartitionDiagnostic1006()
+    {
+        var ps = DiskNumberHistory.PowerShellPrologue();
+
+        Assert.All(ps, c => Assert.True(c < 128, $"не-ASCII в прологе истории дисков: {c}"));
+        Assert.Contains("Microsoft-Windows-Partition/Diagnostic", ps);
+        Assert.Contains("Id=1006", ps);
+        Assert.Contains("DiskNumber", ps);
+    }
+
+    [Fact]
     public void StorageProbe_MapsPagefileToPhysicalDiskAndSplitsUncorrectable()
     {
         // Регрессия (п.27): «ReadErrors: 393» выглядело как шум, хотя все 393 неисправимы,
@@ -364,6 +480,31 @@ public class DiagnosticProbesTests
         Assert.Contains("Redkie kritichnye Id - BEZ limita", run);
         Assert.Contains("Kernel-Power 41", run);
         Assert.Contains("yavnyy nol", run);   // отсутствие событий печатается явным нулём
+    }
+
+    [Fact]
+    public void EventsProbe_UsesUnifiedThirtyDayWindowAndPrintsJournalDepth()
+    {
+        // Регрессия (бэклог п.123, СЗ 161346): машина приехала в сервис через две недели
+        // после последнего вырубона, а зашитое в рецепте окно в 14 дней вернуло пустоту
+        // там, где в журнале лежало 25 событий. Окно унифицировано на 30 дней (как в
+        // kp41-detail.ps1/whea-storage-detail.ps1) и печатается явно, вместе с глубиной
+        // журнала — «пусто» не должно читаться как «дефекта нет».
+        var run = Body("events");
+
+        Assert.Contains("SZ_EVENT_WINDOW_DAYS = 30", run);
+        Assert.Contains("Write-EventWindowNote", run);
+        Assert.DoesNotContain("AddDays(-7)", run);
+        Assert.DoesNotContain("AddDays(-3)", run);
+    }
+
+    [Fact]
+    public void RebootsAndWheaProbes_PrintJournalDepth()
+    {
+        // Те же секции читают историю ЦЕЛИКОМ без окна ("FULL HISTORY") — но "0 событий"
+        // там тоже нельзя отличить от "журнал короче, чем кажется" без явной глубины.
+        foreach (var section in new[] { "reboots", "whea" })
+            Assert.Contains("Write-JournalDepthNote", Body(section));
     }
 
     [Fact]

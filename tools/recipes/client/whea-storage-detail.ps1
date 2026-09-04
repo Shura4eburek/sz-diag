@@ -11,6 +11,19 @@
 $Days = 30
 $since = (Get-Date).AddDays(-$Days)
 
+# Глубина журнала — рядом с окном поиска (бэклог п.123): без неё "sobytiy net" нельзя
+# отличить от "zhurnal koroche okna, dannyh prosto net".
+$oldest = Get-WinEvent -LogName System -Oldest -MaxEvents 1 -ErrorAction SilentlyContinue
+if ($oldest) {
+    "Okno poiska: $Days dney (s $($since.ToString('dd.MM.yyyy'))). Samoe staroe sobytie v zhurnale System: $($oldest.TimeCreated.ToString('dd.MM.yyyy HH:mm'))."
+    if ($oldest.TimeCreated -gt $since) {
+        "VNIMANIE: zhurnal NE DOSTAET do nachala okna poiska - pustota nizhe mozhet znachit 'zhurnal korotkiy', a ne 'defekta net'."
+    }
+} else {
+    "Okno poiska: $Days dney (s $($since.ToString('dd.MM.yyyy'))). Glubinu zhurnala System opredelit ne udalos."
+}
+''
+
 '=== Karta: Harddisk N -> model / serial ==='
 # Ntfs/disk/stornvme пишут \Device\HarddiskN\DRN, а Get-PhysicalDisk знает DeviceId.
 Get-PhysicalDisk -ErrorAction SilentlyContinue | ForEach-Object {
