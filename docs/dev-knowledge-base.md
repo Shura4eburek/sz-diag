@@ -3,7 +3,7 @@
 > Плотный справочник по всему функционалу для быстрой навигации и правок без повторного
 > обхода кодовой базы. Общий замысел — [vision.md](vision.md); архитектура/инварианты для
 > ежедневной работы — [../CLAUDE.md](../CLAUDE.md). Здесь — протокол, точки расширения,
-> таблицы параметров и рецепты. Обновлено 2026-07-21.
+> таблицы параметров и рецепты. Обновлено 2026-09-04.
 
 ## Проекты (9 в `src/` + зеркальные тесты в `tests/`)
 
@@ -14,6 +14,7 @@
 | `SzDiag.Cli` (`szcli`) | тонкий клиент к `/api` | `HubApiClient`, команды в `Program.cs` |
 | `SzDiag.Agent` | консоль на клиенте (админ, `app.manifest`) | `AgentSession`, `WindowsSystemAccessManager`, `PortableSshServer` |
 | `SzDiag.Updater` | точка входа на клиенте: самообновление агента с hub | `HttpUpdateClient`, `PackageApplier`, `AgentLauncher` |
+| `SzDiag.ConsoleUi` | консольный UI, общий для hub/агента/CLI | `StickyHeader`, `SyncedConsoleWriter`, `MarkupText` |
 | `SzDiag.Hardware` | резолвер видях по PCI ID | `GpuResolver`, `VgaBiosScraper`, `GpuRepository` |
 | `SzDiag.Kb` | Obsidian-vault базы знаний | `KbPaths`, `KnowledgeBaseScaffolder`, `ReportMarkdownBuilder` |
 | `SzDiag.Erp` | локальный API учётной системы → база знаний | `ErpApiClient`, `ErpSession`, `ErpJson`, `ErpBlockBuilder`, `SzFetchWriter` |
@@ -34,6 +35,9 @@
 | `ReportActivity` | `ReportActivity(sz, activity, since)` | `Registry.SetActivity`; `since=null` = простой. Fire-and-forget |
 | `UploadReportFile` | `UploadReportFile(UploadReportPart{Sz,Timestamp,FileName,Content})` | `ReportStore.Save` → `kb/СЗ/<sz>/reports/<ts>/<file>` |
 | `RevertResult` | `RevertResult(Sz,Done,Failed)` | Итог отката ДО отключения канала (self-revert по `C`, close с хоста — пока коннект ещё жив). `RevertResultStore.Set` (деталь для `close`) + `SessionRegistry.MarkRevertOutcome` (тот же `SessionInfo.RevertNote`, что и у headless-пути `/agent/revert-status` ниже) + запись в журнал СЗ |
+| `PullAck` | `PullAck(RequestId,AcceptedAt)` | Агент подтверждает ПРИЁМ команды `Pull` сразу (`SendAsync`, не ждёт ответа hub) — `PullCoordinator.Acknowledge`; различает «клиент не принял» (таймаут без ack) от «принял, но давит нагрузка/большой файл» (тот же приём, что у `Exec`, п.171) |
+| `PullChunk` | `PullChunk(RequestId,FullPath,Index,Data:byte[],Last)` | Очередной кусок файла (SignalR-сообщение ограничено 10 МБ, поэтому файл режется чанками по 1 МБ) |
+| `PullResult` | `PullResult(RequestId,Files:PullFileInfo[],Error?)` | Сводка ПОСЛЕ всех чанков: имя/размер/sha256/`Skipped`+`SkipReason`(`OverLimit`) на файл, либо `Error` целиком по запросу (путь не найден/нет прав) |
 
 **Hub → агент** (client-методы; физически — `SignalRAgentCommandSender` через
 `IHubContext<AgentHub>.Clients.Client(connId).SendAsync`; агент подписан в `SignalRHubLink`):
@@ -46,6 +50,7 @@
 | `Exec` | `ExecRequest{Sz,RequestId,Script,TimeoutSeconds,Detached,Isolated,AsSystem}` | `AgentCommandWiring` → `ExecCommandHandler.Handle`; ack сразу, результат отдельным `ExecResult`. `Isolated` (только с `Detached`) — `BackgroundJobs` оборачивает задачу в транзиентную scheduled task под SYSTEM (`szdiag-job-<сз>-<jobId>`, как sshd) вместо дочернего процесса агента — переживает падение/закрытие агента (бэклог п.53). `AsSystem` (без `Detached`) — `SystemExecRunner` гоняет тот же скрипт синхронно под SYSTEM тем же механизмом транзиентной задачи: часть операций (задачи `UpdateOrchestrator`, объекты TrustedInstaller) недоступна даже админу (бэклог п.39) |
 | `ExecStatus` | `ExecStatusRequest{Sz,RequestId,JobId,TailLines,Cancel}` | `ExecCommandHandler.Status`; `JobId="*"` — список задач, `Cancel=true` — снять задачу (дерево процессов). Этот канал короткий и проходит под полной нагрузкой — поэтому отмена/список едут им же (бэклог п.134/172/176) |
 | `RestartAgent` | `sz` | `AgentCommandWiring` → `NativeAgentRestart.Run`: свежий независимый `Process.Start(powershell.exe)`, В ОБХОД `IPowerShellRunner`/exec-очереди — раньше `agent restart` сам ходил через exec-канал и был бесполезен ровно тогда, когда нужен (бэклог п.202/п.215). Fire-and-forget, как `Revert` |
+| `Pull` | `PullRequest{Sz,RequestId,Path,MaxBytes,Recurse}` | Забрать файл(ы) с клиента чанками (обходит лимит `exec` в 200k символов вывода). Агент шлёт `PullAck` сразу, затем `PullChunk` по `PullLimits.ChunkBytes`=1 МБ на файл, `PullResult` — сводка ПОСЛЕ всех чанков. `PullCoordinator` собирает чанки в `Hub.PullRoot\<sz>\<Label ?? метка_времени>\`, сверяет sha256 |
 
 Прямого RPC-возврата нет: hub **push-ит** команду, агент отвечает **отдельными** server-инвокациями
 (`UploadReportFile`/`ReportActivity`). Новый вид результата = новый агент→hub метод по образцу.
@@ -100,6 +105,20 @@ RecordCloseAsync` + `Remove(sz)`; неудача — `Status=Offline` + `Session
 RevertNote` выставляет и живой SignalR-путь `RevertResult` выше — единое состояние сессии
 независимо от того, кто откат инициировал (self-revert по `C`, close с хоста, watchdog).
 
+### Диагностика самого hub `/healthz` (`Hub/HealthApi.cs`)
+
+**Без токена** (`Program.cs` фильтрует токен-мидлварой только `HubRoutes.Path`, `/healthz` вне
+неё — сознательно новая неаутентифицированная поверхность, данных не отдаёт). Отвечает даже
+когда hub захлебнулся в thread pool starvation: не трогает `SessionRegistry`/SQLite/SignalR,
+только счётчики самого рантайма (`ThreadPool.GetAvailableThreads`/`GetMaxThreads`,
+`PendingWorkItemCount`, число потоков процесса). Раньше отличить «hub жив, но в starvation» от
+«hub умер» можно было только руками через `Get-Process` (СЗ 160306, бэклог п.50: 3674 потока
+при здоровых 26 сразу после рестарта). Парный сторож — `ThreadPoolWatchdog` (`BackgroundService`, опрос раз в 30 c): при первом
+переходе `ThreadCount >= HubOptions.ThreadPoolWarnThreshold` пишет явную строку `THREAD POOL
+STARVATION` (уносится в `hub-<дата>.log` тем же Tee, что и весь консольный вывод) — залипание
+видно ДО того, как перестанут отвечать HTTP-запросы, а не после; повторно предупреждает только
+если порог отпустило и снова превышен (не спамит на каждом тике).
+
 ### Автообнаружение hub (`DiscoveryProtocol`, UDP `5098`)
 
 Агент broadcast-ит `SZDIAG-DISCOVER:<token>` на все локальные подсети + `255.255.255.255`
@@ -109,8 +128,13 @@ discovery не запускается.
 
 ### DTO (`SzDiag.Contracts`, все `sealed record`)
 
-`RegisterRequest(Sz,Hostname)` ·
-`SessionInfo(Sz,Ip,Hostname,Status,ConnectedAt,LastHeartbeat,Activity="",ActivitySince=null,BootTime=null,LastRebootAt=null,RebootCount=0,RevertNote=null)`
+`RegisterRequest(Sz,Hostname,BootTime=null,LastShutdown=null,AgentUser=null,AgentSessionId=null)`
+(`AgentUser` — `WindowsIdentity.GetCurrent().Name`, `NT AUTHORITY\СИСТЕМА` после автостарт-задачи
+vs `<машина>\<юзер>` при ручном запуске: из session 0 GUI-операции ломаются молча, п.220;
+`AgentSessionId` — сессия Windows агента, 0 = служебная без рабочего стола) ·
+`SessionInfo(Sz,Ip,Hostname,Status,ConnectedAt,LastHeartbeat,Activity="",ActivitySince=null,BootTime=null,LastRebootAt=null,RebootCount=0,RevertNote=null,AgentUser=null,AgentSessionId=null)`
+(те же `AgentUser`/`AgentSessionId`, что и в `RegisterRequest` — прокинуты в реестр для
+`client info`/CLI; `AgentInSessionZero` — вычисляемое свойство `AgentSessionId == 0`)
 · `SessionRecord(Sz,Ip,Hostname,OpenedAt,ClosedAt?)` (история) · `TargetInfo(Sz,Ip,User,Ssh)`
 · `UploadReportPart(Sz,Timestamp,FileName,Content:byte[])` ·
 `RevertResult(Sz,Done:string[],Failed:RevertResultFailure[])` (агент → hub, живой канал) ·
@@ -249,8 +273,42 @@ staging) → `AgentLauncher.LaunchAndWait` (запуск `agent.exe` в насл
 
 - `watch` (дефолт) — Spectre `Live`, каждые 1000 мс `GET /api/sessions`, таблица СЗ/Статус/IP/Хост/Активность.
 - `list` · `close <СЗ>` · `target <СЗ>` · `test run <СЗ> [фильтр]` · `diag run <СЗ> [секции]` — к соответствующим `/api`.
+- `diag status <СЗ>` — свежий `diag.md` + текущая `Activity` сессии без нового прогона (упавшая
+  диагностика видна сразу, а не как «висит», `DiagStatusCommand`).
 - `kb record/summary/search …` — локальная ФС через `SzDiag.Kb` (без HTTP).
 - `hw import [path] / update / resolve "<PCI ID>"` — локальная БД + `VgaBiosScraper`.
+- `hw passport <СЗ>` — паспорт видеокарты (SUBSYS/vBIOS/PCIe/TDR) одной командой через `exec`,
+  без файла рецепта рядом с exe (`GpuPassport`).
+- `alive <СЗ>` — heartbeat/статус/boot-time из hub + TCP-пробы (22/445/135/3389) + ICMP + `arp -a`
+  одной командой, вердикт словами через `AliveVerdict` (`AliveCommand`) — не гадать по шести
+  ручным прогонам, вырубилась машина или просто давит нагрузкой sshd.
+- `stress stop <СЗ>` — снять ВСЮ нагрузку разом: процессы стресс-тулов (и их подпроцессы —
+  `linpack`/`gpu3d-Win64-Shipping` переживают закрытие оболочки), фоновые `exec --detach`-задачи,
+  задачи планировщика `szdiag-*`, кроме `lhmmon` (наблюдатель должен жить) (`StressCommand`).
+- `app run <СЗ> <имя>` / `app restart <СЗ> <имя>` — GUI-приложение клиента elevated в его
+  интерактивной сессии (агент под SYSTEM в session 0 не создаёт окна) — известные приложения в
+  `AppCommand.KnownApps` (маска процессов, служба, лаунчер).
+- `disk scan <СЗ> [--map|--zone A-B] [--drive N]` — карта скорости чтения по всему накопителю
+  точками либо сплошной прогон зоны, фоновой `exec --detach`-задачей (`DiskCommand`).
+- `disk snapshot <СЗ> --label <текст>` — карта скоростей + SMART + журнал в один файл вне vault,
+  с меткой «до/после» destructive-операции (`DiskSnapshotCommand`).
+- `sleep-cycle start|stop <СЗ>` — цикл «сон → RTC-пробуждение» как воспроизводящий тест одной
+  командой при живом агенте, останавливается стоп-файлом, есть предохранитель `--max-hours`
+  (`SleepCycleCommand`; офлайн-случай — отдельным PE-рецептом).
+- `exec <СЗ> ... --param Key=Value` — параметризация рецепта без правки файла в рабочем дереве:
+  гасит существующее `$Key = ...` в начале скрипта и подставляет своё значение поверх копии
+  текста, которая уезжает агенту (`ExecParams`, п.155); `$Sz` подставляется автоматически, если
+  не задан явно.
+- `exec <СЗ> ... --as-system` — синхронный запуск скрипта под SYSTEM транзиентной scheduled
+  task (`SystemExecRunner`, тот же приём, что у sshd) — часть операций (задачи
+  `UpdateOrchestrator`, объекты TrustedInstaller) недоступна даже админу-агенту. Несовместим
+  по смыслу с `--detach` (для фонового запуска под SYSTEM — `--isolated`).
+- `exec <СЗ> --in-session "<powershell>"` — прогнать скрипт в ИНТЕРАКТИВНОЙ сессии залогиненного
+  пользователя, а не в session 0 агента (`InteractiveSessionExec`) — там же, где `app run`,
+  для одноразовых команд без регистрации в `AppCommand.KnownApps`.
+- `exec <СЗ> --result <jobId> --save` — забрать вывод фоновой задачи (`out.txt`/`err.txt`) на
+  хост через `pull` в `pulled\<СЗ>\jobs\<jobId>\`, чтобы результат detached-задачи пережил
+  потерю/переустановку клиента (бэклог п.214).
 - `sz fetch <СЗ> [--force]` · `sz release` — локальный API учётной системы через `SzDiag.Erp`
   (без hub). Конфиг — секция `Erp` (`BaseUrl`, `TokenFile`, `TimeoutSeconds`=600).
   Артефакты: `kb/СЗ/<номер>/erp.json` + блок под маркерами `erp:початок`/`erp:кінець`
