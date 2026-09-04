@@ -90,6 +90,9 @@ switch (command)
         // был ли агент жив в момент close (бэклог п.119).
         var wasOnline = (await client.GetSessionsAsync())
             .Any(s => s.Sz == args[1] && s.Status == SessionStatus.Online);
+        // Тоже ДО закрытия: бэкап настроек сетевого адаптера — файл на клиенте, после close
+        // канала для проверки не будет (бэклог п.206, СЗ 162367).
+        if (wasOnline) await NetAdapterBackupCheck.WarnIfLeftoverAsync(client, args[1]);
         var closeOutcome = await client.CloseAsync(args[1]);
         if (closeOutcome.Closed)
         {
@@ -149,6 +152,33 @@ switch (command)
             return 2;
         }
 
+        // --ssh: путь В ОБХОД exec-канала. На 162367 exec-канал не отвечал целый час при живом
+        // heartbeat (ресет сетевого адаптера рецептом), а обычный `agent restart` бесполезен
+        // ровно тогда, когда он нужен — сам идёт через exec (бэклог п.206). Гоняем ту же
+        // регистрацию отложенной задачи, но через настоящий SSH, минуя SignalR вовсе.
+        if (args.Any(a => a.Equals("--ssh", StringComparison.OrdinalIgnoreCase)))
+        {
+            var target = await client.GetTargetAsync(restartSz);
+            if (target is null)
+            {
+                AnsiConsole.MarkupLineInterpolated($"[red]СЗ {restartSz} не найдена[/] среди активных.");
+                return 1;
+            }
+            var key = TargetSsh.FindKey(options.SshKeyPath, AppContext.BaseDirectory);
+            var sshArgs = SshRunner.BuildArgs(target.User, target.Ip, key, AgentRestart.BuildScript(restartSz));
+            var sshResult = await SshRunner.RunAsync(sshArgs, 60);
+            if (!string.IsNullOrEmpty(sshResult.StdOut)) Console.WriteLine(sshResult.StdOut.TrimEnd());
+            if (sshResult.TimedOut || sshResult.ExitCode != 0)
+            {
+                AnsiConsole.MarkupLineInterpolated(
+                    $"[red]Перезапуск по SSH не поставлен (exit {sshResult.ExitCode}):[/] {sshResult.StdErr.TrimEnd()}");
+                return 1;
+            }
+            AnsiConsole.MarkupLineInterpolated(
+                $"[green]СЗ {restartSz}: перезапуск поставлен по SSH[/] (в обход exec-канала). Через минуту СЗ должна вернуться в [green]online[/].");
+            break;
+        }
+
         var restart = await client.ExecAsync(restartSz, AgentRestart.BuildScript(restartSz), 120);
         if (restart is null)
         {
@@ -159,6 +189,8 @@ switch (command)
         if (restart.ExitCode != 0)
         {
             AnsiConsole.MarkupLineInterpolated($"[red]Перезапуск не поставлен:[/] {CliXml.Decode(restart.StdErr).TrimEnd()}");
+            AnsiConsole.MarkupLineInterpolated(
+                $"[grey]Если exec-канал мёртв (heartbeat жив, а команды не проходят) — путь в обход:[/] szcli agent restart {restartSz} --ssh");
             return 1;
         }
         AnsiConsole.MarkupLineInterpolated(
@@ -670,7 +702,7 @@ static void PrintUsage()
               [yellow]szcli pull[/] [blue]<СЗ>[/] [grey]<путь…> [[--max-mb N]] [[-r]][/]
                 [grey]забрать файлы (маска [/]*.dmp[grey], папка или несколько путей) в[/] hub\pulled\<СЗ>\<время>\
                 [grey]-r — с подпапками (LiveKernelReports держит дампы в[/] WATCHDOG*[grey])[/]
-              [yellow]szcli agent restart[/] [blue]<СЗ>[/]  поднять агента заново (задачей под SYSTEM, без похода к машине)
+              [yellow]szcli agent restart[/] [blue]<СЗ>[/] [grey][[--ssh]][/]  поднять агента заново (задачей под SYSTEM); --ssh — в обход exec-канала
               [yellow]szcli agent set[/] [blue]<СЗ>[/] [grey]WatchdogHours=12[/]  правка конфига агента с хоста
               [yellow]szcli client[/] [grey]info|cleanup <СЗ>[/]  следы прогонов на клиенте и их уборка
               [yellow]szcli maintenance[/] [blue]<СЗ>[/] [grey]"причина" [[--from 18:30]] [[--until 19:15]] | --list[/]
