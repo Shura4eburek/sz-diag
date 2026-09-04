@@ -13,13 +13,7 @@ public class BugcheckCodesRecipeSyncTests
     private const string EndMarker = "# END bugcheck-codes";
 
     private static string RecipePath()
-    {
-        var dir = AppContext.BaseDirectory;
-        while (dir is not null && !File.Exists(Path.Combine(dir, "SzDiag.sln")))
-            dir = Path.GetDirectoryName(dir);
-        if (dir is null) throw new InvalidOperationException("не нашёл корень репо (SzDiag.sln)");
-        return Path.Combine(dir, "tools", "recipes", "client", "pe-wer-livekernel.ps1");
-    }
+        => Path.Combine(TestPaths.RepoRoot(), "tools", "recipes", "client", "pe-wer-livekernel.ps1");
 
     [Fact]
     public void RecipeTable_MatchesGeneratedFromBugcheckCodes()

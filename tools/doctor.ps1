@@ -28,6 +28,34 @@ function Info($text) { Write-Host "  --   $text" -ForegroundColor DarkGray }
 
 Write-Host "== sz-diag doctor ==" -ForegroundColor Cyan
 
+# R-I4 (ревью волны 1): списки путей ниже раньше писались руками и отставали от реального
+# графа зависимостей (`SzDiag.Cli` ссылается на `Kb`/`Hardware`/`ConsoleUi`/`Erp`, `SzDiag.Hub` —
+# на `ConsoleUi`/`Kb`, ни один из них не был в проверке) — коммит, тронувший только
+# `src/SzDiag.Kb`, давал «szcli свежий» на протухшем exe, ровно тот отказ (п.198/211), ради
+# которого сам freshness-guard делался. Считаем транзитивные `<ProjectReference>` из .csproj
+# заново при каждом прогоне — список не может отстать от кода, потому что не хранится отдельно.
+function Get-TransitiveProjectDirs([string]$csprojRelPath) {
+    $seen = New-Object System.Collections.Generic.HashSet[string]
+    $queue = New-Object System.Collections.Generic.Queue[string]
+    $queue.Enqueue($csprojRelPath.Replace('\', '/'))
+    $result = @()
+    while ($queue.Count -gt 0) {
+        $rel = $queue.Dequeue()
+        if (-not $seen.Add($rel)) { continue }
+        $result += (Split-Path $rel -Parent)
+        $full = Join-Path $Root $rel
+        if (-not (Test-Path $full)) { continue }
+        $xml = [xml](Get-Content $full -Raw)
+        $refs = @($xml.Project.ItemGroup.ProjectReference.Include) | Where-Object { $_ }
+        foreach ($r in $refs) {
+            $refFull = [System.IO.Path]::GetFullPath((Join-Path (Split-Path $full -Parent) $r))
+            $refRel = [System.IO.Path]::GetRelativePath($Root, $refFull).Replace('\', '/')
+            $queue.Enqueue($refRel)
+        }
+    }
+    return $result
+}
+
 # 1. Пакет агента: не отстал ли он от кода
 $agentDist = Join-Path $Root "dist\host\hub\agent-dist"
 $package = Join-Path $agentDist "package.zip"
@@ -35,8 +63,9 @@ if (-not (Test-Path $package)) {
     Bad "пакета агента нет ($package) — прогони .\tools\build-dist.ps1"
 } else {
     $packageTime = (Get-Item $package).LastWriteTime
-    # Код агента — это ещё и Contracts (протокол) с Updater (точка входа на клиенте).
-    $paths = @("src/SzDiag.Agent", "src/SzDiag.Contracts", "src/SzDiag.Updater")
+    # Код агента — весь транзитивный граф от SzDiag.Agent, плюс Updater (точка входа на клиенте,
+    # свой отдельный .csproj, не зависящий от Agent).
+    $paths = @(Get-TransitiveProjectDirs "src/SzDiag.Agent/SzDiag.Agent.csproj") + "src/SzDiag.Updater"
     $lastCommit = & git -C $Root log -1 --format="%cI|%h|%s" -- $paths 2>$null
     if (-not $lastCommit) {
         Info "git не ответил — свежесть пакета не проверить"
@@ -72,8 +101,8 @@ function Test-ComponentFreshness([string]$ExePath, [string[]]$Paths, [string]$La
         Ok ("{0} свежий (собран {1:dd.MM HH:mm}, код — {2:dd.MM HH:mm})" -f $Label, $exeTime, $commitTime)
     }
 }
-Test-ComponentFreshness (Join-Path $Root "dist\host\cli\SzDiag.Cli.exe") @("src/SzDiag.Cli", "src/SzDiag.Contracts") "szcli"
-Test-ComponentFreshness (Join-Path $Root "dist\host\hub\SzDiag.Hub.exe") @("src/SzDiag.Hub", "src/SzDiag.Contracts") "hub"
+Test-ComponentFreshness (Join-Path $Root "dist\host\cli\SzDiag.Cli.exe") (Get-TransitiveProjectDirs "src/SzDiag.Cli/SzDiag.Cli.csproj") "szcli"
+Test-ComponentFreshness (Join-Path $Root "dist\host\hub\SzDiag.Hub.exe") (Get-TransitiveProjectDirs "src/SzDiag.Hub/SzDiag.Hub.csproj") "hub"
 
 # 1c. Непринятая сборка рядом: build-dist.ps1 публикует во временную папку `<out>.new` и
 # переименовывает её в `<out>` атомарно ПОСЛЕ успеха — но если целевая папка залочена

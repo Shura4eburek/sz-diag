@@ -9,13 +9,7 @@ namespace SzDiag.Agent.Tests;
 /// реконструкцию и разбор командной строки в cmd.exe.</summary>
 public class BuildDistScriptTests
 {
-    private static string RepoRoot()
-    {
-        var dir = AppContext.BaseDirectory;
-        while (dir is not null && !File.Exists(Path.Combine(dir, "SzDiag.sln")))
-            dir = Path.GetDirectoryName(dir);
-        return dir ?? throw new InvalidOperationException("не нашёл корень репо (SzDiag.sln)");
-    }
+    private static string RepoRoot() => TestPaths.RepoRoot();
 
     private static string WrapperBody()
     {
@@ -57,6 +51,28 @@ public class BuildDistScriptTests
                 throwOnError: false, timeout: TimeSpan.FromSeconds(20));
 
             Assert.Contains(@"hw|resolve|PCI\VEN_10DE&DEV_2704", r.StdOut);
+        }
+        finally { try { Directory.Delete(dir, recursive: true); } catch { } }
+    }
+
+    [Fact]
+    public void SzcliPs1Wrapper_MissingExe_ExitsNonZero_NotSilentSuccess()
+    {
+        // R-M11 (ревью волны 1): если `& exe` бросает (файл не найден) ДО первого запуска
+        // процесса, $LASTEXITCODE остаётся от чего-то другого (в т.ч. $null) — «exit
+        // $LASTEXITCODE» тогда молча давал exit 0, маскируя отказ вопреки контракту кодов
+        // szcli (0/N/2/3/4).
+        var dir = Path.Combine(Path.GetTempPath(), $"szcli-ps1-missing-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(dir);
+        try
+        {
+            var wrapperPath = Path.Combine(dir, "szcli.ps1");
+            File.WriteAllText(wrapperPath, WrapperBody());   // cli\SzDiag.Cli.exe заведомо не существует
+
+            var runner = new PowerShellRunner();
+            var r = runner.Run($"& '{wrapperPath}' list", throwOnError: false, timeout: TimeSpan.FromSeconds(20));
+
+            Assert.NotEqual(0, r.ExitCode);
         }
         finally { try { Directory.Delete(dir, recursive: true); } catch { } }
     }
