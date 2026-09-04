@@ -376,6 +376,15 @@ switch (command)
         break;
     }
 
+    // diag status: упавший/висящий прогон обязан быть виден, а не выглядеть пустой папкой
+    // (бэклог п.6, СЗ 160306) — сводит Activity сессии (обновляется на каждом шаге прогона
+    // агентом) и самый свежий diag.md на диске, без нового похода к агенту.
+    case "diag" when args.Length >= 3 && args[1].Equals("status", StringComparison.OrdinalIgnoreCase):
+    {
+        var reportsDir = new KbPaths(options.KbRoot).ReportsDir(args[2]);
+        return await DiagStatusCommand.RunAsync(client, args[2], reportsDir);
+    }
+
     // Секции принимаем и через запятую, и несколькими аргументами; опечатка — ошибка, а не
     // молчаливое «собралась одна system» (бэклог п.6). Реальный список печатаем эхом.
     case "diag" when args.Length >= 3 && args[1].Equals("run", StringComparison.OrdinalIgnoreCase):
@@ -655,6 +664,7 @@ static void PrintUsage()
                 [grey]прогон тестов; метка конфигурации обязательна («EXPO 6000, штатный БП»),[/]
                 [grey]повторить ту же — --same-config[/]
               [yellow]szcli diag run[/] [blue]<СЗ>[/] [grey][[storage,events|…]][/]  диагностика (снапшот; секции точечно)
+              [yellow]szcli diag status[/] [blue]<СЗ>[/]  идёт ли прогон/упал ли он, плюс путь к свежему отчёту
                 [grey]секции: system cpu memory gpu storage temps drivers events reboots whea livekernel reliability battery[/]
                 [grey]можно через запятую или пробел; all — все; алиасы: hw ram disks video bsod tdr temp[/]
               [yellow]szcli exec[/] [blue]<СЗ>[/] [grey]"<powershell>" | -f <файл> [[--timeout <сек>]] [[--detach [[--isolated]]]][/]
