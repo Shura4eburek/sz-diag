@@ -15,17 +15,23 @@
 $ErrorActionPreference = 'SilentlyContinue'
 
 # Бэклог п.183: «файл занят?» ничего не говорит, КЕМ. Проверяем известные держатели папок
-# инструментов — те же процессы, что снимает stress stop, плюс explorer (открытая папка).
+# инструментов — те же процессы, что снимает stress stop.
 function Show-Holders {
     param($Dir)
-    $names = 'OCCTCmd', 'OCCT', 'furmark', 'TM5', '3DMarkCmd', 'prime95', 'y-cruncher', 'Kagari',
-             'lhmmon', 'explorer'
+    $names = 'OCCTCmd', 'OCCT', 'furmark', 'TM5', '3DMarkCmd', 'prime95', 'y-cruncher', 'Kagari', 'lhmmon'
     $alive = Get-Process $names -ErrorAction SilentlyContinue |
         Where-Object { $_.Path -and $_.Path.StartsWith($Dir, [StringComparison]::OrdinalIgnoreCase) }
     if ($alive) {
         '  держит: ' + (($alive | ForEach-Object { "$($_.ProcessName) pid=$($_.Id)" }) -join ', ')
     } else {
-        '  держит: не по пути (проверь sc query R0lhmmon и szcli stress stop — вдруг не гонялся)'
+        # Minor (ревью волны 2): explorer.exe живёт в C:\Windows — его .Path на путь целевой
+        # папки НИКОГДА не совпадёт, раньше он сидел в $names и печатал вводящее в заблуждение
+        # «держит: не по пути». Открытое окно проводника проверить по Path нельзя в принципе —
+        # подсказываем это отдельно, а не притворяемся, что проверили.
+        $explorerHint = if (Get-Process explorer -ErrorAction SilentlyContinue) {
+            ' Explorer.exe запущен — возможно, папка открыта в окне проводника (по Path это не проверить).'
+        } else { '' }
+        "  держит: не по пути (проверь sc query R0lhmmon и szcli stress stop — вдруг не гонялся).$explorerHint"
     }
 }
 

@@ -34,11 +34,17 @@ foreach ($n in 'OCCTCmd', 'OCCT', 'furmark', 'TM5', '3DMarkCmd', 'prime95', 'y-c
 # R-I3 (ревью волны 1): `szdiag-occt-*` не матчит `szdiag-occtcomb-*` (см. check-occt-result.ps1) —
 # процессы добивались, а задача того же прогона оставалась жива и перезапускала их. `szdiag-occt*`
 # (без дефиса) ловит оба варианта. lhmmon сюда сознательно НЕ входит (см. заголовок файла).
+# Minor (ревью волны 2): `szdiag-ab-*` (apply-ab-profile.ps1) убрана отсюда — это не стресс-
+# задача, а разовое применение профиля Afterburner клиента, снимать её вместе со стресс-тулами
+# не нужно (и опасно, если она ещё применяет профиль). Добавлена `szdiag-sleepcycle-*` — именно
+# она заперла 161498 (ишью #181), а тут её не было. Полный путь задачи (TaskPath+TaskName) —
+# без него `schtasks /end/delete` не разрешит задачу из подпапки.
 foreach ($t in Get-ScheduledTask -TaskName 'szdiag-p95-*', 'szdiag-yc-*', 'szdiag-occt*', 'szdiag-tm5-*',
-                'szdiag-iostress-*', 'szdiag-furmark-*', 'szdiag-game-*', 'szdiag-dw-*', 'szdiag-ab-*' -ErrorAction SilentlyContinue) {
-    schtasks /end /tn $t.TaskName 2>$null | Out-Null
-    schtasks /delete /tn $t.TaskName /f 2>$null | Out-Null
-    $killed += "task $($t.TaskName)"
+                'szdiag-iostress-*', 'szdiag-furmark-*', 'szdiag-game-*', 'szdiag-dw-*', 'szdiag-sleepcycle-*' -ErrorAction SilentlyContinue) {
+    $full = $t.TaskPath + $t.TaskName
+    schtasks /end /tn $full 2>$null | Out-Null
+    schtasks /delete /tn $full /f 2>$null | Out-Null
+    $killed += "task $full"
 }
 
 # Фоновые задачи szcli exec --detach: бьём только те, что крутят наши стресс-скрипты,

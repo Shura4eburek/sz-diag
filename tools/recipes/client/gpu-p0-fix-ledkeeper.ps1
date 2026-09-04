@@ -57,18 +57,40 @@ if ($Restore) {
     # '\' — задача из подпапки находится в Get-ScheduledTask (по имени), но не переключается.
     # $s.TaskPath может отсутствовать в старой точке возврата — фоллбэк на корень.
     $taskPath = if ($s.TaskPath) { $s.TaskPath } else { '\' }
-    Enable-ScheduledTask -TaskName $s.Task -TaskPath $taskPath -ErrorAction SilentlyContinue | Out-Null
+    # I-16 (ревью волны 2): раньше задача включалась безусловно — если машина приехала с уже
+    # ВЫКЛЮЧЕННОЙ задачей (TaskWas = Disabled), откат оставлял её включённой, то есть точка
+    # возврата возвращала НЕ то состояние, которое было исходно.
+    if ($s.TaskWas -eq 'Disabled') {
+        Disable-ScheduledTask -TaskName $s.Task -TaskPath $taskPath -ErrorAction SilentlyContinue | Out-Null
+    } else {
+        Enable-ScheduledTask -TaskName $s.Task -TaskPath $taskPath -ErrorAction SilentlyContinue | Out-Null
+    }
+    $anyMismatch = $false
     foreach ($x in $s.Services) {
         Set-Service -Name $x.Name -StartupType (ConvertTo-StartupType $x.StartMode) -ErrorAction SilentlyContinue
         if ($x.State -eq 'Running') { Start-Service -Name $x.Name -ErrorAction SilentlyContinue }
-        "   применено: $($x.Name) -> $($x.StartMode)/$($x.State)"
+        # I-17 (ревью волны 2): и Set-Service, и Start-Service шли с -ErrorAction
+        # SilentlyContinue, а строка ниже эхом печатала ЖЕЛАЕМОЕ состояние независимо от
+        # исхода — «возвращено как было» держалось даже когда проглоченная ошибка привязки
+        # (пустой/непривычный StartMode в старой точке возврата) ничего не поменяла на самом
+        # деле. Перечитываем фактическое состояние службы и печатаем его, а не намерение.
+        $actual = Get-CimInstance Win32_Service -Filter "Name='$($x.Name)'" -ErrorAction SilentlyContinue
+        $actualMode = if ($actual) { "$($actual.StartMode)" } else { '?' }
+        $actualState = if ($actual) { "$($actual.State)" } else { '?' }
+        $mismatch = ($actualMode -ne $x.StartMode) -or ($actualState -ne $x.State)
+        if ($mismatch) { $anyMismatch = $true }
+        $flag = if ($mismatch) { ' !!! НЕ ВЕРНУЛОСЬ' } else { '' }
+        "   $($x.Name): хотели $($x.StartMode)/$($x.State), сейчас $actualMode/$actualState$flag"
     }
-    'возвращено как было'
+    if ($anyMismatch) { '!!! возвращено НЕ ВСЁ как было — смотри пометки выше' } else { 'возвращено как было' }
     return
 }
 
 "== до лечения: $(Pstate)"
-$t = Get-ScheduledTask -TaskName $task -ErrorAction SilentlyContinue
+# Minor (ревью волны 2): без -First 1 задача с таким именем в НЕСКОЛЬКИХ папках даёт массив,
+# и $t.TaskPath дальше превращается в массив строк — привязка параметра -TaskPath у
+# Disable-ScheduledTask на массиве непредсказуема.
+$t = Get-ScheduledTask -TaskName $task -ErrorAction SilentlyContinue | Select-Object -First 1
 
 # #113 / б.171: бэкап пишется РОВНО ОДИН РАЗ за жизнь точки возврата. Повторный запуск
 # (доработка лечения) видит уже применённые изменения — перезаписать файл ими означало бы

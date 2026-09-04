@@ -1,4 +1,4 @@
-$OutputEncoding = [Console]::OutputEncoding = [Text.Encoding]::UTF8
+﻿$OutputEncoding = [Console]::OutputEncoding = [Text.Encoding]::UTF8
 # Бинарный поиск держателя P0 среди служб/фоновых процессов MSI (СЗ 161190, после обновления).
 #
 # Грабля: 17.08 виновником был LEDKeeper2 и гашение процессов СЕССИИ находило его сразу.

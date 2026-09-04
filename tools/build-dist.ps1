@@ -378,16 +378,20 @@ Set-Content -Path dist\host\szcli.cmd -Value $szcli -Encoding ascii
 # передаёт $args как готовый массив строк, минуя реконструкцию и разбор командной строки в
 # cmd.exe - `&`/`|`/`^` в аргументе доезжают как есть.
 $szcliPs1 = @'
-& (Join-Path $PSScriptRoot 'cli\SzDiag.Cli.exe') @args
-# R-M11 (ревью волны 1): если exe не найден/`&` бросил исключение до первого запуска процесса,
-# $LASTEXITCODE остаётся от ЧЕГО-ТО ДРУГОГО (в т.ч. $null) - "exit $LASTEXITCODE" тогда молча
-# даёт exit 0, маскируя отказ, хотя контракт кодов szcli (0/N/2/3/4) требует ненулевого исхода.
-# [Environment]::Exit — не "exit": голый "exit" внутри скрипта, вызванного через `&` из
-# ДРУГОГО скрипта (как это делает PowerShellRunner в тестах и потенциально сам агент),
-# всего лишь разворачивает стек до вызывающего и НЕ завершает процесс — вызывающий молча
-# получает управление обратно и хост выходит с кодом 0, маскируя тот же самый отказ ещё раз.
-if ($null -eq $LASTEXITCODE) { [Environment]::Exit(1) }
-[Environment]::Exit($LASTEXITCODE)
+$exe = Join-Path $PSScriptRoot 'cli\SzDiag.Cli.exe'
+if (-not (Test-Path $exe)) { Write-Error "нет $exe - прогони .\build-dist.ps1"; exit 4 }
+& $exe @args
+# C-5 (ревью волны 2): R-M11 волны 1 чинил "exit $LASTEXITCODE" молча дающий 0 при $null через
+# [Environment]::Exit - но [Environment]::Exit завершает ВЕСЬ ПРОЦЕСС хоста, а эта обёртка
+# заведена ровно для интерактивных PowerShell-сессий (техник на боксе почти всегда уже в ней,
+# см. комментарий выше) - "& .\szcli.ps1 list" из такой сессии убивало консоль оператора при
+# КАЖДОМ вызове, включая успех. Голый "exit" внутри скрипта, вызванного через `&` из активного
+# хоста, ЗАВЕРШАЕТ ТОЛЬКО ЭТОТ ВЫЗОВ и корректно прокидывает код в $LASTEXITCODE вызывающего
+# (проверено: caller.ps1 после "& szcli.ps1" печатает LASTEXITCODE=5, консоль жива); при запуске
+# как "powershell -File szcli.ps1" тот же "exit" завершает процесс, как и положено. $null-случай
+# после Test-Path выше почти невозможен, но страховку от R-M11 оставляем.
+if ($null -eq $LASTEXITCODE) { exit 1 }
+exit $LASTEXITCODE
 '@
 Set-Content -Path dist\host\szcli.ps1 -Value $szcliPs1 -Encoding utf8
 
