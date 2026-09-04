@@ -22,6 +22,7 @@
 #   szcli exec <СЗ> -f tools\recipes\client\process-io-top.ps1
 $IntervalSec = 5
 $Top         = 20
+$TaskName    = ''   # ← имя задачи (szdiag-diskstress-<СЗ> и т.п.), если знаешь, чей PID ищешь
 
 Add-Type -ErrorAction SilentlyContinue -TypeDefinition @'
 using System;
@@ -106,3 +107,23 @@ function Find-ProcessByTaskName([string]$TaskName) {
 
 '--- I/O по процессам (GetProcessIoCounters, без perf-счётчиков) ---'
 Get-ProcessIoTop -IntervalSeconds $IntervalSec -TopN $Top
+
+# Minor (ревью волны 2, #151): Find-ProcessByTaskName была описана в шапке абзацем, но
+# нигде не вызывалась — «ловить PID по имени задачи» существовало текстом, а не поведением.
+# Если известна конкретная задача (например, стресс-скан диска), находим её процесс по
+# образу из XML и печатаем отдельно — так же, как в общей таблице, но точечно, без гадания
+# по времени старта.
+if ($TaskName) {
+    $targets = Find-ProcessByTaskName $TaskName
+    if ($targets) {
+        "--- процесс задачи '$TaskName' (по Actions.Execute из XML, не по времени старта) ---"
+        foreach ($t in $targets) {
+            try {
+                $c = [SzDiagProcIo]::Get($t.Id)
+                '   pid {0,-8} {1,-24} reads={2} writes={3}' -f $t.Id, $t.ProcessName, $c.ReadOperationCount, $c.WriteOperationCount
+            } catch { "   pid $($t.Id) $($t.ProcessName): $($_.Exception.Message)" }
+        }
+    } else {
+        "   задача '$TaskName' не найдена или её процесс сейчас не запущен"
+    }
+}

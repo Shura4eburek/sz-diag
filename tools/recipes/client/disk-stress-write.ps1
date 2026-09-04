@@ -122,8 +122,13 @@ Say "СТАРТ записи. Диски: $($Drives -join ', '); файл $FileG
 $smartDiskNum = Get-DiskNumberForDriveLetter $Drives[0]
 $smartBefore = $null
 if ($null -ne $smartDiskNum) {
-    $isNvme = (Get-PhysicalDisk -ErrorAction SilentlyContinue | Where-Object DeviceId -eq $smartDiskNum).BusType -eq 'NVMe'
-    if ($isNvme) {
+    # Minor (ревью волны 2): `(nothing).BusType` при отсутствии диска в Get-PhysicalDisk
+    # молча возвращает $null, а `$null -eq 'NVMe'` — $false, поэтому "диск не найден" и
+    # "диск найден, но не NVMe" печатали ОДНО И ТО ЖЕ сообщение. Разделяем причины явно.
+    $phys = Get-PhysicalDisk -ErrorAction SilentlyContinue | Where-Object DeviceId -eq $smartDiskNum
+    if (-not $phys) {
+        Say "SMART до старта: физический диск №$smartDiskNum (для $($Drives[0])) не найден в Get-PhysicalDisk - приёмка по SMART недоступна."
+    } elseif ($phys.BusType -eq 'NVMe') {
         $smartBefore = Get-NvmeUnits $smartDiskNum
         if ($smartBefore) {
             Say ("SMART до старта: PercentageUsed={0}%, DataUnitsRead={1:N2} ТБ, DataUnitsWritten={2:N2} ТБ" -f `
@@ -135,7 +140,7 @@ if ($null -ne $smartDiskNum) {
                     $smartBefore.PercentageUsed, $WriteCapGB)
             }
         } else { Say "SMART до старта: NVMe диск найден, но лог 02h не прочитался - приёмка по SMART после прогона будет недоступна." }
-    } else { Say "SMART до старта: диск $($Drives[0]) не NVMe (или BusType не определён) - приёмка по SMART доступна только для NVMe." }
+    } else { Say "SMART до старта: диск $($Drives[0]) не NVMe (BusType=$($phys.BusType)) - приёмка по SMART доступна только для NVMe." }
 } else { Say "SMART до старта: не удалось определить физический диск для $($Drives[0]) - приёмка по SMART недоступна." }
 
 # Порог проверяем ДО старта цикла, а не внутри него (бэклог п.171): на 161346 порог не совпал
@@ -325,11 +330,15 @@ finally {
             Say ("SMART после: PercentageUsed={0}% (было {1}%), прирост DataUnitsRead={2:N1} ГБ, DataUnitsWritten={3:N1} ГБ" -f `
                 $smartAfter.PercentageUsed, $smartBefore.PercentageUsed, $deltaReadGB, $deltaWrittenGB)
             Say ("Тест отчитался: прочитано {0:N1} ГБ, записано {1:N1} ГБ" -f $reportedReadGB, $reportedWrittenGB)
-            # ±10% - допуск на фоновую активность ОС на этом же диске за время прогона.
+            # Minor (ревью волны 2): проверка ОДНОСТОРОННЯЯ (не менее 90% от отчёта), а не
+            # "±10%", как раньше утверждал текст ниже - это осознанно: SMART считает I/O ПО
+            # ВСЕМУ диску (включая фоновую активность ОС), поэтому прирост ВЫШЕ отчёта теста -
+            # норма, а не повод бить тревогу. Ниже 90% - явный сигнал "тест почти не тронул
+            # диск" (мимо кэша не сработало, или измерили не тот диск).
             $readOk = ($reportedReadGB -le 0) -or ($deltaReadGB -ge $reportedReadGB * 0.9)
             $writtenOk = ($reportedWrittenGB -le 0) -or ($deltaWrittenGB -ge $reportedWrittenGB * 0.9)
             if ($readOk -and $writtenOk) {
-                Say "ПРИЁМКА: OK - прирост SMART согласуется с тем, что тест отчитался (±10%)."
+                Say "ПРИЁМКА: OK - прирост SMART не меньше 90% от того, что тест отчитался (выше - тоже OK, это фоновая активность ОС на диске)."
             } else {
                 Say ("!!! ПРИЁМКА: ПРОГОН НЕВАЛИДЕН - прирост SMART СУЩЕСТВЕННО МЕНЬШЕ отчёта теста " +
                      "(чтение мимо кэша не сработало, или тест мерил не тот диск). Выводам из лога доверять нельзя.")

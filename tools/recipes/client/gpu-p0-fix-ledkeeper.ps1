@@ -87,7 +87,10 @@ if ($Restore) {
 }
 
 "== до лечения: $(Pstate)"
-$t = Get-ScheduledTask -TaskName $task -ErrorAction SilentlyContinue
+# Minor (ревью волны 2): без -First 1 задача с таким именем в НЕСКОЛЬКИХ папках даёт массив,
+# и $t.TaskPath дальше превращается в массив строк — привязка параметра -TaskPath у
+# Disable-ScheduledTask на массиве непредсказуема.
+$t = Get-ScheduledTask -TaskName $task -ErrorAction SilentlyContinue | Select-Object -First 1
 
 # #113 / б.171: бэкап пишется РОВНО ОДИН РАЗ за жизнь точки возврата. Повторный запуск
 # (доработка лечения) видит уже применённые изменения — перезаписать файл ими означало бы

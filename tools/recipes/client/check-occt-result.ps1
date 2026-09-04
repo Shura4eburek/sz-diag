@@ -23,7 +23,7 @@
 #   szcli exec <СЗ> -f tools\recipes\client\check-occt-result.ps1
 
 $HoursBack = 6                        # какой давности прогоны показывать
-$TaskName  = 'szdiag-occtcomb-161716' # задача прогона (под свою СЗ)
+$TaskName  = 'szdiag-occtcomb-000000' # ← подставь номер своей СЗ вместо 000000 (имя задачи прогона)
 
 # Профиль залогиненного: под SYSTEM $env:USERPROFILE указывает в systemprofile.
 $expl = Get-CimInstance Win32_Process -Filter "Name='explorer.exe'" | Select-Object -First 1
