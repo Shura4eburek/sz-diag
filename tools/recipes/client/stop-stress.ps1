@@ -30,7 +30,12 @@ foreach ($n in 'OCCTCmd', 'OCCT', 'furmark', 'TM5', '3DMarkCmd', 'prime95', 'y-c
 }
 
 # Задачи, которыми стресс-тулы запускались под SYSTEM (без этого процесс убит, а задача жива).
-foreach ($t in Get-ScheduledTask -TaskName 'szdiag-p95-*', 'szdiag-yc-*', 'szdiag-occt-*', 'szdiag-tm5-*', 'szdiag-iostress-*' -ErrorAction SilentlyContinue) {
+#
+# R-I3 (ревью волны 1): `szdiag-occt-*` не матчит `szdiag-occtcomb-*` (см. check-occt-result.ps1) —
+# процессы добивались, а задача того же прогона оставалась жива и перезапускала их. `szdiag-occt*`
+# (без дефиса) ловит оба варианта. lhmmon сюда сознательно НЕ входит (см. заголовок файла).
+foreach ($t in Get-ScheduledTask -TaskName 'szdiag-p95-*', 'szdiag-yc-*', 'szdiag-occt*', 'szdiag-tm5-*',
+                'szdiag-iostress-*', 'szdiag-furmark-*', 'szdiag-game-*', 'szdiag-dw-*', 'szdiag-ab-*' -ErrorAction SilentlyContinue) {
     schtasks /end /tn $t.TaskName 2>$null | Out-Null
     schtasks /delete /tn $t.TaskName /f 2>$null | Out-Null
     $killed += "task $($t.TaskName)"
