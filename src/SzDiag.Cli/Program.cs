@@ -86,11 +86,45 @@ switch (command)
 
     case "close" when args.Length >= 2:
     {
+        var closeSz = args[1];
+
+        // --force "причина" — обязателен, если наблюдение короче характерного интервала между
+        // отказами по истории этой же СЗ: без него close закрывал заявку молча, хотя все
+        // данные для сравнения уже лежали в SQLite (бэклог п.159, СЗ 160306 — закрыли через
+        // 18 минут при характерном интервале ~53 часа).
+        var forceIdx = Array.FindIndex(args, 2, args.Length - 2,
+            a => a.Equals("--force", StringComparison.OrdinalIgnoreCase));
+        var forced = forceIdx >= 0;
+        var forceReason = forced && forceIdx + 1 < args.Length ? string.Join(' ', args[(forceIdx + 1)..]) : null;
+
         // Статус — ДО закрытия: после него сессия уходит из активных, и не понять,
         // был ли агент жив в момент close (бэклог п.119).
-        var wasOnline = (await client.GetSessionsAsync())
-            .Any(s => s.Sz == args[1] && s.Status == SessionStatus.Online);
-        var closeOutcome = await client.CloseAsync(args[1]);
+        var sessionsBefore = await client.GetSessionsAsync();
+        var sessionBefore = sessionsBefore.FirstOrDefault(s => s.Sz == closeSz);
+        var wasOnline = sessionBefore?.Status == SessionStatus.Online;
+
+        if (sessionBefore is not null)
+        {
+            var timelineBefore = await client.GetRebootsAsync(closeSz);
+            var observed = DateTimeOffset.UtcNow - sessionBefore.ConnectedAt;
+            var warning = ObservationSufficiency.Warn(observed, timelineBefore?.CharacteristicInterval);
+            if (warning is not null)
+            {
+                AnsiConsole.MarkupLineInterpolated($"[yellow]{Markup.Escape(warning)}[/]");
+                if (!forced)
+                {
+                    AnsiConsole.MarkupLineInterpolated(
+                        $"[grey]Закрити всупереч цьому:[/] szcli close {closeSz} --force \"причина\"");
+                    return 2;
+                }
+                if (string.IsNullOrWhiteSpace(forceReason))
+                    AnsiConsole.MarkupLine("[grey]Закрито з --force (причина не вказана).[/]");
+                else
+                    AnsiConsole.MarkupLineInterpolated($"[grey]Закрито з --force:[/] {Markup.Escape(forceReason)}");
+            }
+        }
+
+        var closeOutcome = await client.CloseAsync(closeSz);
         if (closeOutcome.Closed)
         {
             AnsiConsole.MarkupLineInterpolated($"[green]СЗ {args[1]} закрыта[/] (revert отправлен агенту).");
@@ -641,7 +675,9 @@ static void PrintUsage()
             Использование:
               [yellow]szcli[/] [grey][[watch]][/]          живой список онлайн-СЗ (по умолчанию)
               [yellow]szcli list[/]             однократный список
-              [yellow]szcli close[/] [blue]<СЗ>[/]         закрыть СЗ (revert на агенте)
+              [yellow]szcli close[/] [blue]<СЗ>[/] [grey][[--force "причина"]][/]  закрыть СЗ (revert на агенте);
+                                            --force — обязателен, если наблюдение короче
+                                            характерного интервала между отказами по истории СЗ
               [yellow]szcli target[/] [blue]<СЗ>[/]        SSH-адрес по номеру СЗ
               [yellow]szcli reboots[/] [blue]<СЗ>[/]       таймлайн вырубонов (по смене boot-time)
               [yellow]szcli note[/] [blue]<СЗ>[/] [grey]<текст>[/]  ручной шаг в журнал СЗ (свап железа, BIOS, осмотр)
