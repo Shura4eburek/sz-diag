@@ -16,9 +16,18 @@ public class WindowsSystemAccessManagerTests : IDisposable
         /// Нужно для <see cref="ScanForeignObjects_FindsTaskFromOtherSzBeforeOpen"/>: реального
         /// PowerShell в тестах нет, поэтому инвентарь клиента подставляется фейком.</summary>
         public string StdOut { get; set; } = "";
+        /// <summary>Последний таймаут, с которым звали Run — обзор review final N-2:
+        /// сканер посторонних объектов обязан ходить с таймаутом, а не Timeout.Infinite.</summary>
+        public TimeSpan? LastTimeout { get; private set; }
+        /// <summary>Если задано — ПЕРВЫЙ вызов Run бросает это исключение вместо ответа
+        /// (симулирует залипший/сломанный планировщик задач на заражённой клиентской машине);
+        /// остальные вызовы (например, реальные шаги Open) отвечают как обычно.</summary>
+        public Exception? ThrowOnRun { get; set; }
         public PsResult Run(string script, bool throwOnError = true, TimeSpan? timeout = null)
         {
             Scripts.Add(script);
+            LastTimeout = timeout;
+            if (ThrowOnRun is { } ex) { ThrowOnRun = null; throw ex; }
             return new PsResult(0, StdOut, "");
         }
     }
@@ -91,6 +100,44 @@ public class WindowsSystemAccessManagerTests : IDisposable
         var foreign = Make(ps).ScanForeignObjects("160705");
 
         Assert.Empty(foreign);
+    }
+
+    // Review final N-2: без таймаута залипший планировщик задач на заражённой клиентской
+    // машине вешал старт агента (Timeout.Infinite), а необработанное исключение рисовало
+    // «ФАТАЛ: агент упал» ради необязательного предупреждения — до Open, до подключения к hub.
+    [Fact]
+    public void ScanForeignObjects_RunsWithBoundedTimeout()
+    {
+        var ps = new FakePs();
+
+        Make(ps).ScanForeignObjects("160705");
+
+        Assert.NotNull(ps.LastTimeout);
+        Assert.True(ps.LastTimeout <= TimeSpan.FromSeconds(30));
+    }
+
+    [Fact]
+    public void ScanForeignObjects_PowerShellThrows_DoesNotThrow_ReturnsEmpty()
+    {
+        var ps = new FakePs { ThrowOnRun = new PowerShellTimeoutException("залип планировщик задач") };
+
+        var foreign = Record.Exception(() => Make(ps).ScanForeignObjects("160705"));
+
+        Assert.Null(foreign);
+    }
+
+    [Fact]
+    public void ScanForeignObjects_PowerShellThrows_DoesNotBlockOpen()
+    {
+        // Симптом N-2 буквально: сбой сканера не должен помешать реальному открытию доступа.
+        var ps = new FakePs { ThrowOnRun = new InvalidOperationException("Get-ScheduledTask завис") };
+        var mgr = Make(ps);
+        mgr.ScanForeignObjects("160705");
+        var spec = new AccessSpec("160705", "svc-diag", "ssh-ed25519 AAAA", 22, TimeSpan.FromHours(6));
+
+        var ex = Record.Exception(() => mgr.Open(spec));
+
+        Assert.Null(ex);
     }
 
     [Fact]

@@ -32,10 +32,27 @@ public sealed class WindowsSystemAccessManager : ISystemAccessManager
     /// никогда не найдёт и не снимет — машину отдадут клиенту с чужой задачей навсегда.
     /// Инвентарь тот же, что у <c>szcli client info</c>, разбор — тот же классификатор
     /// (свои задачи текущей СЗ не в счёт).</summary>
+    /// <summary>Таймаут сканирования (review final N-2): скрипт ходит в
+    /// <c>Get-ScheduledTask</c>/WMI/<c>Get-Service</c> на «наименее доверенной, часто
+    /// заражённой» машине — тот же планировщик, который в <see cref="SystemExecRunner"/>
+    /// получил явный таймаут 60 с именно из-за того, что залипает.</summary>
+    private static readonly TimeSpan ForeignScanTimeout = TimeSpan.FromSeconds(30);
+
     public IReadOnlyList<string> ScanForeignObjects(string sz)
     {
-        var inventory = _ps.Run(ClientTraces.BuildInventoryScript(), throwOnError: false).StdOut;
-        return ClientTraces.FindLeftoversDetailed(inventory, sz).Leftovers;
+        // Предупреждение о чужих szdiag-* — необязательное; оно не должно мешать открытию
+        // доступа. Без таймаута/try-catch залипший планировщик вешал старт агента молча
+        // (Timeout.Infinite), а необработанное исключение отсюда рисовало «ФАТАЛ: агент
+        // упал» ДО Open и до подключения к hub — ради простого предупреждения оператору.
+        try
+        {
+            var inventory = _ps.Run(ClientTraces.BuildInventoryScript(), throwOnError: false, ForeignScanTimeout).StdOut;
+            return ClientTraces.FindLeftoversDetailed(inventory, sz).Leftovers;
+        }
+        catch (Exception ex)
+        {
+            return new[] { $"проверить посторонние объекты не удалось: {ex.Message}" };
+        }
     }
 
     public RevertState Open(AccessSpec spec)
