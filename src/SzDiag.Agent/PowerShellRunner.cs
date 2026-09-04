@@ -29,6 +29,12 @@ public sealed class PowerShellRunner : IPowerShellRunner
     /// строки). Дефолт определяется средой.</param>
     public PowerShellRunner(bool? utf8 = null) => _utf8 = utf8 ?? !WinPeEnvironment.IsWinPe;
 
+    /// <summary>Путь временного .ps1 из последнего вызова <see cref="Run"/> — null, если он ушёл
+    /// через -EncodedCommand (короткий скрипт без $PSScriptRoot/param). Тестовый хук
+    /// (review W2 T-1): проверять конкретный файл этого экземпляра, а не диффать общий %TEMP%,
+    /// где параллельно текут временные файлы других тестов сборки (флейк).</summary>
+    public string? LastScriptPath { get; private set; }
+
     public PsResult Run(string script, bool throwOnError = true, TimeSpan? timeout = null)
     {
         // Кодировка вывода задаётся здесь, а не строкой в пользовательском скрипте: при
@@ -46,28 +52,53 @@ public sealed class PowerShellRunner : IPowerShellRunner
         var body = StartsWithParamBlock(script) ? "& {\n" + script + "\n}" : script;
         var full = prefix + "$ProgressPreference='SilentlyContinue';\n" + body;
 
-        // Скрипт ВСЕГДА уходит временным .ps1 (-File), а не через -EncodedCommand (бэклог
-        // п.231, СЗ 161538): вне файла $PSScriptRoot — пустая строка, и рецепт, который ищет
-        // соседний инструмент через `Join-Path $PSScriptRoot ...`, получает не ошибку, а
-        // молчаливую подмену цели — `Get-ChildItem -Path $null -Filter '*.exe'` не падает, а
-        // берёт текущий каталог и запускает первый попавшийся `.exe` на наименее доверенной
-        // машине. Раньше на файл уводились только скрипты длиннее лимита командной строки
-        // (-EncodedCommand — 2,67 символа аргумента на символ скрипта, лимит Windows — 32 767,
-        // секция whea падала «имя файла слишком длинное» — п.101/196) — теперь тот же путь для
-        // всех: он уже проверен и на них, и на обычных скриптах. UTF-8 строго с BOM: без него
-        // PowerShell 5.1 читает файл в ANSI и жуёт кириллицу.
-        var tempFile = Path.Combine(Path.GetTempPath(), $"szdiag-ps-{Guid.NewGuid():N}.ps1");
-        File.WriteAllText(tempFile, full, new System.Text.UTF8Encoding(true));
-        var arguments = $"-NoProfile -NonInteractive -ExecutionPolicy Bypass -File \"{tempFile}\"";
+        // Временный .ps1 (-File) — ТОЛЬКО когда это реально нужно (review W2 I-7): держать его
+        // на каждый вызов, включая пробу сторожа канала раз в 120 с (CommandChannelWatchdog),
+        // на «наименее доверенной, часто заражённой» машине (модель угроз проекта) — новая
+        // постоянная запись на диск под SYSTEM, а антивирус/AppLocker на такой машине уже
+        // однажды убивал агента (СЗ 160306). Файл нужен, только если скрипт:
+        //  а) читает $PSScriptRoot — вне файла это пустая строка, и рецепт, ищущий соседний
+        //     инструмент через `Join-Path $PSScriptRoot ...`, получает не ошибку, а молчаливую
+        //     подмену цели (бэклог п.231, СЗ 161538);
+        //  б) начинается с param(...) — тот же приём, что и раньше (обёрнут в &{} ниже, но файл
+        //     остаётся более проверенным путём для рецептов с параметрами, п.102/168/189);
+        //  в) длиннее лимита командной строки под -EncodedCommand (~2,67 символа base64 на
+        //     символ скрипта, лимит Windows — 32 767; секция whea падала «имя файла слишком
+        //     длинное» — п.101/196).
+        // Иначе — назад на -EncodedCommand: он уже проверен на обычных коротких скриптах.
+        var needsFile = script.Contains("$PSScriptRoot", StringComparison.Ordinal)
+                        || StartsWithParamBlock(script)
+                        || full.Length > MaxEncodedCommandScriptChars;
+
+        string arguments;
+        string? tempFile = null;
+        if (needsFile)
+        {
+            // UTF-8 строго с BOM: без него PowerShell 5.1 читает файл в ANSI и жуёт кириллицу.
+            tempFile = Path.Combine(Path.GetTempPath(), $"szdiag-ps-{Guid.NewGuid():N}.ps1");
+            File.WriteAllText(tempFile, full, new System.Text.UTF8Encoding(true));
+            arguments = $"-NoProfile -NonInteractive -ExecutionPolicy Bypass -File \"{tempFile}\"";
+        }
+        else
+        {
+            var encoded = Convert.ToBase64String(System.Text.Encoding.Unicode.GetBytes(full));
+            arguments = $"-NoProfile -NonInteractive -ExecutionPolicy Bypass -EncodedCommand {encoded}";
+        }
+        LastScriptPath = tempFile;
         try
         {
             return RunProcess(arguments, script, throwOnError, timeout);
         }
         finally
         {
-            try { File.Delete(tempFile); } catch { /* занят антивирусом — мусор в %TEMP% не критичен */ }
+            if (tempFile is not null)
+                try { File.Delete(tempFile); } catch { /* занят антивирусом — мусор в %TEMP% не критичен */ }
         }
     }
+
+    /// <summary>Скрипт длиннее этого идёт файлом, а не -EncodedCommand — с запасом ниже
+    /// лимита командной строки Windows (32 767) при коэффициенте base64 ~2,67.</summary>
+    private const int MaxEncodedCommandScriptChars = 8000;
 
     /// <summary>Скрипт начинается с param-блока (комментарии и пустые строки не в счёт)?</summary>
     private static bool StartsWithParamBlock(string script)

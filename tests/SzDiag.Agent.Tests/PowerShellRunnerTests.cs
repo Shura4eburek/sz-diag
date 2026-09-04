@@ -92,26 +92,19 @@ public class PowerShellRunnerTests
     public void Run_HugeScript_TempFileIsCleanedUp()
     {
         // Файл-фоллбэк не должен замусоривать клиентскую машину: после прогона временный
-        // .ps1 обязан исчезнуть.
+        // .ps1 обязан исчезнуть. Проверяем ИМЕННО файл этого вызова (LastScriptPath), а не
+        // диффаем общий %TEMP% (review W2 T-1) — соседние тесты сборки (запущенные параллельно
+        // xunit'ом, в других классах) держат там свои "szdiag-ps-*.ps1" по 30-60 с, и снимок
+        // общего каталога либо ловит чужой живой файл (ложное падение), либо не замечает
+        // реальную утечку этого вызова, если сосед её как раз убрал у себя.
         var runner = new PowerShellRunner(utf8: true);
         var filler = string.Join("\n", Enumerable.Range(1, 600).Select(i =>
             $"# наполнитель {i}: длинная строка комментария, раздувающая скрипт до размеров секции whea"));
 
-        var before = Directory.GetFiles(Path.GetTempPath(), "szdiag-ps-*.ps1").ToHashSet();
-
         runner.Run(filler + "\n'ok'", timeout: TimeSpan.FromSeconds(30));
 
-        // temp общий на машине: соседние тесты держат там свои временные файлы
-        // в тот же момент, поэтому сравниваем снимки, а не проверяем каталог на пустоту.
-        string[] leftovers = Array.Empty<string>();
-        for (var attempt = 0; attempt < 20; attempt++)
-        {
-            leftovers = Directory.GetFiles(Path.GetTempPath(), "szdiag-ps-*.ps1")
-                .Where(f => !before.Contains(f)).ToArray();
-            if (leftovers.Length == 0) break;
-            Thread.Sleep(100);
-        }
-        Assert.Empty(leftovers);
+        Assert.NotNull(runner.LastScriptPath); // huge-скрипт обязан был пойти файлом
+        Assert.False(File.Exists(runner.LastScriptPath), "временный .ps1 не удалён после прогона");
     }
 
     [Fact]
@@ -177,17 +170,32 @@ public class PowerShellRunnerTests
     }
 
     [Fact]
-    public void Run_ShortScript_StillFallsBackToFile()
+    public void Run_ShortScript_StillWorks()
     {
-        // Раньше короткие скрипты шли через -EncodedCommand, файлом уводились только скрипты
-        // длиннее лимита командной строки. Теперь путь один для всех размеров — короткий
-        // скрипт тоже обязан отработать (регрессия по построению, не только по размеру).
         var runner = new PowerShellRunner(utf8: true);
 
         var r = runner.Run("'ok'", timeout: TimeSpan.FromSeconds(15));
 
         Assert.Equal(0, r.ExitCode);
         Assert.Contains("ok", r.StdOut);
+    }
+
+    // review W2 I-7: короткий скрипт без $PSScriptRoot/param(...) не должен писать временный
+    // .ps1 на клиент вовсе — раньше файл создавался на КАЖДЫЙ вызов, включая пробу сторожа
+    // канала раз в 120 с (CommandChannelWatchdog): на заражённой машине (модель угроз проекта)
+    // это постоянная новая запись под SYSTEM, а антивирус/AppLocker там уже убивал агента
+    // именно на файловых операциях (СЗ 160306).
+    [Fact]
+    public void Run_ShortScriptWithoutPSScriptRootOrParam_DoesNotWriteTempFile()
+    {
+        var runner = new PowerShellRunner(utf8: true);
+        var before = Directory.GetFiles(Path.GetTempPath(), "szdiag-ps-*.ps1").ToHashSet();
+
+        var r = runner.Run("'ok'", timeout: TimeSpan.FromSeconds(15));
+
+        Assert.Equal(0, r.ExitCode);
+        var after = Directory.GetFiles(Path.GetTempPath(), "szdiag-ps-*.ps1").ToHashSet();
+        Assert.True(after.SetEquals(before), "короткий скрипт без $PSScriptRoot/param не должен создавать временный .ps1");
     }
 
     [Fact]
