@@ -133,6 +133,31 @@ public class DiagnosticProbesTests
     }
 
     [Fact]
+    public void SystemProbe_PrintsLastJournalRecordBeforeConnecting()
+    {
+        // Регрессия (бэклог п.132, продолжение): дыра в журнале сама по себе показывает,
+        // что машина стояла - на 161346 разрыв в 282 часа между Kernel-Power 42 и следующей
+        // записью и был доказательством сна, а не наработки.
+        var run = Body("system");
+
+        Assert.Contains("Poslednyaya zapis v zhurnale", run);
+        Assert.Contains("Win32_ReliabilityRecords", run);
+        Assert.Contains("razryv do seychas", run);
+    }
+
+    [Fact]
+    public void RebootsProbe_ComputesFailureRatePerHourOfRuntime_NotCalendarDay()
+    {
+        // Регрессия (бэклог п.132): "25 вырубонов за 4 суток" занижает частоту в разы, если
+        // реальная наработка (SMART PowerOnHours) была всего ~26-30 часов внутри этих суток.
+        var run = Body("reboots");
+
+        Assert.Contains("chastota otkazov na chas narabotki", run);
+        Assert.Contains("PowerOnHours", run);
+        Assert.Contains("na kalendarnyy den", run);
+    }
+
+    [Fact]
     public void MemoryProbe_ReadsVoltageForXmpDetection()
     {
         // Регрессия (бэклог п.8): на 160467 Speed=ConfiguredClockSpeed=4800 не давал понять,

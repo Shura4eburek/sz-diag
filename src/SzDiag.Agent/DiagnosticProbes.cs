@@ -70,6 +70,24 @@ public static class DiagnosticProbes
             $hf = Test-Path "$env:SystemDrive\hiberfil.sys"
             "Fast startup: HiberbootEnabled=$hb, hiberfil.sys=$hf" + $(if ("$hb" -eq '1' -and $hf) { " => uptime perezhivaet 'vyklyuchenie'!" } else { "" })
             "VAZHNO: uptime NE dokazyvaet rabotu. Narabotka = SMART PowerOnHours (sektsiya storage); chastotu otkazov schitat na chas narabotki, a ne na kalendarnyy den."
+
+            "=== Poslednyaya zapis v zhurnale DO podklyucheniya ==="
+            # Dyra v zhurnale srazu pokazyvaet, chto mashina stoyala (p.132): na zhivoy mashine
+            # odin tolko Windows Update pishet desyatki strok za nedelyu, i pervaya zapis posle
+            # dolgogo molchaniya - eto WU dogonyaet obnovleniya srazu posle podyoma.
+            try {
+                $lastSys = Get-WinEvent -LogName System -MaxEvents 1 -ErrorAction Stop
+                $gap = (Get-Date) - $lastSys.TimeCreated
+                "System log: poslednyaya zapis {0:yyyy-MM-dd HH:mm:ss} ({1}, Id={2}), razryv do seychas {3:N1} ch" -f `
+                    $lastSys.TimeCreated, $lastSys.ProviderName, $lastSys.Id, $gap.TotalHours
+            } catch { "System log: net dannyh - $($_.Exception.Message)" }
+            try {
+                $lastRel = Get-CimInstance Win32_ReliabilityRecords -ErrorAction Stop |
+                    Sort-Object TimeGenerated -Descending | Select-Object -First 1
+                if ($lastRel) {
+                    "Reliability Records: poslednyaya zapis {0:yyyy-MM-dd HH:mm:ss}" -f $lastRel.TimeGenerated
+                } else { "Reliability Records: pusto" }
+            } catch { "Reliability Records: nedostupny - $($_.Exception.Message)" }
             """),
 
         Probe("cpu", "Процессор", """
@@ -448,6 +466,27 @@ public static class DiagnosticProbes
                 if ($btn.Count -gt 0 -and $hard.Count -eq 0) {
                     "VAZHNO: vse sobytiya 41 - vyklyucheniya knopkoy. Schitat ih vyrubonami NELZYA."
                 }
+
+                "--- chastota otkazov na chas narabotki (NE na kalendarnyy den, p.132) ---"
+                # 25 vyrubonov za 4 sutok kalendarya vygladit huzhe, chem 25 za ~26-30 chasov
+                # realnoy narabotki (161346: mashina prospala v S3 pochti vse eto vremya).
+                # Narabotka schitaetsya po SMART PowerOnHours - edinstvennaya velichina, kotoraya
+                # ne rastet vo sne/gibernacii.
+                try {
+                    $poh = @(Get-NvmeSmartRows | Where-Object { -not $_.ReadError } |
+                        ForEach-Object { [double]"$($_.PowerOnHours)" } | Where-Object { $_ -gt 0 })
+                    if ($poh.Count -gt 0) {
+                        $totalHours = ($poh | Measure-Object -Maximum).Maximum
+                        if ($hard.Count -gt 0) {
+                            "hard-off: {0} za {1:N0} ch narabotki (SMART PowerOnHours) = 1 na {2:N1} ch" -f `
+                                $hard.Count, $totalHours, ($totalHours / $hard.Count)
+                        } else {
+                            "hard-off: 0 za {0:N0} ch narabotki (SMART PowerOnHours)" -f $totalHours
+                        }
+                    } else {
+                        "narabotka (SMART PowerOnHours) nedostupna - chastotu na chas schitat ne iz chego."
+                    }
+                } catch { "narabotka (SMART PowerOnHours) nedostupna: $($_.Exception.Message)" }
 
                 "--- last 20 events (details) ---"
                 $parsed | Select-Object -First 20 | ForEach-Object {
