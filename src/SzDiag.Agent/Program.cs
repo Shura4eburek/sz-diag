@@ -511,6 +511,13 @@ var sshBinDir = ResolvePath(opts.SshBinDir);
 var sshd = new PortableSshServer(sshBinDir, opts.SshWorkDir, ps);
 var manager = new WindowsSystemAccessManager(ps, sshd, opts.StatePath);
 
+// Бэклог п.140 (#77): опечатка в номере СЗ от ручного/бракованного запуска не оставляет
+// state.json — RevertStaleState такой хвост не увидит никогда. Единственный шанс поймать —
+// сканировать szdiag-* объекты ДО открытия доступа своей сессии и предупредить оператора.
+foreach (var foreign in manager.ScanForeignObjects(sz))
+    Announce($"⚠ на клиенте уже есть постороннее: {foreign}",
+        $"[yellow]⚠ на клиенте уже есть постороннее:[/] {Markup.Escape(foreign)}");
+
 var hubUrl = opts.HubUrl;
 if (string.IsNullOrWhiteSpace(hubUrl))
 {
