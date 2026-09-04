@@ -68,25 +68,30 @@ public static class FreezeCommand
         }
 
         var services = string.Join(", ", WindowsUpdateFreeze.Services);
-        AnsiConsole.MarkupLineInterpolated(
-            $"[green]СЗ {sz}: Windows Update заморожен[/] (службы {services}, политика WSUS, задачи оркестратора выключены).");
-        AnsiConsole.MarkupLineInterpolated($"[grey]Прежние значения:[/] {path}");
-        // Exit code отвечает на вопрос «машина защищена от WU-перезагрузки?», а не «всё ли
-        // из списка применилось»: задачи оркестратора под TrustedInstaller правам не
-        // поддаются, но при стоящих службах они безвредны (бэклог п.175).
+        // Бэклог п.150 (СЗ 161716): первая строка рапортовала «заморожен» БЕЗУСЛОВНО, а
+        // предупреждение про неполное применение шло ниже — в логе это читалось как успех.
+        // Заголовок теперь сам зависит от факта защиты, а не от факта записи в реестр.
         if (!check.IsProtected)
         {
-            AnsiConsole.MarkupLine("[red]⚠ Машина НЕ защищена — не применилось:[/]");
+            AnsiConsole.MarkupLineInterpolated(
+                $"[red]СЗ {sz}: Windows Update НЕ заморожен полностью[/] — машина не защищена от WU-перезагрузки.");
+            AnsiConsole.MarkupLine("[red]Не применилось:[/]");
             foreach (var p in check.Blocking) AnsiConsole.MarkupLineInterpolated($"  [red]•[/] {p}");
             AnsiConsole.MarkupLine("[yellow]Проверь права и повтори; после ребута состояние сверяется само (агент).[/]");
         }
         else
         {
+            AnsiConsole.MarkupLineInterpolated(
+                $"[green]СЗ {sz}: Windows Update заморожен[/] (службы {services}, политика WSUS, задачи оркестратора выключены).");
             AnsiConsole.MarkupLine("[grey]Проверено фактическое состояние: службы и политика на месте.[/]");
             foreach (var p in check.Cosmetic)
                 AnsiConsole.MarkupLineInterpolated($"[yellow]⚠ не критично (службы стоят):[/] {p}");
         }
+        AnsiConsole.MarkupLineInterpolated($"[grey]Прежние значения:[/] {path}");
         AnsiConsole.MarkupLine("[yellow]Не забудь szcli unfreeze перед отдачей машины клиенту.[/]");
+        // Exit code отвечает на вопрос «машина защищена от WU-перезагрузки?», а не «всё ли
+        // из списка применилось»: задачи оркестратора под TrustedInstaller правам не
+        // поддаются, но при стоящих службах они безвредны (бэклог п.175).
         return check.IsProtected ? 0 : 1;
     }
 

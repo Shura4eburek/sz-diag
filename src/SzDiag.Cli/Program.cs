@@ -77,7 +77,7 @@ try
 switch (command)
 {
     case "list":
-        AnsiConsole.Write(SessionTableRenderer.Render(await client.GetSessionsAsync()));
+        AnsiConsole.Write(SessionTableRenderer.Render(await client.GetSessionsAsync(), isFrozen: IsFrozenLocal));
         break;
 
     case "watch":
@@ -712,6 +712,10 @@ static async Task PrintRebootSummaryAsync(IHubApiClient client, string sz)
 static string ResolveLocal(string path)
     => Path.IsPathRooted(path) ? path : Path.Combine(AppContext.BaseDirectory, path);
 
+// Проверка чисто хостовая (файл рядом с szcli) — без сети, безопасно дёргать на каждый
+// тик watch/list (бэклог п.139).
+static bool IsFrozenLocal(string sz) => FreezeCommand.IsFrozen(AppContext.BaseDirectory, sz);
+
 static async Task WatchAsync(IHubApiClient client)
 {
     AnsiConsole.Write(new Rule("[bold]sz-diag[/] — онлайн-СЗ").LeftJustified());
@@ -719,7 +723,7 @@ static async Task WatchAsync(IHubApiClient client)
     // никто не догадывается набрать посреди заявки (бэклог п.198/205/211).
     AnsiConsole.MarkupLineInterpolated($"[grey]{Markup.Escape(CliCommands.Describe())}[/] · Ctrl+C для выхода.\n");
 
-    var table = SessionTableRenderer.Render(Array.Empty<SzDiag.Contracts.SessionInfo>());
+    var table = SessionTableRenderer.Render(Array.Empty<SzDiag.Contracts.SessionInfo>(), isFrozen: IsFrozenLocal);
     await AnsiConsole.Live(table)
         .AutoClear(false)
         .Overflow(VerticalOverflow.Ellipsis)
@@ -743,7 +747,8 @@ static async Task WatchAsync(IHubApiClient client)
                     continue;
                 }
 
-                ctx.UpdateTarget(SessionTableRenderer.Render(sessions).Caption($"обновлено {DateTime.Now:HH:mm:ss}"));
+                ctx.UpdateTarget(SessionTableRenderer.Render(sessions, isFrozen: IsFrozenLocal)
+                    .Caption($"обновлено {DateTime.Now:HH:mm:ss}"));
                 ctx.Refresh();
                 await Task.Delay(1000);
             }

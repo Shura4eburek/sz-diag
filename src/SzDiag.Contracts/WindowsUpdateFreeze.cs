@@ -152,6 +152,13 @@ public static class WindowsUpdateFreeze
             lines.Add($"Stop-Service {svc} -Force -ErrorAction SilentlyContinue");
             lines.Add($"Set-ItemProperty -Path 'HKLM:\\SYSTEM\\CurrentControlSet\\Services\\{svc}' " +
                       "-Name Start -Value 4 -Type DWord -Force");
+            // Бэклог п.150 (СЗ 161716): Stop-Service на wuauserv молча не сработал — служба
+            // осталась Running, а freeze отрапортовал успех. Один shared-хост svchost на
+            // несколько служб иногда не отпускает по мягкой остановке — добиваем kill'ом
+            // процесса, который реально её держит.
+            lines.Add($"$svc_{svc} = Get-CimInstance Win32_Service -Filter \"Name='{svc}'\" -ErrorAction SilentlyContinue");
+            lines.Add($"if ($svc_{svc} -and $svc_{svc}.State -eq 'Running' -and $svc_{svc}.ProcessId -gt 0) " +
+                      $"{{ Stop-Process -Id $svc_{svc}.ProcessId -Force -ErrorAction SilentlyContinue }}");
         }
         lines.Add($"New-Item -Path '{PolicyKey}' -Force | Out-Null");
         lines.Add($"New-Item -Path '{AuKey}' -Force | Out-Null");

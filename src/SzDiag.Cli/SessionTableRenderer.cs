@@ -6,7 +6,12 @@ namespace SzDiag.Cli;
 
 public static class SessionTableRenderer
 {
-    public static Table Render(IReadOnlyList<SessionInfo> sessions, DateTimeOffset? now = null)
+    /// <param name="isFrozen">Есть ли незакрытая заморозка WU по этой СЗ (хостовая проверка,
+    /// без сети — <see cref="FreezeCommand.IsFrozen"/>). null — проверка недоступна вызывающему
+    /// коду, колонка не заполняется. Нужна, чтобы забытую заморозку было видно постоянно, а не
+    /// только на `close`: на 160705 её не ставили 8 дней, и никто не заметил (бэклог п.139).</param>
+    public static Table Render(IReadOnlyList<SessionInfo> sessions, DateTimeOffset? now = null,
+        Func<string, bool>? isFrozen = null)
     {
         var nowV = now ?? DateTimeOffset.Now;
         var table = new Table().Border(TableBorder.Rounded).BorderColor(Color.Grey);
@@ -15,19 +20,29 @@ public static class SessionTableRenderer
         table.AddColumn("IP");
         table.AddColumn("Хост");
         table.AddColumn("Uptime");
+        table.AddColumn("WU");
         table.AddColumn("Активность");
 
         if (sessions.Count == 0)
         {
-            table.AddRow("[dim]нет активных СЗ[/]", "", "", "", "", "");
+            table.AddRow("[dim]нет активных СЗ[/]", "", "", "", "", "", "");
             return table;
         }
 
         foreach (var s in sessions.OrderBy(x => x.Sz))
         {
-            table.AddRow(s.Sz, StatusCell(s, nowV), s.Ip, s.Hostname, UptimeCell(s, nowV), ActivityCell(s, nowV));
+            table.AddRow(s.Sz, StatusCell(s, nowV), s.Ip, s.Hostname, UptimeCell(s, nowV),
+                WuCell(s, isFrozen), ActivityCell(s, nowV));
         }
         return table;
+    }
+
+    /// <summary>Колонка заморозки WU: постоянное напоминание вместо разового окрика на
+    /// `close`. Пустая ячейка — проверка недоступна (isFrozen не передан), а не «всё хорошо».</summary>
+    private static string WuCell(SessionInfo s, Func<string, bool>? isFrozen)
+    {
+        if (isFrozen is null) return "[dim]—[/]";
+        return isFrozen(s.Sz) ? "[green]❄[/]" : "[red]⚠ НЕ заморожен[/]";
     }
 
     /// <summary>Порог, после которого молчание уже не спишешь на лаг heartbeat под нагрузкой:

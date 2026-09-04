@@ -226,4 +226,49 @@ public class SessionTableRendererTests
         Assert.DoesNotContain("0сек", text);
     }
 
+    // Бэклог п.139: заморозку WU не ставили неделями, и никто не заметил, пока не начали
+    // закрывать СЗ. Постоянное напоминание в list/watch, а не разовый окрик на close.
+    [Fact]
+    public void Render_WuNotFrozen_WarnsInWuColumn()
+    {
+        var now = new DateTimeOffset(2026, 9, 4, 10, 0, 0, TimeSpan.Zero);
+        var sessions = new List<SessionInfo>
+        {
+            new("160705", "10.0.0.42", "PC-1", SessionStatus.Online, now, now),
+        };
+
+        var text = RenderToText(SessionTableRenderer.Render(sessions, now, isFrozen: _ => false));
+
+        Assert.Contains("НЕ заморожен", text);
+    }
+
+    [Fact]
+    public void Render_WuFrozen_NoWarning()
+    {
+        var now = new DateTimeOffset(2026, 9, 4, 10, 0, 0, TimeSpan.Zero);
+        var sessions = new List<SessionInfo>
+        {
+            new("160705", "10.0.0.42", "PC-1", SessionStatus.Online, now, now),
+        };
+
+        var text = RenderToText(SessionTableRenderer.Render(sessions, now, isFrozen: _ => true));
+
+        Assert.DoesNotContain("НЕ заморожен", text);
+    }
+
+    [Fact]
+    public void Render_WuCheckNotProvided_ColumnIsBlank()
+    {
+        // Обратная совместимость: вызывающий код без доступа к stateDir просто не заполняет
+        // колонку, а не рапортует ложное «не заморожен».
+        var now = new DateTimeOffset(2026, 9, 4, 10, 0, 0, TimeSpan.Zero);
+        var sessions = new List<SessionInfo>
+        {
+            new("160705", "10.0.0.42", "PC-1", SessionStatus.Online, now, now),
+        };
+
+        var text = RenderToText(SessionTableRenderer.Render(sessions, now));
+
+        Assert.DoesNotContain("заморожен", text);
+    }
 }
