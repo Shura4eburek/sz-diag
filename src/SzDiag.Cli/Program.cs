@@ -226,6 +226,11 @@ switch (command)
     case "disk" when args.Length >= 2:
         return await DiskCommand.RunAsync(client, args);
 
+    // sleep-cycle: цикл «сон -> RTC-пробуждение» как воспроизводящий тест, одной командой
+    // вместо пары рецептов (при живом агенте — офлайн-случай остаётся за WinPE-рецептом).
+    case "sleep-cycle" when args.Length >= 2:
+        return await SleepCycleCommand.RunAsync(client, args);
+
     // freeze/unfreeze: заморозка Windows Update на время сессии. Прежние значения хранятся
     // на хосте рядом с szcli — клиент их потерять не может.
     // freeze --status <СЗ>: держится ли заморозка (после ребута она сама не переживает —
@@ -651,6 +656,8 @@ static void PrintUsage()
               [yellow]szcli disk scan[/] [blue]<СЗ>[/] [grey][[--map|--zone НАЧАЛО-КОНЕЦ]] [[--drive N]] [[--minutes N]][/]
                 [grey]карта скорости чтения по всему диску / сплошное чтение зоны + SMART до/после[/]
                 [grey]результат — фоновая задача:[/] szcli exec <СЗ> --result <jobId>
+              [yellow]szcli sleep-cycle[/] [grey]start|stop <СЗ> [[--sleep-min N]] [[--awake-sec N]] [[--max-hours N]] [[--confirm-risk]][/]
+                [grey]цикл «сон -> RTC-пробуждение»; умирает сам через --max-hours, стоп — одной командой при живом агенте[/]
               [yellow]szcli freeze[/] [blue]<СЗ>[/] [grey][[--status]][/]  заморозить Windows Update (или проверить, держится ли)
               [yellow]szcli unfreeze[/] [blue]<СЗ>[/]      вернуть Windows Update как было (обязательно!)
               [yellow]szcli test run[/] [blue]<СЗ>[/] [grey][[occt|tm5,furmark|…]][/] [red]--config[/] [grey]"<конфигурация>"[/]

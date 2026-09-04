@@ -158,4 +158,43 @@ public class RecipeContentTests
         }
         finally { try { Directory.Delete(dir, recursive: true); } catch { } }
     }
+
+    /// <summary>SleepCycleScript тоже живёт в SzDiag.Contracts и генерируется CLI — тот же
+    /// PSParser-страж, что и для DiskZoneMap: инсталлятор пишет payload как одинарную строку
+    /// (Replace на кавычках), синтаксическую ошибку в этой сборке легко не заметить глазами.</summary>
+    [Fact]
+    public void SleepCycleScript_GeneratedScripts_ParseAsValidPowerShell()
+    {
+        var dir = Path.Combine(Path.GetTempPath(), $"szsleepcycle-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(dir);
+        try
+        {
+            File.WriteAllText(Path.Combine(dir, "install.ps1"),
+                SzDiag.Contracts.SleepCycleScript.BuildInstall("160306"),
+                new System.Text.UTF8Encoding(true));
+            File.WriteAllText(Path.Combine(dir, "install-confirmed.ps1"),
+                SzDiag.Contracts.SleepCycleScript.BuildInstall("160306", confirmRisk: true),
+                new System.Text.UTF8Encoding(true));
+            File.WriteAllText(Path.Combine(dir, "stop.ps1"),
+                SzDiag.Contracts.SleepCycleScript.StopScript,
+                new System.Text.UTF8Encoding(true));
+
+            var check = $$"""
+                $bad = @()
+                foreach ($f in Get-ChildItem '{{dir}}' -Filter *.ps1) {
+                    $errors = $null
+                    [void][System.Management.Automation.PSParser]::Tokenize(
+                        (Get-Content $f.FullName -Raw), [ref]$errors)
+                    if ($errors.Count -gt 0) {
+                        $bad += "$($f.Name): $($errors[0].Message) (строка $($errors[0].Token.StartLine))"
+                    }
+                }
+                if ($bad.Count -gt 0) { $bad; exit 1 } else { 'all-ok' }
+                """;
+            var r = new PowerShellRunner().Run(check, throwOnError: false, timeout: TimeSpan.FromSeconds(60));
+            Assert.True(r.ExitCode == 0 && r.StdOut.Contains("all-ok"),
+                $"сгенерированные скрипты SleepCycleScript с ошибками разбора:\n{r.StdOut}\n{r.StdErr}");
+        }
+        finally { try { Directory.Delete(dir, recursive: true); } catch { } }
+    }
 }
