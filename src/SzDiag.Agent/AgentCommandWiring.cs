@@ -93,11 +93,20 @@ public static class AgentCommandWiring
         var syncRunning = 0;
         DateTimeOffset? syncStartedAt = null;
 
+        // Ack — с выделенного потока максимального приоритета, а не инлайн через await на
+        // ThreadPool: под Combined/PowerSupply (100% CPU на всех ядрах) ack не доходил вовсе —
+        // «команда не принята», а не обещанное «принята, но задавлена» (бэклог п.201/п.212).
+        var ackDispatcher = new HighPriorityAckDispatcher();
+
         link.OnExec(async req =>
         {
             // Ack уходит ДО запуска: иначе «команда не дошла» и «скрипт долго идёт»
             // неотличимы — оба выглядят глухим таймаутом (бэклог п.35/п.43).
-            try { await link.SendExecAckAsync(new ExecAck(req.RequestId, DateTimeOffset.UtcNow)); } catch { }
+            ackDispatcher.Enqueue(() =>
+            {
+                try { link.SendExecAckAsync(new ExecAck(req.RequestId, DateTimeOffset.UtcNow)).GetAwaiter().GetResult(); }
+                catch { }
+            });
 
             var mode = req.Detached ? "фоном" : req.AsSystem ? $"под SYSTEM, таймаут {req.TimeoutSeconds}с" : $"таймаут {req.TimeoutSeconds}с";
             announce($"Exec на СЗ {req.Sz} ({req.Script.Length} символов, {mode})…", null);
@@ -188,7 +197,13 @@ public static class AgentCommandWiring
             // Ack уходит ДО поиска файлов на диске — как у exec (бэклог п.35/п.43): иначе
             // «команда не дошла» и «диск/сеть тормозят» неотличимы, глухой таймаут одинаков
             // (бэклог п.215, СЗ 161946 — pull в PE молчал до таймаута без единого отклика).
-            try { await link.SendPullAckAsync(new PullAck(req.RequestId, DateTimeOffset.UtcNow)); } catch { }
+            // С того же выделенного потока максимального приоритета, что и ack exec'а
+            // (бэклог п.201/п.212) — под нагрузкой это тот же ThreadPool.
+            ackDispatcher.Enqueue(() =>
+            {
+                try { link.SendPullAckAsync(new PullAck(req.RequestId, DateTimeOffset.UtcNow)).GetAwaiter().GetResult(); }
+                catch { }
+            });
 
             announce($"Забор файлов для СЗ {req.Sz}: {req.Path}", null);
             PullResult result;

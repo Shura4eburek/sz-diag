@@ -49,8 +49,11 @@ void Announce(string plain, string? markup = null)
 // [Console]::OutputEncoding вешает powershell.exe, см. WinPeEnvironment).
 // Агент — служебный процесс и обязан отвечать именно тогда, когда машине плохо. Под OCCT
 // Extreme на всех ядрах он конкурирует с нагрузкой на равных и не получает квант: на 160636
-// три exec подряд ушли в таймаут при живом heartbeat (бэклог п.33/п.43).
-try { System.Diagnostics.Process.GetCurrentProcess().PriorityClass = System.Diagnostics.ProcessPriorityClass.AboveNormal; }
+// три exec подряд ушли в таймаут при живом heartbeat (бэклог п.33/п.43), а на 161211/161498
+// даже --detach не проходил под Combined/PowerSupply (бэклог п.127/201). AboveNormal этого
+// не решил — поднимаем до High: диагностический канал важнее пары процентов нагрузки теста
+// (который к тому же сам теперь просится на BelowNormal — см. make-cpu/gpu-schedule.ps1).
+try { System.Diagnostics.Process.GetCurrentProcess().PriorityClass = System.Diagnostics.ProcessPriorityClass.High; }
 catch { /* нет прав на смену приоритета — не критично */ }
 
 var ps = new PowerShellRunner();
