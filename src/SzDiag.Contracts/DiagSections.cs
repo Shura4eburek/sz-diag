@@ -13,7 +13,7 @@ public static class DiagSections
     public static IReadOnlyList<string> All { get; } = new[]
     {
         "system", "cpu", "memory", "gpu", "storage",
-        "temps", "drivers", "events", "reboots", "whea", "livekernel", "reliability", "battery"
+        "temps", "drivers", "events", "reboots", "whea", "livekernel", "reliability", "battery", "rgb"
     };
 
     /// <summary>Привычные синонимы: так секции зовут в переписке и в голове, и именно

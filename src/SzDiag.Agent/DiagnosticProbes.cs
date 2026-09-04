@@ -820,5 +820,181 @@ public static class DiagnosticProbes
                 } catch { "Battery wear data unavailable: $($_.Exception.Message)" }
             }
             """),
+
+        // RGB/HID kontrollery podsvetki: prinyatie proshivki lyubogo takogo kontrollera
+        // (bootloader -> normalnyy rezhim) trebuet Product string i caps s ustroystva, a ne
+        // tolko FriendlyName iz PnP - u 'ITE Upgrade Mode(128)' i 'GIGABYTE Device' odinakovyy
+        // Class=HIDClass, i tolko VID:PID + Input/Output report length otlichayut bootloader
+        // ot proshitogo kontrollera (backlog, SZ 163013). x64-only P/Invoke: agent - odin
+        // self-contained win-x64 build, x86 SP_DEVICE_INTERFACE_DETAIL_DATA.cbSize ne nuzhen.
+        Probe("rgb", "RGB/HID-контроллеры (Product string + caps для приёмки прошивки)", """
+            $sig = @'
+            using System;
+            using System.Collections.Generic;
+            using System.Runtime.InteropServices;
+            using System.Text;
+
+            public class SzDiagHid {
+                public const int DIGCF_PRESENT = 0x02;
+                public const int DIGCF_DEVICEINTERFACE = 0x10;
+                public const uint FILE_SHARE_READ = 0x01;
+                public const uint FILE_SHARE_WRITE = 0x02;
+                public const uint OPEN_EXISTING = 3;
+                public const int HIDP_STATUS_SUCCESS = 0x00110000;
+
+                [StructLayout(LayoutKind.Sequential)]
+                public struct SP_DEVICE_INTERFACE_DATA {
+                    public int cbSize;
+                    public Guid InterfaceClassGuid;
+                    public int Flags;
+                    public IntPtr Reserved;
+                }
+
+                [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Auto)]
+                public struct SP_DEVICE_INTERFACE_DETAIL_DATA {
+                    public int cbSize;
+                    [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 512)]
+                    public string DevicePath;
+                }
+
+                [DllImport("hid.dll")]
+                public static extern void HidD_GetHidGuid(out Guid hidGuid);
+
+                [DllImport("setupapi.dll", SetLastError = true)]
+                public static extern IntPtr SetupDiGetClassDevs(ref Guid classGuid, IntPtr enumerator, IntPtr hwndParent, int flags);
+
+                [DllImport("setupapi.dll", SetLastError = true)]
+                public static extern bool SetupDiEnumDeviceInterfaces(IntPtr deviceInfoSet, IntPtr deviceInfoData,
+                    ref Guid interfaceClassGuid, uint memberIndex, ref SP_DEVICE_INTERFACE_DATA deviceInterfaceData);
+
+                [DllImport("setupapi.dll", SetLastError = true, CharSet = CharSet.Auto)]
+                public static extern bool SetupDiGetDeviceInterfaceDetail(IntPtr deviceInfoSet,
+                    ref SP_DEVICE_INTERFACE_DATA deviceInterfaceData, ref SP_DEVICE_INTERFACE_DETAIL_DATA deviceInterfaceDetailData,
+                    int deviceInterfaceDetailDataSize, out int requiredSize, IntPtr deviceInfoData);
+
+                [DllImport("setupapi.dll")]
+                public static extern bool SetupDiDestroyDeviceInfoList(IntPtr deviceInfoSet);
+
+                [DllImport("kernel32.dll", SetLastError = true, CharSet = CharSet.Auto)]
+                public static extern IntPtr CreateFile(string fileName, uint desiredAccess, uint shareMode,
+                    IntPtr securityAttributes, uint creationDisposition, uint flags, IntPtr template);
+
+                [DllImport("kernel32.dll")]
+                public static extern bool CloseHandle(IntPtr handle);
+
+                [StructLayout(LayoutKind.Sequential)]
+                public struct HIDD_ATTRIBUTES { public int Size; public ushort VendorID; public ushort ProductID; public ushort VersionNumber; }
+
+                [DllImport("hid.dll")]
+                public static extern bool HidD_GetAttributes(IntPtr hidDeviceObject, ref HIDD_ATTRIBUTES attributes);
+
+                [DllImport("hid.dll")]
+                public static extern bool HidD_GetProductString(IntPtr hidDeviceObject, byte[] buffer, int bufferLength);
+
+                [DllImport("hid.dll")]
+                public static extern bool HidD_GetPreparsedData(IntPtr hidDeviceObject, out IntPtr preparsedData);
+
+                [DllImport("hid.dll")]
+                public static extern bool HidD_FreePreparsedData(IntPtr preparsedData);
+
+                [StructLayout(LayoutKind.Sequential)]
+                public struct HIDP_CAPS {
+                    public ushort Usage;
+                    public ushort UsagePage;
+                    public ushort InputReportByteLength;
+                    public ushort OutputReportByteLength;
+                    public ushort FeatureReportByteLength;
+                    [MarshalAs(UnmanagedType.ByValArray, SizeConst = 17)] public ushort[] Reserved;
+                    public ushort NumberLinkCollectionNodes;
+                    public ushort NumberInputButtonCaps;
+                    public ushort NumberInputValueCaps;
+                    public ushort NumberInputDataIndices;
+                    public ushort NumberOutputButtonCaps;
+                    public ushort NumberOutputValueCaps;
+                    public ushort NumberOutputDataIndices;
+                    public ushort NumberFeatureButtonCaps;
+                    public ushort NumberFeatureValueCaps;
+                    public ushort NumberFeatureDataIndices;
+                }
+
+                [DllImport("hid.dll")]
+                public static extern int HidP_GetCaps(IntPtr preparsedData, out HIDP_CAPS caps);
+
+                public static List<string> EnumerateDevicePaths() {
+                    var result = new List<string>();
+                    Guid hidGuid;
+                    HidD_GetHidGuid(out hidGuid);
+                    IntPtr set = SetupDiGetClassDevs(ref hidGuid, IntPtr.Zero, IntPtr.Zero, DIGCF_PRESENT | DIGCF_DEVICEINTERFACE);
+                    if (set == IntPtr.Zero) return result;
+                    try {
+                        uint index = 0;
+                        while (true) {
+                            var ifData = new SP_DEVICE_INTERFACE_DATA();
+                            ifData.cbSize = Marshal.SizeOf(typeof(SP_DEVICE_INTERFACE_DATA));
+                            if (!SetupDiEnumDeviceInterfaces(set, IntPtr.Zero, ref hidGuid, index, ref ifData)) break;
+                            var detail = new SP_DEVICE_INTERFACE_DETAIL_DATA();
+                            detail.cbSize = 8;   // x64-only: agent - odin self-contained win-x64 build
+                            int required;
+                            if (SetupDiGetDeviceInterfaceDetail(set, ref ifData, ref detail, Marshal.SizeOf(detail), out required, IntPtr.Zero)) {
+                                result.Add(detail.DevicePath);
+                            }
+                            index++;
+                        }
+                    } finally { SetupDiDestroyDeviceInfoList(set); }
+                    return result;
+                }
+
+                public static string Describe(string devicePath) {
+                    IntPtr handle = CreateFile(devicePath, 0, FILE_SHARE_READ | FILE_SHARE_WRITE, IntPtr.Zero, OPEN_EXISTING, 0, IntPtr.Zero);
+                    if (handle == new IntPtr(-1)) return devicePath + " : CreateFile failed";
+                    try {
+                        var attrs = new HIDD_ATTRIBUTES();
+                        attrs.Size = Marshal.SizeOf(attrs);
+                        HidD_GetAttributes(handle, ref attrs);
+
+                        var buf = new byte[256];
+                        string product = "";
+                        if (HidD_GetProductString(handle, buf, buf.Length)) {
+                            product = Encoding.Unicode.GetString(buf);
+                            int z = product.IndexOf('\0');
+                            if (z >= 0) product = product.Substring(0, z);
+                        }
+
+                        string caps = "n/a";
+                        IntPtr preparsed;
+                        if (HidD_GetPreparsedData(handle, out preparsed)) {
+                            try {
+                                HIDP_CAPS c;
+                                if (HidP_GetCaps(preparsed, out c) == HIDP_STATUS_SUCCESS) {
+                                    caps = "UsagePage=" + c.UsagePage + " Usage=" + c.Usage +
+                                           " Input=" + c.InputReportByteLength + " Output=" + c.OutputReportByteLength +
+                                           " Feature=" + c.FeatureReportByteLength;
+                                }
+                            } finally { HidD_FreePreparsedData(preparsed); }
+                        }
+
+                        return "VID_" + attrs.VendorID.ToString("X4") + "&PID_" + attrs.ProductID.ToString("X4") +
+                               " Product='" + product + "' " + caps;
+                    } finally { CloseHandle(handle); }
+                }
+            }
+            '@
+            try {
+                Add-Type -TypeDefinition $sig -ErrorAction Stop
+
+                "=== HID (nizkiy uroven: VID:PID, Product string, caps) ==="
+                $paths = [SzDiagHid]::EnumerateDevicePaths()
+                if ($paths.Count -eq 0) { "HID-ustroystv ne naydeno." }
+                foreach ($p in $paths) {
+                    try { [SzDiagHid]::Describe($p) } catch { $p + " : " + $_.Exception.Message }
+                }
+            } catch {
+                "HID low-level probe unavailable: $($_.Exception.Message)"
+            }
+
+            "=== HID (PnP, dlya sopostavleniya s FriendlyName) ==="
+            Get-PnpDevice -Class HIDClass -ErrorAction SilentlyContinue | Where-Object Status -eq 'OK' |
+                Select-Object FriendlyName, InstanceId | Format-Table -Auto | Out-String
+            """),
     };
 }

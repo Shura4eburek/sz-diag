@@ -492,6 +492,52 @@ switch (command)
     {
         var pushSz = args[1];
         var tool = args[2];
+
+        // --verify-size/--verify-signer: сверка ДО доставки на клиента (бэклог, СЗ 163013 —
+        // прошивку LED-контроллера сверяли руками, битый/подменённый файл push не ловил).
+        var verifySizeIdx = Array.FindIndex(args, a => a.Equals("--verify-size", StringComparison.OrdinalIgnoreCase));
+        var verifySignerIdx = Array.FindIndex(args, a => a.Equals("--verify-signer", StringComparison.OrdinalIgnoreCase));
+        if (verifySizeIdx >= 0 || verifySignerIdx >= 0)
+        {
+            var catalog = await client.GetToolsAsync();
+            if (verifySizeIdx >= 0)
+            {
+                if (verifySizeIdx + 1 >= args.Length || !long.TryParse(args[verifySizeIdx + 1], out var expectedBytes))
+                {
+                    AnsiConsole.MarkupLine("[red]--verify-size требует число байт.[/]");
+                    return 2;
+                }
+                var sizeCheck = PushVerification.CheckSize(catalog, tool, expectedBytes);
+                if (!sizeCheck.Ok)
+                {
+                    AnsiConsole.MarkupLineInterpolated($"[red]Проверка размера не пройдена:[/] {sizeCheck.Error}");
+                    return 5;
+                }
+            }
+            if (verifySignerIdx >= 0)
+            {
+                if (verifySignerIdx + 1 >= args.Length)
+                {
+                    AnsiConsole.MarkupLine("[red]--verify-signer требует CN издателя.[/]");
+                    return 2;
+                }
+                if (catalog is null)
+                {
+                    AnsiConsole.MarkupLine("[red]Hub не ответил на запрос каталога инструментов.[/]");
+                    return 1;
+                }
+                var expectedCn = args[verifySignerIdx + 1];
+                var toolDir = Path.Combine(catalog.Root, tool);
+                var signerCheck = PushVerification.CheckSigner(toolDir, expectedCn, PushVerification.GetSignerCn);
+                if (!signerCheck.Ok)
+                {
+                    AnsiConsole.MarkupLineInterpolated($"[red]Проверка подписи не пройдена:[/] {signerCheck.Error}");
+                    return 5;
+                }
+            }
+            AnsiConsole.MarkupLine("[green]Проверка пройдена[/] — доставляю…");
+        }
+
         var res = await client.PushAsync(pushSz, tool);
         if (res is null)
         {

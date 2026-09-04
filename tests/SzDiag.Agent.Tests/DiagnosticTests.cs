@@ -12,7 +12,7 @@ public class DiagnosticProbesTests
         var expected = new[]
         {
             "system", "cpu", "memory", "gpu", "storage",
-            "temps", "drivers", "events", "reboots", "whea", "livekernel", "reliability", "battery"
+            "temps", "drivers", "events", "reboots", "whea", "livekernel", "reliability", "battery", "rgb"
         };
         Assert.Equal(expected, DiagnosticProbes.Sections);
         // Каталог проб и словарь для валидации в CLI обязаны совпадать: иначе szcli либо
@@ -177,6 +177,23 @@ public class DiagnosticProbesTests
         Assert.Contains("CurrentLinkWidth", run);
         Assert.Contains("MaxLinkSpeed", run);
         Assert.Contains("TDR", run);
+    }
+
+    [Fact]
+    public void RgbProbe_ReadsProductStringAndCapsNotJustPnpFriendlyName()
+    {
+        // Регрессия (бэклог, СЗ 163013): 'ITE Upgrade Mode(128)' (bootloader) и 'GIGABYTE
+        // Device' (прошито) неотличимы по Class=HIDClass в Get-PnpDevice - нужен VID:PID и
+        // Input/Output report length (caps) с самого устройства, а не только FriendlyName.
+        var run = Body("rgb");
+
+        Assert.Contains("SetupDiGetClassDevs", run);
+        Assert.Contains("HidD_GetProductString", run);
+        Assert.Contains("HidP_GetCaps", run);
+        Assert.Contains("VID_", run);
+        Assert.Contains("Input=", run);
+        Assert.Contains("Output=", run);
+        Assert.Contains("Get-PnpDevice -Class HIDClass", run);
     }
 
     [Fact]
