@@ -222,6 +222,10 @@ switch (command)
     case "sensors" when args.Length >= 2:
         return await SensorsCommand.RunAsync(client, args[1..], AppContext.BaseDirectory);
 
+    // disk scan: карта скорости чтения по всему диску / сплошной прогон зоны + SMART до/после.
+    case "disk" when args.Length >= 2:
+        return await DiskCommand.RunAsync(client, args);
+
     // freeze/unfreeze: заморозка Windows Update на время сессии. Прежние значения хранятся
     // на хосте рядом с szcli — клиент их потерять не может.
     // freeze --status <СЗ>: держится ли заморозка (после ребута она сама не переживает —
@@ -644,6 +648,9 @@ static void PrintUsage()
               [yellow]szcli sz release[/]        отпустить залипший захват учётной программы
               [yellow]szcli sensors[/] [grey]start|status|stop <СЗ> | report <csv>[/]
                 [grey]наблюдатель нагрузки (CSV построчно, переживает вырубон) и его разбор[/]
+              [yellow]szcli disk scan[/] [blue]<СЗ>[/] [grey][[--map|--zone НАЧАЛО-КОНЕЦ]] [[--drive N]] [[--minutes N]][/]
+                [grey]карта скорости чтения по всему диску / сплошное чтение зоны + SMART до/после[/]
+                [grey]результат — фоновая задача:[/] szcli exec <СЗ> --result <jobId>
               [yellow]szcli freeze[/] [blue]<СЗ>[/] [grey][[--status]][/]  заморозить Windows Update (или проверить, держится ли)
               [yellow]szcli unfreeze[/] [blue]<СЗ>[/]      вернуть Windows Update как было (обязательно!)
               [yellow]szcli test run[/] [blue]<СЗ>[/] [grey][[occt|tm5,furmark|…]][/] [red]--config[/] [grey]"<конфигурация>"[/]

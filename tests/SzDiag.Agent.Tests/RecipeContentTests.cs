@@ -123,4 +123,39 @@ public class RecipeContentTests
 
     [Fact]
     public void ProcessIoTop_ParsesAsValidPowerShell() => AssertAllParse("process-io-top.ps1");
+
+    /// <summary>DiskZoneMap живёт в SzDiag.Contracts (генерируется CLI, а не читается с диска
+    /// как рецепт), но синтаксис сгенерированного PowerShell проверяем тем же способом.</summary>
+    [Fact]
+    public void DiskZoneMap_GeneratedScripts_ParseAsValidPowerShell()
+    {
+        var dir = Path.Combine(Path.GetTempPath(), $"szdiskmap-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(dir);
+        try
+        {
+            File.WriteAllText(Path.Combine(dir, "map.ps1"),
+                SzDiag.Contracts.DiskZoneMap.BuildScript(0, "map", 300, 16, 0, 0, 256, 20, 150),
+                new System.Text.UTF8Encoding(true));
+            File.WriteAllText(Path.Combine(dir, "zone.ps1"),
+                SzDiag.Contracts.DiskZoneMap.BuildScript(0, "zone", 0, 0, 440, 520, 256, 25, 200),
+                new System.Text.UTF8Encoding(true));
+
+            var check = $$"""
+                $bad = @()
+                foreach ($f in Get-ChildItem '{{dir}}' -Filter *.ps1) {
+                    $errors = $null
+                    [void][System.Management.Automation.PSParser]::Tokenize(
+                        (Get-Content $f.FullName -Raw), [ref]$errors)
+                    if ($errors.Count -gt 0) {
+                        $bad += "$($f.Name): $($errors[0].Message) (строка $($errors[0].Token.StartLine))"
+                    }
+                }
+                if ($bad.Count -gt 0) { $bad; exit 1 } else { 'all-ok' }
+                """;
+            var r = new PowerShellRunner().Run(check, throwOnError: false, timeout: TimeSpan.FromSeconds(60));
+            Assert.True(r.ExitCode == 0 && r.StdOut.Contains("all-ok"),
+                $"сгенерированные скрипты DiskZoneMap с ошибками разбора:\n{r.StdOut}\n{r.StdErr}");
+        }
+        finally { try { Directory.Delete(dir, recursive: true); } catch { } }
+    }
 }
