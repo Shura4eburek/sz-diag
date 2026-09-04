@@ -8118,7 +8118,15 @@ assignment expression is not valid`. Причина — `PowerShellRunner` (`src
 `offline-session-timeline.ps1` и `offline-crash-history.ps1` уже делали это с прошлого
 захода. Заголовки вывода везде помечены «UTC».
 
-## п.228 — вывод рецепта из PE приезжает кракозябрами на кириллице (161498, 26.08)
+## п.228 — ✅ СДЕЛАНО (2026-09-04) — вывод рецепта из PE приезжает кракозябрами на кириллице (161498, 26.08)
+
+**Что сделано.** `PeConsoleEncoding` (агент) узнаёт активную OEM-кодовую страницу PE через
+`GetOEMCP` и явно декодирует ею `StandardOutputEncoding`/`StandardErrorEncoding` дочернего
+powershell.exe (`System.Text.Encoding.CodePages` — cp437/cp866 не встроены в .NET Core без
+провайдера), не трогая сам скрипт и не присваивая `[Console]::OutputEncoding` (то самое,
+что вешало powershell.exe в PE на СЗ 159948). Правило «PE-рецепты пишут вывод латиницей»
+остаётся страховкой для скриптов, у которых нет доступа к живой PE для проверки, но кириллица
+из PE через `szcli exec`/`diag` теперь не обязана быть латиницей.
 
 **Что случилось.** Вывод `pe-check-cycle.ps1` в `szcli` — `=== ?????? szdiag-* ?? ??????-????`.
 Это не баг рецепта: `PowerShellRunner` в PE намеренно не включает UTF-8 (присвоение
