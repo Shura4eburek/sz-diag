@@ -367,6 +367,46 @@ public class DiagnosticProbesTests
     }
 
     [Fact]
+    public void StorageProbe_ResolvesDiskAtEventTime_NotTodaysMap()
+    {
+        // Регрессия (бэклог п.133, СЗ 161346): диски физически поменяли местами 29.07 между
+        // 12:11 и 13:57 - карта "на сейчас" (Win32_DiskDrive) дала ЗЕРКАЛЬНУЮ привязку старых
+        // ошибок: указала на диск из заказа вместо клиентского, хотя все ошибки были на
+        // клиентском ДО перестановки. Резолв обязан идти по истории Partition/Diagnostic 1006
+        // на момент КАЖДОГО события, а не по текущему состоянию.
+        var run = Body("storage");
+
+        Assert.Contains("Get-DiskNumberHistory", run);
+        Assert.Contains("Resolve-DiskAtTime", run);
+        Assert.Contains("NA MOMENT SOBYTIYA", run);
+        // Молчаливая подстановка сегодняшней модели на архивную ошибку хуже, чем её
+        // отсутствие: вердикт строится на ней.
+        Assert.Contains("model NEIZVESTEN na tu datu", run);
+    }
+
+    [Fact]
+    public void StorageProbe_ReportsDiskSlotSwapsSeparately()
+    {
+        // Критерий готовности п.70/133: перестановки дисков за окно перечислены отдельным
+        // блоком - "диски поменялись местами" маскирует дефект слота и рвёт статистику.
+        var run = Body("storage");
+
+        Assert.Contains("Write-DiskSlotSwaps", run);
+        Assert.Contains("Smena nomerov diskov", run);
+    }
+
+    [Fact]
+    public void DiskNumberHistory_Prologue_IsAsciiAndReadsPartitionDiagnostic1006()
+    {
+        var ps = DiskNumberHistory.PowerShellPrologue();
+
+        Assert.All(ps, c => Assert.True(c < 128, $"не-ASCII в прологе истории дисков: {c}"));
+        Assert.Contains("Microsoft-Windows-Partition/Diagnostic", ps);
+        Assert.Contains("Id=1006", ps);
+        Assert.Contains("DiskNumber", ps);
+    }
+
+    [Fact]
     public void StorageProbe_MapsPagefileToPhysicalDiskAndSplitsUncorrectable()
     {
         // Регрессия (п.27): «ReadErrors: 393» выглядело как шум, хотя все 393 неисправимы,

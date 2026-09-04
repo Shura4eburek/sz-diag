@@ -125,7 +125,7 @@ public static class DiagnosticProbes
         // различения corrected/uncorrected (а все 393 были неисправимы), и поверх всего
         // `HealthStatus: Healthy` (бэклог п.27).
         Probe("storage", "Диски (SMART / здоровье / разделы / pagefile)",
-            NvmeSmart.PowerShellPrologue() + """
+            NvmeSmart.PowerShellPrologue() + DiskNumberHistory.PowerShellPrologue() + """
             Get-PhysicalDisk -ErrorAction SilentlyContinue |
                 Select-Object DeviceId, FriendlyName, MediaType, BusType,
                     @{n='GB';e={[math]::Round($_.Size/1GB)}}, HealthStatus, OperationalStatus |
@@ -249,13 +249,16 @@ public static class DiagnosticProbes
                     Format-Table -Auto | Out-String
             } else { "none" }
 
-            "=== Svodka diskovyh sobytiy po Harddisk N (rezolv ustroystva) ==="
+            "=== Svodka diskovyh sobytiy po Harddisk N (rezolv NA MOMENT SOBYTIYA) ==="
             # 396 sobytiy 'disk Id=51' na 160705 chut ne uehali v akt klientu kak 'oshibok
             # nakopitelya net' - ni odna sektsiya ih ne agregirovala i ne privyazyvala k
-            # ustroystvu. Razbor zanyal 3 minuty i snyal versiyu: vse 396 - za odin den,
-            # ustroystvo Harddisk1 (semnyy USB-nositel, ne sistemnyy SSD Harddisk0), 0 iz 396
-            # v okne vyrubona (backlog p.141).
+            # ustroystvu (backlog p.141). Nomer HarddiskN/RaidPortN plyvet ot zagruzki k
+            # zagruzke (poryadok podklyucheniya) - karta 'na seychas' primenennaya k arhivnoy
+            # oshibke mozhet dat ZERKALNUYU privyazku: na 161346 diski fizicheski pomenyalis
+            # mestami mezhdu sobytiyami i sverkoy (backlog p.133). Rezolvim po istorii
+            # Partition/Diagnostic 1006 na moment KAZHDOGO sobytiya, ne po tekushchey karte.
             if ($diskEvents.Count -gt 0) {
+                $diskHistory = Get-DiskNumberHistory
                 $kp41Times = @()
                 try {
                     $kp41Times = @(Get-WinEvent -FilterHashtable @{ LogName='System'; ProviderName='Microsoft-Windows-Kernel-Power'; Id=41 } -ErrorAction Stop |
@@ -265,30 +268,41 @@ public static class DiagnosticProbes
                 $rows = foreach ($e in $diskEvents) {
                     $diskNum = $null
                     if ($e.Message -match 'Harddisk(\d+)') { $diskNum = [int]$Matches[1] }
+                    $resolved = $null
+                    if ($null -ne $diskNum) { $resolved = Resolve-DiskAtTime $diskHistory $diskNum $e.TimeCreated }
+                    # Gruppiruem NE po nomeru, a po (nomer + serial na tot moment) - esli
+                    # slot pomenyal fizicheskiy disk vnutri okna, oni ne skhlopnutsya v odnu
+                    # stroku s odnim 'model=' na oba.
+                    $identity = if ($resolved) { "$diskNum|$($resolved.Serial)" } else { "$diskNum|?" }
                     $nearShutdown = $false
                     if ($kp41Times.Count -gt 0) {
                         $nearShutdown = [bool]@($kp41Times | Where-Object { [math]::Abs(($_ - $e.TimeCreated).TotalMinutes) -le 5 }).Count
                     }
-                    [PSCustomObject]@{ Time = $e.TimeCreated; Disk = $diskNum; NearShutdown = $nearShutdown }
+                    [PSCustomObject]@{ Time = $e.TimeCreated; Disk = $diskNum; Identity = $identity; Resolved = $resolved; NearShutdown = $nearShutdown }
                 }
-                $byDisk = $rows | Group-Object Disk | Sort-Object Count -Descending
-                foreach ($g in $byDisk) {
-                    $diskInfo = $null
-                    $n = 0
-                    if ($g.Name -and [int]::TryParse("$($g.Name)", [ref]$n) -and $dmap.ContainsKey($n)) { $diskInfo = $dmap[$n] }
-                    $label = if ($diskInfo) { "Harddisk$n" } else { "(nomer diska ne opredelen iz Message)" }
-                    $model = if ($diskInfo) { $diskInfo.Model } else { '?' }
-                    # InterfaceType='USB' - eto semnyy nositel, k defektu sistemnogo diska
-                    # otnosheniya obychno ne imeet (backlog p.141).
-                    $removableMark = if ($diskInfo -and $diskInfo.InterfaceType -eq 'USB') { ' [SEMNYY NOSITEL - USB]' } else { '' }
+                foreach ($g in ($rows | Group-Object Identity | Sort-Object Count -Descending)) {
+                    $sample = $g.Group[0]
+                    $label = if ($null -ne $sample.Disk) { "Harddisk$($sample.Disk)" } else { "(nomer diska ne opredelen iz Message)" }
+                    $modelText = if ($sample.Resolved) { "{0} [SN {1}]" -f $sample.Resolved.Model, $sample.Resolved.Serial }
+                                 else { "model NEIZVESTEN na tu datu (istorii Partition/Diagnostic 1006 net)" }
+                    # Sovpadenie serial s TEKUSHCHIM USB-diskom - eto semnyy nositel, k
+                    # defektu sistemnogo diska otnosheniya obychno ne imeet (backlog p.141).
+                    $removableMark = ''
+                    if ($sample.Resolved -and $sample.Resolved.Serial) {
+                        $curMatch = @($dmap.Values | Where-Object { "$($_.SerialNumber)".Trim() -eq $sample.Resolved.Serial }) | Select-Object -First 1
+                        if ($curMatch -and $curMatch.InterfaceType -eq 'USB') { $removableMark = ' [SEMNYY NOSITEL - USB]' }
+                    }
                     $first = ($g.Group | Sort-Object Time | Select-Object -First 1).Time
                     $last = ($g.Group | Sort-Object Time -Descending | Select-Object -First 1).Time
                     $nearCount = @($g.Group | Where-Object NearShutdown).Count
-                    "{0}: {1} sobytiy, {2:dd.MM.yyyy}-{3:dd.MM.yyyy}, model={4}{5}, ryadom s Kernel-Power 41 (+-5 min): {6}" -f `
-                        $label, $g.Count, $first, $last, $model, $removableMark, $nearCount
+                    "{0}: {1} sobytiy, {2:dd.MM.yyyy}-{3:dd.MM.yyyy}, {4}{5}, ryadom s Kernel-Power 41 (+-5 min): {6}" -f `
+                        $label, $g.Count, $first, $last, $modelText, $removableMark, $nearCount
                 }
                 "Podskazka: sobytiya semnyh nositeley (USB-fleshki i pr.) k defektu sistemnogo diska"
                 "otnosheniya NE imeyut - eto ne 'oshibok nakopitelya net', a 'oshibki na drugom ustroystve'."
+
+                "--- Smena nomerov diskov za dostupnuyu istoriyu (Partition/Diagnostic 1006) ---"
+                Write-DiskSlotSwaps $diskHistory
             }
 
             "=== Toma ==="
