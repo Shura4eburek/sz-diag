@@ -52,10 +52,14 @@ public sealed class SessionCloser
         var revert = pending;
         if (revert is null && wasOnline)
         {
+            // TryGetFresh здесь же, а не TryGet (review W2 I-4): иначе устаревшая сводка от
+            // ПРОШЛОЙ сессии этой же СЗ (агент откатился раньше, а потом переподключился) была
+            // отброшена веткой pending выше, но первая же итерация цикла подхватывала её снова
+            // через TryGet — дыра, закрытая Critical-2 волны 1, открывалась заново вторым путём.
             var deadline = DateTime.UtcNow + _revertWait;
             while (DateTime.UtcNow < deadline)
             {
-                revert = _revertResults.TryGet(sz);
+                revert = _revertResults.TryGetFresh(sz, info!.ConnectedAt);
                 if (revert is not null) break;
                 await Task.Delay(TimeSpan.FromMilliseconds(200), ct);
             }

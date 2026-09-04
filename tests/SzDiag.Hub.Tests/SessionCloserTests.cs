@@ -178,6 +178,29 @@ public class SessionCloserTests
         Assert.Null(outcome.Revert);
     }
 
+    // review W2 I-4: "свежая" проверка (TryGetFresh) стояла только для pending — цикл ожидания
+    // ДАЛЬШЕ звал TryGet(sz) без учёта ConnectedAt, и первая же итерация подхватывала ту же
+    // устаревшую сводку заново. Онлайн-сессия (в отличие от DiscardsRevertResultFromPreviousSession
+    // выше) — единственный сценарий, где цикл вообще выполняется.
+    [Fact]
+    public async Task Close_OnlineSz_LoopDoesNotPickUpStaleRevertResult()
+    {
+        var time = new FakeTimeProvider(new DateTimeOffset(2026, 7, 1, 12, 0, 0, TimeSpan.Zero));
+        var revertResults = new RevertResultStore(time);
+        revertResults.Set(new RevertResult("156864", new[] { "sshd" }, Array.Empty<RevertResultFailure>()));
+        time.Advance(TimeSpan.FromMinutes(10)); // СЗ переоткрылась новой сессией
+        var reg = new SessionRegistry(time);
+        reg.Register("156864", "10.0.0.42", "PC-1", "conn-1"); // онлайн, ConnectedAt позже старой сводки
+        var sender = new SpyCommandSender(); // агент молчит — новой сводки не будет
+        var store = new SpyStore();
+        var closer = new SessionCloser(reg, store, sender, revertResults, revertWait: TimeSpan.FromMilliseconds(50));
+
+        var outcome = await closer.CloseAsync("156864");
+
+        Assert.True(outcome.Closed);
+        Assert.Null(outcome.Revert); // старая сводка не должна выдаваться за итог текущего отката
+    }
+
     private sealed class FakeTimeProvider : TimeProvider
     {
         private DateTimeOffset _now;
