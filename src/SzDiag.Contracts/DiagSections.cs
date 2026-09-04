@@ -1,4 +1,4 @@
-namespace SzDiag.Contracts;
+﻿namespace SzDiag.Contracts;
 
 /// <summary>Имена секций диагностики — общий словарь для CLI (валидация ввода) и агента
 /// (каталог проб). Лежит в Contracts по той же причине, что и <see cref="HubRoutes"/>:
@@ -12,7 +12,7 @@ public static class DiagSections
     /// <summary>Канонические имена секций. Порядок — как в отчёте.</summary>
     public static IReadOnlyList<string> All { get; } = new[]
     {
-        "system", "cpu", "memory", "gpu", "storage",
+        "system", "os", "cpu", "memory", "gpu", "storage",
         "temps", "drivers", "events", "reboots", "whea", "thermal", "livekernel", "reliability", "battery"
     };
 
@@ -22,7 +22,8 @@ public static class DiagSections
         new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
         {
             ["hw"] = "system",
-            ["os"] = "system",
+            // "os" — своя секция (происхождение ОС: образ vs чистая установка, бэклог п.162),
+            // а не синоним "system" (модель/BIOS/uptime). Раньше эти два вопроса схлопывались.
             ["ram"] = "memory",
             ["disks"] = "storage",
             ["disk"] = "storage",

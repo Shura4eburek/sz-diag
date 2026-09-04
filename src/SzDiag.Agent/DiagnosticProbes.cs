@@ -72,6 +72,89 @@ public static class DiagnosticProbes
             "VAZHNO: uptime NE dokazyvaet rabotu. Narabotka = SMART PowerOnHours (sektsiya storage); chastotu otkazov schitat na chas narabotki, a ne na kalendarnyy den."
             """),
 
+        // Один InstallDate ничего не доказывает: он переживает feature update и едет внутри
+        // образа. На 161346 «ОС старше даты сборки, значит переносилась» на этом основании
+        // ушло клиенту, а он потребовал письменное подтверждение — и его пришлось строить
+        // ad-hoc рецептом os-provenance.ps1 (бэклог п.162). Прямые признаки: CloneTag
+        // (метка снятия образа), GeneralizationState (sysprep обезличил систему), даты
+        // setupapi.dev.log/профилей/тома (когда драйверы/OOBE прошли именно на ЭТОЙ сборке),
+        // призраки чужого железа в Enum и статус активации.
+        Probe("os", "Происхождение ОС (образ / sysprep / чистая установка)", """
+            $cv = Get-ItemProperty 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion' -ErrorAction SilentlyContinue
+            "=== Zayavlennaya versiya i InstallDate ==="
+            if ($cv.InstallDate) {
+                "InstallDate (registry): {0:yyyy-MM-dd HH:mm:ss} - PEREZHIVAET feature update i edet vnutri obraza, samo po sebe NICHEGO ne dokazyvaet." -f `
+                    ([DateTimeOffset]::FromUnixTimeSeconds($cv.InstallDate).LocalDateTime)
+            } else { "InstallDate: net dannyh" }
+            "BuildLabEx obraza: {0}" -f $cv.BuildLabEx
+            "InstallationType: {0}" -f $cv.InstallationType
+
+            "=== Sledy klonirovaniya / sysprep ==="
+            $ct = Get-ItemProperty 'HKLM:\SYSTEM\Setup' -Name CloneTag -ErrorAction SilentlyContinue
+            if ($ct) { "CloneTag: {0} (PRYAMAYA metka snyatiya obraza)" -f ($ct.CloneTag -join ' | ') }
+            else { "CloneTag: net" }
+            $sp = Get-ItemProperty 'HKLM:\SYSTEM\Setup\Status\SysprepStatus' -ErrorAction SilentlyContinue
+            if ($sp -and ($null -ne $sp.GeneralizationState)) {
+                $gs = [int]$sp.GeneralizationState
+                $meaning = @{7='obraz obezlichen (sysprep /generalize proshel)'; 4='ne obezlichen'}[$gs]
+                "GeneralizationState: {0} ({1})" -f $gs, $(if ($meaning) { $meaning } else { 'unknown' })
+            } else { "GeneralizationState: net dannyh (SysprepStatus ne nayden)" }
+            "Windows.old: {0}" -f $(if (Test-Path 'C:\Windows.old') { 'EST (byla predydushaya ustanovka na etom diske)' } else { 'net' })
+
+            "=== Data sozdaniya toma C: (edet vnutri obraza vmeste s faylami) ==="
+            $vol = Get-Item -LiteralPath 'C:\System Volume Information' -Force -ErrorAction SilentlyContinue
+            if ($vol) { "Tom C: sozdan {0:yyyy-MM-dd HH:mm:ss}" -f $vol.CreationTime } else { "net dostupa k System Volume Information" }
+
+            "=== setupapi.dev.log - kogda na ETOY sisteme vpervye stavilis drayvery ==="
+            $sa = 'C:\Windows\INF\setupapi.dev.log'
+            if (Test-Path $sa) {
+                $fi = Get-Item $sa -Force
+                "sozdan {0:yyyy-MM-dd HH:mm:ss}" -f $fi.CreationTime
+            } else { "fayla net" }
+
+            "=== Profili polzovateley (data sozdaniya = pervyy vhod / OOBE na ETOY sisteme) ==="
+            $profiles = @()
+            Get-ChildItem 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\ProfileList' -ErrorAction SilentlyContinue |
+                ForEach-Object {
+                    $pp = (Get-ItemProperty $_.PSPath -ErrorAction SilentlyContinue).ProfileImagePath
+                    if ($pp -and $pp -notmatch 'systemprofile|LocalService|NetworkService') {
+                        $d = Get-Item -LiteralPath $pp -Force -ErrorAction SilentlyContinue
+                        if ($d) { $profiles += [PSCustomObject]@{ Profil = $pp; Sozdan = $d.CreationTime } }
+                    }
+                }
+            if ($profiles.Count -gt 0) { $profiles | Sort-Object Sozdan | Format-Table -Auto | Out-String }
+            else { "profiley polzovateley ne nayti" }
+
+            "=== Prizraki chuzhogo zheleza (Status=Unknown, PCI/USB) ==="
+            # Obraz s DRUGOY platformy ostavlyaet v Enum PCI-ustroystva, kotoryh v mashine net.
+            $ghosts = @(Get-PnpDevice -ErrorAction SilentlyContinue |
+                Where-Object { $_.Status -eq 'Unknown' -and $_.InstanceId -match '^(PCI|USB\\VID)' })
+            "Prizrakov PCI/USB: {0}" -f $ghosts.Count
+            if ($ghosts.Count -gt 0) {
+                $ghosts | Select-Object -First 20 | ForEach-Object { "  {0} {1}" -f $_.Class, $_.FriendlyName }
+                "VAZHNO: prizraki ne dokazyvayut chuzhoe zhelezo naprjamuyu - eto mogut byt i sobstvennye otklyuchennye ustroystva."
+            } else { "0 - argument PROTIV versii pro chuzhie drayvery/zhelezo v obraze." }
+
+            "=== Aktivaciya ==="
+            try {
+                $lic = @(Get-CimInstance SoftwareLicensingProduct -ErrorAction Stop |
+                    Where-Object { $_.PartialProductKey })
+                $names = @{0='Unlicensed';1='Licensed';2='OOBGrace';3='OOTGrace';4='NonGenuineGrace';5='NotificationMode';6='ExtendedGrace'}
+                if ($lic.Count -gt 0) {
+                    foreach ($l in $lic) {
+                        $st = [int]$l.LicenseStatus
+                        "Aktivaciya: status={0} ({1}), kanal={2}, opisanie={3}" -f `
+                            $st, $(if ($names[$st]) { $names[$st] } else { 'unknown' }), $l.ProductKeyChannel, $l.Description
+                    }
+                } else { "Aktivaciya: produkt s klyuchom ne nayden" }
+            } catch { "Aktivaciya: dannyh net ($($_.Exception.Message))" }
+
+            "=== VYVOD ==="
+            "CloneTag i/ili GeneralizationState=7 => sistema razvernuta iz obraza (obezlichena)."
+            "setupapi.dev.log/profil polzovatelya POZZHE InstallDate => drayvery i OOBE proshli UZHE na etoy sborke."
+            "Prizrakov 0 => argument PROTIV versii pro chuzhie drayvery/zhelezo v obraze."
+            """),
+
         Probe("cpu", "Процессор", """
             Get-CimInstance Win32_Processor -ErrorAction SilentlyContinue |
                 Select-Object Name, NumberOfCores, NumberOfLogicalProcessors, MaxClockSpeed,
@@ -128,8 +211,43 @@ public static class DiagnosticProbes
             NvmeSmart.PowerShellPrologue() + DiskNumberHistory.PowerShellPrologue() + """
             Get-PhysicalDisk -ErrorAction SilentlyContinue |
                 Select-Object DeviceId, FriendlyName, MediaType, BusType,
-                    @{n='GB';e={[math]::Round($_.Size/1GB)}}, HealthStatus, OperationalStatus |
+                    @{n='GB';e={[math]::Round($_.Size/1GB)}}, HealthStatus, OperationalStatus,
+                    CanPool, CannotPoolReason, Usage |
                 Format-Table -Auto | Out-String
+
+            "=== Storage Spaces (disk mozhet byt fizicheski ispraven, no vypal iz obychnogo diskovogo steka) ==="
+            # Get-Disk/diskpart/Win32_DiskDrive NE pokazyvayut disk, sostoyashiy v poole Storage
+            # Spaces - on est v Get-PhysicalDisk (CanPool=False, CannotPoolReason='In a Pool'),
+            # no vypadaet iz karty HarddiskN celikom. Na 111111 ispravnyy HDD 1TB v PUSTOM poole
+            # (0 virtualnyh diskov) vyglyadel propavshim - razdel sozdat bylo nelzya (backlog p.239).
+            $physAll = @(Get-PhysicalDisk -ErrorAction SilentlyContinue)
+            $diskNums = @(Get-Disk -ErrorAction SilentlyContinue | ForEach-Object { $_.Number })
+            $inPool = @($physAll | Where-Object { $diskNums -notcontains $_.DeviceId })
+            if ($inPool.Count -gt 0) {
+                foreach ($p in $inPool) {
+                    "V POOLE Storage Spaces: {0} (SN {1}) - CanPool={2}, CannotPoolReason={3}, Usage={4}. Obychnomu diskovomu steku NE otdan (net v Get-Disk/diskpart/HarddiskN)." -f `
+                        $p.FriendlyName, ("$($p.SerialNumber)".Trim()), $p.CanPool, $p.CannotPoolReason, $p.Usage
+                }
+            } else { "diskov, vypavshih iz Get-Disk v pool, ne naydeno" }
+
+            $pools = @(Get-StoragePool -ErrorAction SilentlyContinue | Where-Object { -not $_.IsPrimordial })
+            if ($pools.Count -eq 0) { "nepervichnyh poolov (sozdannyh polzovatelem) net" }
+            else {
+                foreach ($pool in $pools) {
+                    $vds = @($pool | Get-VirtualDisk -ErrorAction SilentlyContinue)
+                    $members = @($pool | Get-PhysicalDisk -ErrorAction SilentlyContinue)
+                    $verdict = if ($vds.Count -eq 0) { ' - POOL PUSTOY, kandidat na Remove-StoragePool + vozvrat diska v obychnyy stek' } else { '' }
+                    "pool '{0}': {1} fizicheskih diskov, {2} virtualnyh diskov{3}" -f $pool.FriendlyName, $members.Count, $vds.Count, $verdict
+                    foreach ($m in $members) { "   disk: {0} (SN {1})" -f $m.FriendlyName, ("$($m.SerialNumber)".Trim()) }
+                }
+            }
+
+            "=== Disks Offline/ReadOnly (fizicheski disk est, a razmetit nelzya) ==="
+            $badState = @(Get-Disk -ErrorAction SilentlyContinue | Where-Object { $_.IsOffline -or $_.IsReadOnly })
+            if ($badState.Count -gt 0) {
+                $badState | Select-Object Number, FriendlyName, IsOffline, IsReadOnly, OperationalStatus |
+                    Format-Table -Auto | Out-String
+            } else { "diskov v Offline/ReadOnly net" }
 
             "=== SMART / reliability counters ==="
             # Empty output here reads as 'disks are healthy' while it means 'no data':
@@ -413,10 +531,21 @@ public static class DiagnosticProbes
             # 79 hard-offs and 12 MCE 'on one core' that had nothing to do with the request (p.92).
             $split = Split-ByHwWindow $kpAll
             $kp = @($split.Ours)
+            # Dva otdelnyh bloka, a ne odna stroka s count (backlog p.210, SZ 161498): na
+            # etoy zayavke "29 sobytiy, first 2025-06-11" chital osy kak "hronicheskiy defekt s
+            # proshlogo goda", hotya realno bylo 3 sobytiya NA CHUZHOM zheleze + 26 na etoy
+            # sborke - chuzhaya istoriya molcha vlivalas v odnu svodku.
             if ($split.Foreign.Count -gt 0) {
-                "VNIMANIE: {0} sobytiy 41 otbrosheno kak istoriya DRUGOGO zheleza (do {1:yyyy-MM-dd HH:mm})." -f $split.Foreign.Count, $SZ_HW_SINCE
-                "  Ih daty: " + (($split.Foreign | Select-Object -First 5 | ForEach-Object { "{0:dd.MM.yyyy}" -f $_.TimeCreated }) -join ', ')
+                "=== DO SBORKI (CHUZHOE ZHELEZO, {0} sobytiy do {1:yyyy-MM-dd HH:mm}) ===" -f $split.Foreign.Count, $SZ_HW_SINCE
+                "istoriya DRUGOGO zheleza - v svodku etoy sborki NE vhodit."
+                $ff = @($split.Foreign)
+                "period: {0:dd.MM.yyyy} .. {1:dd.MM.yyyy}" -f `
+                    ($ff | Sort-Object TimeCreated | Select-Object -First 1).TimeCreated, `
+                    ($ff | Sort-Object TimeCreated -Descending | Select-Object -First 1).TimeCreated
+                $ff | Group-Object { $_.TimeCreated.ToString('yyyy-MM-dd') } | Sort-Object Name |
+                    ForEach-Object { "  {0}: {1}" -f $_.Name, $_.Count }
             }
+            "=== NA ETOM ZHELEZE ==="
             if ($kp.Count -gt 0) {
                 $first = $kp[-1].TimeCreated; $last = $kp[0].TimeCreated
                 "TOTAL: {0} events, first {1:yyyy-MM-dd HH:mm:ss}, last {2:yyyy-MM-dd HH:mm:ss}" -f $kp.Count, $first, $last
@@ -760,7 +889,13 @@ public static class DiagnosticProbes
                 $evts = foreach ($e in $wer) {
                     $p1 = ''
                     if ($e.Message -match 'P1:\s*([0-9a-fA-Fx]+)') { $p1 = $matches[1] }
-                    [PSCustomObject]@{ Time = $e.TimeCreated; P1 = $p1; Code = (Fmt-P1 $p1) }
+                    # Report Id / "Identifikator otcheta" (RU) / etc - zagolovok zavisit ot
+                    # yazyka Windows, a GUID-format - net. Lovim signaturu, a ne zagolovok.
+                    $rid = ''
+                    if ($e.Message -match '([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})') { $rid = $matches[1] }
+                    $dmp = ''
+                    if ($e.Message -match '([A-Za-z0-9_.-]+\.dmp)') { $dmp = $matches[1] }
+                    [PSCustomObject]@{ Time = $e.TimeCreated; P1 = $p1; Code = (Fmt-P1 $p1); ReportId = $rid; Dmp = $dmp }
                 }
                 $evts = @($evts | Sort-Object Time -Descending)
                 "TOTAL: {0}, first {1:yyyy-MM-dd HH:mm:ss}, last {2:yyyy-MM-dd HH:mm:ss}" -f `
@@ -818,6 +953,43 @@ public static class DiagnosticProbes
                     $withDump, $ownActivity, $artifacts, $evts.Count
                 if (($withDump + $ownActivity) -eq 0 -and $evts.Count -gt 0) {
                     "VNIMANIE: ni odno sobytie ne podtverzhdeno dampom - schitat 'videopodsistema sypetsya' po etim cifram NELZYA (p.94)."
+                }
+
+                # Glavnaya oshibka na 161211 (p.199): 8572 sobytiya prochitali kak "8572 raza
+                # slomalos", hotya WER beskonechno retraint ochered ReportQueue - odin real'nyy
+                # incident daet desyatki povtorov odnogo i togo zhe otcheta. Schitat nado
+                # UNIKALNYE otchety (Report Id), a ne stroki zhurnala.
+                "--- UNIKALNYE OTCHETY (Report Id, a ne stroki zhurnala - WER retraint ochered) ---"
+                $withId = @($evts | Where-Object { $_.ReportId })
+                if ($withId.Count -gt 0) {
+                    $reports = @($withId | Group-Object ReportId | ForEach-Object {
+                        $g = $_.Group | Sort-Object Time
+                        [PSCustomObject]@{ ReportId = $_.Name; Code = $g[0].Code; First = $g[0].Time; EventCount = $_.Count }
+                    })
+                    "vsego unikalnyh otchetov: {0} (iz {1} sobytiy zhurnala)" -f $reports.Count, $evts.Count
+                    $reports | Group-Object Code | Sort-Object Count -Descending | ForEach-Object {
+                        $evCount = ($_.Group | Measure-Object EventCount -Sum).Sum
+                        "{0}: {1} incidentov ({2} sobytiy - eto retrai WER, ne novye sobytiya)" -f $_.Name, $_.Count, $evCount
+                    }
+                    if ($reports.Count -lt $evts.Count) {
+                        "VAZHNO: {0} sobytiy zhurnala - eto vsego {1} unikalnyh incidentov; sudit o chastote defekta po SOBYTIYAM (a ne otchetam) NELZYA." -f $evts.Count, $reports.Count
+                    }
+                } else {
+                    "Report Id ne izvlechen iz Message - schet ostaetsya po sobytiyam zhurnala (nizhe)."
+                }
+
+                $queueCount = @(Get-ChildItem 'C:\ProgramData\Microsoft\Windows\WER\ReportQueue' -Directory -ErrorAction SilentlyContinue).Count
+                "razmer ocheredi WER (ReportQueue): {0} papok - bolshaya ochered sama po sebe obyasnyaet tysyachi sobytiy-retraev." -f $queueCount
+
+                if ($lk.Count -gt 0) {
+                    $lastReal = ($lk | Sort-Object LastWriteTime -Descending | Select-Object -First 1).LastWriteTime
+                    $daysAgo = [math]::Floor(((Get-Date) - $lastReal).TotalDays)
+                    "POSLEDNIJ REALNYJ INCIDENT (data fayla dampa v LiveKernelReports): {0:yyyy-MM-dd}, {1} dney nazad." -f $lastReal, $daysAgo
+                    if ($daysAgo -ge 1) {
+                        "Eto NE 'sypetsya prjamo seychas' - realnyh dampov za poslednie {0} dney net, dazhe esli sobytiy WER v zhurnale mnogo." -f $daysAgo
+                    }
+                } else {
+                    "POSLEDNIJ REALNYJ INCIDENT: faylov dampov v LiveKernelReports net (sm. sektsiyu vyshe)."
                 }
             } else { "none" }
 

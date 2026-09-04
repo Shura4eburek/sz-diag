@@ -53,4 +53,30 @@ public class DiagReportBuilderTests
 
         Assert.DoesNotContain("НЕ ОТРАБОТАЛА", md);
     }
+
+    [Fact]
+    public void EndOfReport_PrintsRequestedCompletedAndFailedCounts()
+    {
+        // Регрессия (бэклог п.182, СЗ 161972): whea упала с ошибкой запуска процесса, а
+        // сводка была видна только тому, кто дочитал весь diag.md до конца - «секций
+        // запрошено N, выполнено M, провалено: …» обязана стоять последней строкой отчёта.
+        var md = Build(
+            new TestStepResult("WHEA", TestStepKind.Command,
+                Error: "имя файла или его расширение имеет слишком большую длину"),
+            new TestStepResult("Диски", TestStepKind.Command, Output: "OK", ExitCode: 0));
+
+        Assert.Contains("Секций запрошено: 2, выполнено: 1, провалено: WHEA " +
+            "(имя файла или его расширение имеет слишком большую длину)", md);
+        Assert.True(md.TrimEnd().EndsWith(
+            "провалено: WHEA (имя файла или его расширение имеет слишком большую длину)."),
+            "сводка обязана быть последней строкой отчёта");
+    }
+
+    [Fact]
+    public void EndOfReport_AllOk_StillPrintsSummaryWithoutFailedList()
+    {
+        var md = Build(new TestStepResult("Диски", TestStepKind.Command, Output: "OK", ExitCode: 0));
+
+        Assert.Contains("Секций запрошено: 1, выполнено: 1.", md);
+    }
 }

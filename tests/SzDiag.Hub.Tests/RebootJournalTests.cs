@@ -182,6 +182,25 @@ public class RebootJournalTests : IDisposable
     }
 
     [Fact]
+    public async Task Store_MergeJournalEvents_CarriesUptimeBeforeSeconds()
+    {
+        // Регрессия (бэклог п.223, СЗ 161716): журнальные записи всегда уходили с NULL
+        // uptime_before, хотя агент уже умеет считать длительность сеанса от 6005 до
+        // реального времени отказа (6008) - «Продержалась» оставалась прочерком.
+        var store = new SqliteSessionStore(Conn);
+        await store.InitializeAsync();
+
+        await store.MergeJournalEventsAsync(new PowerEventsReport("161716", new[]
+        {
+            new PowerEvent(Boot1, ShutdownKind.HardOff, UptimeBeforeSeconds: 645),   // 10 мин 45 с
+        }));
+
+        var timeline = await store.GetRebootsAsync("161716");
+
+        Assert.Equal(TimeSpan.FromSeconds(645), Assert.Single(timeline.Events).UptimeBefore);
+    }
+
+    [Fact]
     public async Task Store_MergeSameJournalTwice_IsIdempotent()
     {
         var store = new SqliteSessionStore(Conn);

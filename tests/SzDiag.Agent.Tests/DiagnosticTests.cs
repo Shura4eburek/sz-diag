@@ -1,4 +1,4 @@
-using SzDiag.Agent;
+﻿using SzDiag.Agent;
 using SzDiag.Contracts;
 using Xunit;
 
@@ -11,7 +11,7 @@ public class DiagnosticProbesTests
     {
         var expected = new[]
         {
-            "system", "cpu", "memory", "gpu", "storage",
+            "system", "os", "cpu", "memory", "gpu", "storage",
             "temps", "drivers", "events", "reboots", "whea", "thermal", "livekernel", "reliability", "battery"
         };
         Assert.Equal(expected, DiagnosticProbes.Sections);
@@ -20,6 +20,24 @@ public class DiagnosticProbesTests
         Assert.Equal(DiagSections.All, DiagnosticProbes.Sections);
         Assert.DoesNotContain("network", DiagnosticProbes.Sections);
         Assert.DoesNotContain("security", DiagnosticProbes.Sections);
+    }
+
+    [Fact]
+    public void OsProbe_CoversProvenanceEvidence_NotJustInstallDate()
+    {
+        // Регрессия (бэклог п.162, СЗ 161346): вывод «ОС старше даты сборки, значит
+        // переносилась» строился на ОДНОМ InstallDate, хотя он переживает feature update и
+        // едет внутри образа. Клиент оспорил вывод и потребовал письменное подтверждение.
+        var run = Body("os");
+
+        Assert.Contains("CloneTag", run);
+        Assert.Contains("GeneralizationState", run);
+        Assert.Contains("InstallDate", run);
+        Assert.Contains("BuildLabEx", run);
+        Assert.Contains("setupapi.dev.log", run);
+        Assert.Contains("Windows.old", run);
+        Assert.Contains("Prizrakov", run);
+        Assert.Contains("Aktivaciya", run);
     }
 
     [Fact]
@@ -79,6 +97,18 @@ public class DiagnosticProbesTests
             Assert.Contains("Split-ByHwWindow", run);
             Assert.Contains("DRUGOGO zheleza", run);
         }
+    }
+
+    [Fact]
+    public void RebootsProbe_PrintsForeignHardwareHistoryAsItsOwnBlock()
+    {
+        // Регрессия (бэклог п.210, СЗ 161498): события ДО границы молча отбрасывались одной
+        // строкой с count — реальная картина «3 на чужом железе + 26 на этой сборке» терялась,
+        // и сводка выглядела как «29 событий, история с прошлого года».
+        var run = Body("reboots");
+
+        Assert.Contains("NA ETOM ZHELEZE", run);
+        Assert.Contains("DO SBORKI (CHUZHOE ZHELEZO", run);
     }
 
     [Fact]
@@ -270,11 +300,41 @@ public class DiagnosticProbesTests
         var ps = HardwareWindow.PowerShellPrologue();
 
         Assert.All(ps, c => Assert.True(c < 128, $"не-ASCII в прологе окна железа: {c}"));
-        Assert.Contains("DEVPKEY_Device_InstallDate", ps);
+        // Регрессия (бэклог п.210, СЗ 161498): DEVPKEY_Device_InstallDate меняется при
+        // переустановке драйвера, FirstInstallDate — момент, когда ЭТА система впервые
+        // увидела ИМЕННО ЭТОТ экземпляр устройства, и не едет вместе с переустановками.
+        Assert.Contains("DEVPKEY_Device_FirstInstallDate", ps);
         // Без надёжного признака ничего не отсекаем и говорим об этом прямо: выдуманная
         // граница хуже, чем её отсутствие.
         Assert.Contains("return $null", ps);
         Assert.Contains("schitat vsyu istoriyu svoey NELZYA", ps);
+    }
+
+    [Fact]
+    public void HardwareWindow_UsesOnlyKeyNonRemovableDevices_NotAllPciDevices()
+    {
+        // Регрессия (бэклог п.210, СЗ 161498): мода по дню среди ВСЕХ PCI-устройств дала
+        // границу на ГОД раньше реальной. Правильные свидетели — несъёмные ключевые
+        // устройства платформы: сетевые контроллеры/шины, GPU, системный диск.
+        var ps = HardwareWindow.PowerShellPrologue();
+
+        Assert.Contains("'Net'", ps);
+        Assert.Contains("'Display'", ps);
+        Assert.Contains("BusType", ps);   // диск резолвится через шину, чтобы отсеять USB
+        // Съёмное (USB-флешки) не должно попадать в выборку "рождения" железа.
+        Assert.Contains("USB", ps);
+    }
+
+    [Fact]
+    public void HardwareWindow_PrintsBothDatesAndContributingDevices()
+    {
+        // Расхождение "ОС старше железа" обязано быть видно прямо в шапке секции, а не
+        // прятаться в одной строке — иначе его снова легко не заметить.
+        var ps = HardwareWindow.PowerShellPrologue();
+
+        Assert.Contains("SZ_OS_INSTALL", ps);
+        Assert.Contains("SZ_HW_SINCE", ps);
+        Assert.Contains("SZ_HW_DEVICES", ps);
     }
 
     [Fact]
@@ -331,6 +391,33 @@ public class DiagnosticProbesTests
         Assert.Contains("VIDEO_ENGINE_TIMEOUT_DETECTED", run);   // P1=141
         Assert.Contains("VIDEO_TDR_TIMEOUT_DETECTED", run);      // P1=117
         Assert.Contains("SOVPADAET s LiveKernelEvent", run);     // сшивка с крашем приложения
+    }
+
+    [Fact]
+    public void LiveKernelProbe_CountsUniqueReportsNotRawEvents()
+    {
+        // Регрессия (бэклог п.199, СЗ 161211): «8572 события, пачка 0x141 x30 сегодня» ушло в
+        // kb как «TDR-ы воспроизводятся прямо сейчас» - неправда: WER бесконечно ретраит
+        // очередь ReportQueue, 8149 событий оказались 52 уникальными отчётами (~20 инцидентов),
+        // последний реальный дамп - месяц назад.
+        var run = Body("livekernel");
+
+        Assert.Contains("UNIKALNYE OTCHETY", run);
+        Assert.Contains("incidentov (", run);
+        Assert.Contains("retrai WER", run);
+        Assert.Contains("ReportQueue", run);
+        Assert.Contains("POSLEDNIJ REALNYJ INCIDENT", run);
+    }
+
+    [Fact]
+    public void LiveKernelProbe_GroupsByReportIdGuid_RegardlessOfWindowsLocale()
+    {
+        // "Идентификатор отчета" на RU-Windows / "Report Id" на EN-Windows - оба локализованы
+        // по-разному, а GUID-подпись отчёта - нет. Ловим её паттерном, а не заголовком.
+        var run = Body("livekernel");
+
+        Assert.Contains(
+            "[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}", run);
     }
 
     [Fact]
@@ -468,6 +555,32 @@ public class DiagnosticProbesTests
         Assert.Contains("Bukva -> fizicheskiy disk", run);
         Assert.Contains("UNEXPECTED_STORE_EXCEPTION", run);
         Assert.Contains("NE 'diski zdorovy'", run);   // пустые счётчики ≠ здоровые диски
+    }
+
+    [Fact]
+    public void StorageProbe_ShowsDisksHiddenInStoragePools()
+    {
+        // Регрессия (бэклог п.239, СЗ 111111): HDD 1 ТБ в пустом пуле Storage Spaces виден в
+        // диспетчере устройств, но отсутствует в "Управлении дисками"/diskpart и в карте
+        // HarddiskN - выглядит как пропавший диск, хотя физически исправен. Get-PhysicalDisk -
+        // единственное место, где CanPool/CannotPoolReason это объясняют.
+        var run = Body("storage");
+
+        Assert.Contains("CanPool", run);
+        Assert.Contains("CannotPoolReason", run);
+        Assert.Contains("Get-StoragePool", run);
+        Assert.Contains("V POOLE Storage Spaces", run);
+        Assert.Contains("POOL PUSTOY", run);
+    }
+
+    [Fact]
+    public void StorageProbe_ReportsOfflineAndReadOnlyDisks()
+    {
+        // Та же симптоматика "диск есть, а разметить нельзя" даёт Offline/ReadOnly/SAN policy.
+        var run = Body("storage");
+
+        Assert.Contains("IsOffline", run);
+        Assert.Contains("IsReadOnly", run);
     }
 
     [Fact]
