@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using SzDiag.Agent;
 
 namespace SzDiag.Agent.Tests;
@@ -62,6 +63,17 @@ public class BuildDistScriptTests
         // процесса, $LASTEXITCODE остаётся от чего-то другого (в т.ч. $null) — «exit
         // $LASTEXITCODE» тогда молча давал exit 0, маскируя отказ вопреки контракту кодов
         // szcli (0/N/2/3/4).
+        //
+        // review W2 (C-5, tools-пакет): раньше обёртка звалась через `& '{wrapperPath}' list`
+        // ИЗНУТРИ другого скрипта (PowerShellRunner заворачивает команду в свой собственный
+        // .ps1) — эквивалент вызова szcli.ps1 dot-source'ом/через & из чужого работающего
+        // скрипта, чего в реальном использовании не бывает: техник запускает `szcli.ps1`
+        // САМ, отдельным процессом. Именно в этом сценарии `[Environment]::Exit` (которым
+        // одно время лечили эту ветку) убивал консоль оператора (C-5). Гоняем обёртку ровно
+        // так, как её вызывают в жизни — отдельным процессом `powershell -File`, — и смотрим
+        // на код возврата САМОГО процесса: тогда проверяется настоящее поведение независимо
+        // от того, `exit N` внутри обёртки или что-то ещё, лишь бы код возврата процесса был
+        // ненулевым.
         var dir = Path.Combine(Path.GetTempPath(), $"szcli-ps1-missing-{Guid.NewGuid():N}");
         Directory.CreateDirectory(dir);
         try
@@ -69,10 +81,22 @@ public class BuildDistScriptTests
             var wrapperPath = Path.Combine(dir, "szcli.ps1");
             File.WriteAllText(wrapperPath, WrapperBody());   // cli\SzDiag.Cli.exe заведомо не существует
 
-            var runner = new PowerShellRunner();
-            var r = runner.Run($"& '{wrapperPath}' list", throwOnError: false, timeout: TimeSpan.FromSeconds(20));
+            var psi = new ProcessStartInfo
+            {
+                FileName = "powershell.exe",
+                Arguments = $"-NoProfile -NonInteractive -ExecutionPolicy Bypass -File \"{wrapperPath}\" list",
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+                UseShellExecute = false,
+                CreateNoWindow = true,
+            };
+            using var p = Process.Start(psi)!;
+            var stdout = p.StandardOutput.ReadToEnd();
+            var stderr = p.StandardError.ReadToEnd();
+            Assert.True(p.WaitForExit(20000), "обёртка не завершилась вовремя");
 
-            Assert.NotEqual(0, r.ExitCode);
+            Assert.True(p.ExitCode != 0,
+                $"ожидали ненулевой код возврата, получили {p.ExitCode}. stdout: {stdout} stderr: {stderr}");
         }
         finally { try { Directory.Delete(dir, recursive: true); } catch { } }
     }
