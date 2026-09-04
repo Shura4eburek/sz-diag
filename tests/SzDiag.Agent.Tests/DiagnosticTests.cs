@@ -442,6 +442,32 @@ public class DiagnosticProbesTests
     }
 
     [Fact]
+    public void StorageProbe_ShowsDisksHiddenInStoragePools()
+    {
+        // Регрессия (бэклог п.239, СЗ 111111): HDD 1 ТБ в пустом пуле Storage Spaces виден в
+        // диспетчере устройств, но отсутствует в "Управлении дисками"/diskpart и в карте
+        // HarddiskN - выглядит как пропавший диск, хотя физически исправен. Get-PhysicalDisk -
+        // единственное место, где CanPool/CannotPoolReason это объясняют.
+        var run = Body("storage");
+
+        Assert.Contains("CanPool", run);
+        Assert.Contains("CannotPoolReason", run);
+        Assert.Contains("Get-StoragePool", run);
+        Assert.Contains("V POOLE Storage Spaces", run);
+        Assert.Contains("POOL PUSTOY", run);
+    }
+
+    [Fact]
+    public void StorageProbe_ReportsOfflineAndReadOnlyDisks()
+    {
+        // Та же симптоматика "диск есть, а разметить нельзя" даёт Offline/ReadOnly/SAN policy.
+        var run = Body("storage");
+
+        Assert.Contains("IsOffline", run);
+        Assert.Contains("IsReadOnly", run);
+    }
+
+    [Fact]
     public void EventsProbe_CountsPerIdAndReadsRareIdsWithoutLimit()
     {
         // Регрессия (п.31): общий MaxEvents на смеси шумных и редких Id съел Kernel-Power 41.

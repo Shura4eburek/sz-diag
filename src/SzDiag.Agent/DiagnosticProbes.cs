@@ -211,8 +211,43 @@ public static class DiagnosticProbes
             NvmeSmart.PowerShellPrologue() + """
             Get-PhysicalDisk -ErrorAction SilentlyContinue |
                 Select-Object DeviceId, FriendlyName, MediaType, BusType,
-                    @{n='GB';e={[math]::Round($_.Size/1GB)}}, HealthStatus, OperationalStatus |
+                    @{n='GB';e={[math]::Round($_.Size/1GB)}}, HealthStatus, OperationalStatus,
+                    CanPool, CannotPoolReason, Usage |
                 Format-Table -Auto | Out-String
+
+            "=== Storage Spaces (disk mozhet byt fizicheski ispraven, no vypal iz obychnogo diskovogo steka) ==="
+            # Get-Disk/diskpart/Win32_DiskDrive NE pokazyvayut disk, sostoyashiy v poole Storage
+            # Spaces - on est v Get-PhysicalDisk (CanPool=False, CannotPoolReason='In a Pool'),
+            # no vypadaet iz karty HarddiskN celikom. Na 111111 ispravnyy HDD 1TB v PUSTOM poole
+            # (0 virtualnyh diskov) vyglyadel propavshim - razdel sozdat bylo nelzya (backlog p.239).
+            $physAll = @(Get-PhysicalDisk -ErrorAction SilentlyContinue)
+            $diskNums = @(Get-Disk -ErrorAction SilentlyContinue | ForEach-Object { $_.Number })
+            $inPool = @($physAll | Where-Object { $diskNums -notcontains $_.DeviceId })
+            if ($inPool.Count -gt 0) {
+                foreach ($p in $inPool) {
+                    "V POOLE Storage Spaces: {0} (SN {1}) - CanPool={2}, CannotPoolReason={3}, Usage={4}. Obychnomu diskovomu steku NE otdan (net v Get-Disk/diskpart/HarddiskN)." -f `
+                        $p.FriendlyName, ("$($p.SerialNumber)".Trim()), $p.CanPool, $p.CannotPoolReason, $p.Usage
+                }
+            } else { "diskov, vypavshih iz Get-Disk v pool, ne naydeno" }
+
+            $pools = @(Get-StoragePool -ErrorAction SilentlyContinue | Where-Object { -not $_.IsPrimordial })
+            if ($pools.Count -eq 0) { "nepervichnyh poolov (sozdannyh polzovatelem) net" }
+            else {
+                foreach ($pool in $pools) {
+                    $vds = @($pool | Get-VirtualDisk -ErrorAction SilentlyContinue)
+                    $members = @($pool | Get-PhysicalDisk -ErrorAction SilentlyContinue)
+                    $verdict = if ($vds.Count -eq 0) { ' - POOL PUSTOY, kandidat na Remove-StoragePool + vozvrat diska v obychnyy stek' } else { '' }
+                    "pool '{0}': {1} fizicheskih diskov, {2} virtualnyh diskov{3}" -f $pool.FriendlyName, $members.Count, $vds.Count, $verdict
+                    foreach ($m in $members) { "   disk: {0} (SN {1})" -f $m.FriendlyName, ("$($m.SerialNumber)".Trim()) }
+                }
+            }
+
+            "=== Disks Offline/ReadOnly (fizicheski disk est, a razmetit nelzya) ==="
+            $badState = @(Get-Disk -ErrorAction SilentlyContinue | Where-Object { $_.IsOffline -or $_.IsReadOnly })
+            if ($badState.Count -gt 0) {
+                $badState | Select-Object Number, FriendlyName, IsOffline, IsReadOnly, OperationalStatus |
+                    Format-Table -Auto | Out-String
+            } else { "diskov v Offline/ReadOnly net" }
 
             "=== SMART / reliability counters ==="
             # Empty output here reads as 'disks are healthy' while it means 'no data':
