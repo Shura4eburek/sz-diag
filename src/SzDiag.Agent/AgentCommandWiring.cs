@@ -30,13 +30,15 @@ public static class AgentCommandWiring
             var reportRunner = new TestReportRunner(
                 new TestRunner(new PowerShellCommandExecutor(ps), new GdiScreenCapturer(), toolsDir: toolsDir),
                 suite, link, hostname);
-            link.OnRunTests(async (runSz, filter) =>
+            link.OnRunTests(async (runSz, filter, schedule) =>
             {
                 var scope = string.IsNullOrWhiteSpace(filter) ? "полный прогон" : $"фильтр {filter}";
+                if (!string.IsNullOrWhiteSpace(schedule) && !schedule!.Equals("default", StringComparison.OrdinalIgnoreCase))
+                    scope += $", расписание OCCT: {schedule}";
                 announce($"Прогон тестов для СЗ {runSz} ({scope})…", null);
                 try
                 {
-                    var outcome = await reportRunner.RunAndUploadAsync(runSz, filter);
+                    var outcome = await reportRunner.RunAndUploadAsync(runSz, filter, schedule);
                     if (!outcome.Ran)
                     {
                         var ids = string.Join(", ", outcome.AvailableIds);

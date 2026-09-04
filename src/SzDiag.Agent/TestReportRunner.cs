@@ -39,7 +39,10 @@ public sealed class TestReportRunner
     public static IReadOnlyList<string> AvailableIds(IReadOnlyList<TestStep> steps)
         => steps.Where(s => !string.IsNullOrWhiteSpace(s.Id)).Select(s => s.Id!).ToList();
 
-    public async Task<TestRunOutcome> RunAndUploadAsync(string sz, string? filter = null, CancellationToken ct = default)
+    /// <param name="schedule">Профиль расписания OCCT (`szcli test run --schedule long`,
+    /// бэклог п.124/#60) — null/"default" — как в testsuite.json.</param>
+    public async Task<TestRunOutcome> RunAndUploadAsync(string sz, string? filter = null,
+        string? schedule = null, CancellationToken ct = default)
     {
         var steps = FilterSteps(_suite.Steps, filter);
         if (steps.Count == 0)
@@ -60,7 +63,7 @@ public sealed class TestReportRunner
         }
 
         // Стресс-тесты держат нагрузку минутами — уводим с потока обработчика SignalR.
-        var output = await Task.Run(() => _runner.Run(runSuite, sz, _hostname, now, OnStep), ct);
+        var output = await Task.Run(() => _runner.Run(runSuite, sz, _hostname, now, OnStep, schedule), ct);
 
         var md = ReportMarkdownBuilder.Build(output.Report);
         await _link.UploadReportFileAsync(

@@ -9,7 +9,7 @@ public class DiagRunTriggerTests
     {
         public List<(string conn, string sz, string? sections)> Diags { get; } = new();
         public Task SendRevertAsync(string c, string sz, CancellationToken ct = default) => Task.CompletedTask;
-        public Task SendRunTestsAsync(string c, string sz, string? filter, CancellationToken ct = default) => Task.CompletedTask;
+        public Task SendRunTestsAsync(string c, string sz, string? filter, string? schedule = null, CancellationToken ct = default) => Task.CompletedTask;
         public Task SendRunDiagAsync(string c, string sz, string? sections, CancellationToken ct = default)
         { Diags.Add((c, sz, sections)); return Task.CompletedTask; }
         public Task SendExecAsync(string connectionId, SzDiag.Contracts.ExecRequest request, CancellationToken ct = default) => Task.CompletedTask;

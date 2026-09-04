@@ -1,6 +1,6 @@
 using System.Text.Json;
 
-namespace SzDiag.Agent;
+namespace SzDiag.Contracts;
 
 /// <summary>
 /// Разбор расписания OCCT (<c>schedule.json</c>, поле <c>Periods[].TestType/Duration/IsInfinite</c>) —
@@ -13,6 +13,10 @@ namespace SzDiag.Agent;
 /// <c>durationSeconds</c> шага <c>occt</c> в <c>testsuite.json</c> — 4500 с (75 мин). Ровно
 /// на 75-й минуте раннер убил процесс — третий период (CpuLinpack) не стартовал вовсе, а
 /// в отчёте это выглядело как «тест затянулся», хотя фактически прогон не выполнен на треть.
+///
+/// Живёт в Contracts (перенесено из <c>SzDiag.Agent</c>, бэклог п.124/#60), а не в агенте:
+/// CLI печатает план прогона («Combined 90 мин + PowerSupply 90 мин, итого 3:00») ДО старта,
+/// запрашивая расписание у hub, — тот же разбор нужен по обе стороны SignalR-канала.
 /// </summary>
 public static class OcctSchedule
 {

@@ -3,11 +3,14 @@
 /// <summary>Разбор хвоста `test run &lt;СЗ&gt; …`: фильтр набора плюс метка конфигурации.
 /// Вынесено из Program.cs отдельно, чтобы разбор был покрыт тестами (top-level statements
 /// напрямую не тестируются).</summary>
-public sealed record TestRunArgs(string? Filter, string? Config, bool SameConfig)
+/// <param name="Schedule">Профиль расписания OCCT (`--schedule long|smoke|infinite`, бэклог
+/// п.124/#60) — выбор длины прогона командой, а не подменой файла на клиенте руками.</param>
+public sealed record TestRunArgs(string? Filter, string? Config, bool SameConfig, string? Schedule = null)
 {
     public static TestRunArgs Parse(string[] rest)
     {
         string? config = null;
+        string? schedule = null;
         var sameConfig = false;
         var positional = new List<string>();
 
@@ -25,9 +28,14 @@ public sealed record TestRunArgs(string? Filter, string? Config, bool SameConfig
                 sameConfig = true;
                 continue;
             }
+            if (rest[i].Equals("--schedule", StringComparison.OrdinalIgnoreCase))
+            {
+                if (i + 1 < rest.Length) schedule = rest[++i];
+                continue;
+            }
             positional.Add(rest[i]);
         }
 
-        return new TestRunArgs(positional.Count > 0 ? positional[0] : null, config, sameConfig);
+        return new TestRunArgs(positional.Count > 0 ? positional[0] : null, config, sameConfig, schedule);
     }
 }

@@ -20,7 +20,7 @@ public class SessionCloserTests
             OnSendRevert?.Invoke();
             return Task.CompletedTask;
         }
-        public Task SendRunTestsAsync(string connectionId, string sz, string? filter, CancellationToken ct = default) => Task.CompletedTask;
+        public Task SendRunTestsAsync(string connectionId, string sz, string? filter, string? schedule = null, CancellationToken ct = default) => Task.CompletedTask;
         public Task SendRunDiagAsync(string connectionId, string sz, string? sections, CancellationToken ct = default) => Task.CompletedTask;
         public Task SendExecAsync(string connectionId, SzDiag.Contracts.ExecRequest request, CancellationToken ct = default) => Task.CompletedTask;
         public Task SendExecStatusAsync(string connectionId, SzDiag.Contracts.ExecStatusRequest request, CancellationToken ct = default) => Task.CompletedTask;

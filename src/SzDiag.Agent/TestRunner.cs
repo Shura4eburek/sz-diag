@@ -1,3 +1,5 @@
+using System.Text;
+using SzDiag.Contracts;
 using SzDiag.Kb;
 
 namespace SzDiag.Agent;
@@ -41,8 +43,11 @@ public sealed class TestRunner
         _toolsDir = toolsDir ?? ToolsDirectory.Resolve(_baseDir).Dir;
     }
 
+    /// <param name="scheduleOverride">Профиль расписания OCCT (`szcli test run --schedule long`,
+    /// бэклог п.124/#60) — имя, а не файл (`OcctScheduleProfiles.ResolveFileName` резолвит
+    /// на месте, с фоллбэком на дефолт при незнакомом значении). null — как в testsuite.json.</param>
     public TestRunOutput Run(TestSuite suite, string sz, string hostname, DateTimeOffset now,
-        Action<TestStep>? onStep = null)
+        Action<TestStep>? onStep = null, string? scheduleOverride = null)
     {
         var steps = new List<TestStepResult>();
         var shots = new Dictionary<string, byte[]>();
@@ -72,7 +77,7 @@ public sealed class TestRunner
 
             if (step.Type.Equals("app", StringComparison.OrdinalIgnoreCase))
             {
-                RunApp(step, steps, shots, artifacts, ref shotN);
+                RunApp(step, steps, shots, artifacts, ref shotN, scheduleOverride);
                 continue;
             }
 
@@ -108,13 +113,18 @@ public sealed class TestRunner
     /// Опц. ResultFile встраивается в отчёт; ArtifactFile прикладывается ссылкой + на hub.
     /// </summary>
     private void RunApp(TestStep step, List<TestStepResult> steps,
-        Dictionary<string, byte[]> shots, Dictionary<string, byte[]> artifacts, ref int shotN)
+        Dictionary<string, byte[]> shots, Dictionary<string, byte[]> artifacts, ref int shotN,
+        string? scheduleOverride = null)
     {
         var exeRel = step.Exe ?? "";
         var exe = string.IsNullOrEmpty(exeRel) ? "" : ToolsDirectory.ResolveStepPath(_baseDir, _toolsDir, exeRel);
         var workDir = Path.GetDirectoryName(exe)!;
-        // Подстановка {workdir} в аргументах → абсолютный каталог exe (пути к schedule/report).
-        var args = (step.Args ?? "").Replace("{workdir}", workDir);
+        // Подстановка {workdir} в аргументах → абсолютный каталог exe (пути к schedule/report);
+        // {schedule} — имя файла расписания OCCT, по умолчанию schedule.json, переопределяется
+        // профилем из --schedule (бэклог п.124/#60): раньше выбрать длину прогона можно было
+        // только подменой файла на клиенте руками (рецепт set-occt-schedule.ps1).
+        var scheduleFile = OcctScheduleProfiles.ResolveFileName(scheduleOverride) ?? OcctScheduleProfiles.Default;
+        var args = (step.Args ?? "").Replace("{workdir}", workDir).Replace("{schedule}", scheduleFile);
         var cmdLine = string.IsNullOrWhiteSpace(args) ? exeRel : $"{exeRel} {args}";
 
         if (string.IsNullOrWhiteSpace(exeRel) || !File.Exists(exe))
@@ -127,6 +137,8 @@ public sealed class TestRunner
         }
 
         var dur = step.DurationSeconds is > 0 ? step.DurationSeconds.Value : 60;
+        var scheduleExplicitlyChosen = !string.IsNullOrWhiteSpace(scheduleOverride)
+            && !scheduleOverride!.Equals("default", StringComparison.OrdinalIgnoreCase);
         var image = string.IsNullOrWhiteSpace(step.KillImage) ? Path.GetFileName(exe) : step.KillImage;
         var procName = Path.GetFileNameWithoutExtension(image);
         string? launchError = null;
@@ -155,14 +167,23 @@ public sealed class TestRunner
                         if (!OcctSchedule.HasInfinitePeriod(parsed))
                         {
                             var total = OcctSchedule.TotalFiniteDuration(parsed);
-                            if (total.TotalSeconds > dur)
+                            if (total.TotalSeconds > dur && scheduleExplicitlyChosen)
+                            {
+                                // Профиль выбран явно (--schedule long/infinite) — план и есть
+                                // источник правды длины прогона, таймаут шага из testsuite.json
+                                // не должен молча рубить его на середине (та же болезнь, что
+                                // и без override, только тут причина понятна заранее).
+                                dur = (int)total.TotalSeconds + 120;
+                            }
+                            else if (total.TotalSeconds > dur)
                             {
                                 var missed = OcctSchedule.PeriodsNotReached(parsed, dur);
                                 steps.Add(new TestStepResult(step.Name, TestStepKind.App, Command: cmdLine,
                                     Error: $"расписание '{schedulePath}' рассчитано на {total:hh\\:mm\\:ss}, " +
                                            $"а таймаут шага — {dur}с ({TimeSpan.FromSeconds(dur):hh\\:mm\\:ss}); " +
                                            $"не уместятся периоды: {string.Join(", ", missed)}. " +
-                                           "Прогон НЕ ЗАПУЩЕН — подними durationSeconds шага или укороти расписание."));
+                                           "Прогон НЕ ЗАПУЩЕН — подними durationSeconds шага, укороти расписание " +
+                                           "или выбери профиль явно: szcli test run --schedule <имя>."));
                                 return;
                             }
                         }
@@ -258,6 +279,44 @@ public sealed class TestRunner
             catch { artifactName = null; /* не смогли прочитать — не критично */ }
         }
 
+        // Факт против плана: свежий артефакт разбираем как отчёт OCCT (бэклог п.124/#60,
+        // СЗ 161346) и сверяем суммарную executedDuration с расписанием, распознанным ДО
+        // старта (scheduleInfo). Расхождение больше минуты — явное предупреждение, а не тихое
+        // «успешно, ошибок 0» по машине, которую фактически погоняли 10 минут вместо 180.
+        string? executedVsPlannedNote = null;
+        if (artifactName is not null && scheduleInfo is not null)
+        {
+            try
+            {
+                var reportSummary = OcctReportParser.TryParse(Encoding.UTF8.GetString(artifacts[artifactName]));
+                if (reportSummary is not null && reportSummary.Periods.Count > 0)
+                {
+                    var planned = OcctSchedule.TotalFiniteDuration(scheduleInfo);
+                    var executed = reportSummary.Periods
+                        .Where(p => p.ExecutedDuration is not null)
+                        .Aggregate(TimeSpan.Zero, (acc, p) => acc + p.ExecutedDuration!.Value);
+                    if (planned > TimeSpan.Zero && executed > TimeSpan.Zero)
+                    {
+                        var diff = (planned - executed).Duration();
+                        executedVsPlannedNote = diff > TimeSpan.FromMinutes(1)
+                            ? $"⚠ расписание рассчитано на {planned:hh\\:mm\\:ss}, а фактически выполнено " +
+                              $"{executed:hh\\:mm\\:ss} (расхождение {diff:hh\\:mm\\:ss}) — прогон НЕПОЛНЫЙ, " +
+                              "хотя тул мог отчитаться штатным завершением"
+                            : $"расписание выполнено полностью: план {planned:hh\\:mm\\:ss}, факт {executed:hh\\:mm\\:ss}";
+                    }
+                    var withIssues = reportSummary.Periods.Where(p => p.Errors > 0 || p.WheaErrors > 0).ToList();
+                    if (withIssues.Count > 0)
+                    {
+                        var detail = string.Join(", ",
+                            withIssues.Select(p => $"{p.TestType}: errors={p.Errors} wheaErrors={p.WheaErrors}"));
+                        executedVsPlannedNote = string.IsNullOrEmpty(executedVsPlannedNote)
+                            ? $"⚠ {detail}" : executedVsPlannedNote + $"\n⚠ {detail}";
+                    }
+                }
+            }
+            catch { /* формат occt-report.html не распознан этим парсером — файл всё равно приложен */ }
+        }
+
         // Ранний выход: для стресс-режима это сигнал (крэш/лицензия); для до-завершения — норма.
         if (earlyExit && !step.RunToCompletion)
         {
@@ -292,6 +351,8 @@ public sealed class TestRunner
         }
         if (staleArtifactNote is not null)
             output = string.IsNullOrEmpty(output) ? staleArtifactNote : staleArtifactNote + "\n\n" + output;
+        if (executedVsPlannedNote is not null)
+            output = string.IsNullOrEmpty(output) ? executedVsPlannedNote : output + "\n\n" + executedVsPlannedNote;
 
         steps.Add(new TestStepResult(step.Name, TestStepKind.App, Command: cmdLine,
             Output: output, ScreenshotFile: shotFile, ArtifactFile: artifactName, Error: launchError));

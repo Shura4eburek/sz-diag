@@ -38,8 +38,8 @@ public class AgentSessionTests
         public Task HeartbeatAsync(string sz, CancellationToken ct = default) { Heartbeats++; return Task.CompletedTask; }
         public void OnRevert(Func<string, Task> handler) => _onRevert = handler;
         public List<SzDiag.Contracts.UploadReportPart> Uploaded { get; } = new();
-        private Func<string, string?, Task>? _onRunTests;
-        public void OnRunTests(Func<string, string?, Task> handler) => _onRunTests = handler;
+        private Func<string, string?, string?, Task>? _onRunTests;
+        public void OnRunTests(Func<string, string?, string?, Task> handler) => _onRunTests = handler;
         public void OnRunDiag(Func<string, string?, Task> handler) { }
         public Func<SzDiag.Contracts.ExecRequest, Task>? ExecHandler { get; private set; }
         public List<SzDiag.Contracts.ExecResult> ExecResults { get; } = new();
@@ -73,7 +73,7 @@ public class AgentSessionTests
         public ValueTask DisposeAsync() { Disposed = true; return ValueTask.CompletedTask; }
 
         public Task FireRevert(string sz) => _onRevert!(sz);
-        public Task FireRunTests(string sz, string? filter = null) => _onRunTests!(sz, filter);
+        public Task FireRunTests(string sz, string? filter = null, string? schedule = null) => _onRunTests!(sz, filter, schedule);
     }
 
     private static AccessSpec Spec() =>

@@ -23,7 +23,7 @@ public class HeartbeatLoopCallbackTests
             return Task.CompletedTask;
         }
         public void OnRevert(Func<string, Task> handler) { }
-        public void OnRunTests(Func<string, string?, Task> handler) { }
+        public void OnRunTests(Func<string, string?, string?, Task> handler) { }
         public void OnRunDiag(Func<string, string?, Task> handler) { }
         public void OnExec(Func<SzDiag.Contracts.ExecRequest, Task> handler) { }
         public Task SendExecResultAsync(SzDiag.Contracts.ExecResult result,
@@ -166,7 +166,7 @@ public class HeartbeatLoopCallbackTests
         public Task HeartbeatAsync(string sz, CancellationToken ct = default) => Task.CompletedTask;
         public Task ReportPowerEventsAsync(SzDiag.Contracts.PowerEventsReport report, CancellationToken ct = default) => Task.CompletedTask;
         public void OnRevert(Func<string, Task> handler) { }
-        public void OnRunTests(Func<string, string?, Task> handler) { }
+        public void OnRunTests(Func<string, string?, string?, Task> handler) { }
         public void OnRunDiag(Func<string, string?, Task> handler) { }
         public void OnExec(Func<SzDiag.Contracts.ExecRequest, Task> handler) { }
         public Task SendExecResultAsync(SzDiag.Contracts.ExecResult result, CancellationToken ct = default) => Task.CompletedTask;

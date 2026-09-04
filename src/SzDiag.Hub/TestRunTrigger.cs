@@ -12,11 +12,14 @@ public sealed class TestRunTrigger
         _sender = sender;
     }
 
-    public async Task<bool> TriggerAsync(string sz, string? filter = null, CancellationToken ct = default)
+    /// <param name="schedule">Профиль расписания OCCT (бэклог п.124/#60) — null/"default" —
+    /// как в testsuite.json.</param>
+    public async Task<bool> TriggerAsync(string sz, string? filter = null, string? schedule = null,
+        CancellationToken ct = default)
     {
         var connId = _registry.TryGetConnectionId(sz);
         if (connId is null) return false;
-        await _sender.SendRunTestsAsync(connId, sz, filter, ct);
+        await _sender.SendRunTestsAsync(connId, sz, filter, schedule, ct);
         return true;
     }
 }

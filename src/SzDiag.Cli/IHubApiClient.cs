@@ -10,8 +10,20 @@ public interface IHubApiClient
     /// <summary>Ручной шаг у машины в журнал СЗ. Принимается и когда сессии нет.</summary>
     Task<NoteResult> AddNoteAsync(string sz, string text, CancellationToken ct = default);
     Task<TargetInfo?> GetTargetAsync(string sz, CancellationToken ct = default);
+    /// <param name="schedule">Профиль расписания OCCT (бэклог п.124/#60, `--schedule &lt;имя&gt;`)
+    /// — null — как в testsuite.json.</param>
     Task<TriggerResult> TriggerTestAsync(string sz, string? filter, string? config,
-        bool sameConfig, CancellationToken ct = default);
+        bool sameConfig, string? schedule = null, CancellationToken ct = default);
+
+    /// <summary>План расписания OCCT, реально лежащего в раздаче (`Hub.ToolsRoot/occt/…`) —
+    /// не то, что в репозитории (бэклог п.124/#60): раздача молча расходилась с репо (5+5 минут
+    /// вместо заявленных 90+90 минут на СЗ 161346). null — hub не ответил или файла нет.</summary>
+    Task<OcctSchedulePlan?> GetOcctScheduleAsync(string? profile = null, CancellationToken ct = default);
+
+    /// <summary>Разбор `occt-report.html` последнего прогона (errors/wheaErrors/executedDuration
+    /// по каждому периоду) — раньше это была ручная распаковка gzip из HTML (бэклог п.124/#60).
+    /// null — hub не ответил / отчёта ещё нет для этой СЗ.</summary>
+    Task<OcctReportSummary?> GetTestResultAsync(string sz, CancellationToken ct = default);
     Task<bool> TriggerDiagAsync(string sz, string? sections = null, CancellationToken ct = default);
     /// <param name="isolated">Только вместе с <paramref name="detached"/>: обернуть фоновую
     /// задачу транзиентной scheduled task под SYSTEM вместо дочернего процесса агента — дерево

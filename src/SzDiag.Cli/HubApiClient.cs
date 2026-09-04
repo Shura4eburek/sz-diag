@@ -70,17 +70,38 @@ public sealed class HubApiClient : IHubApiClient
     }
 
     public async Task<TriggerResult> TriggerTestAsync(string sz, string? filter, string? config,
-        bool sameConfig, CancellationToken ct = default)
+        bool sameConfig, string? schedule = null, CancellationToken ct = default)
     {
         using var cts = Short(ct);
         var resp = await _http.PostAsJsonAsync($"/api/sessions/{sz}/test",
-            new TestRunRequest(filter, config, sameConfig), cts.Token);
+            new TestRunRequest(filter, config, sameConfig, schedule), cts.Token);
         if (resp.StatusCode == HttpStatusCode.OK) return new TriggerResult(true, null);
 
         // Текст причины от hub несёт подсказку про --same-config: без него пользователь
         // видит «не запущен» и не понимает, чего от него хотят.
         var body = await resp.Content.ReadAsStringAsync(cts.Token);
         return new TriggerResult(false, string.IsNullOrWhiteSpace(body) ? null : body.Trim());
+    }
+
+    /// <summary>План расписания OCCT из раздачи (бэклог п.124/#60) — null: hub не ответил,
+    /// файла нет в раздаче, или это не расписание OCCT.</summary>
+    public async Task<OcctSchedulePlan?> GetOcctScheduleAsync(string? profile = null, CancellationToken ct = default)
+    {
+        using var cts = Short(ct);
+        var query = string.IsNullOrWhiteSpace(profile) ? "" : $"?profile={Uri.EscapeDataString(profile)}";
+        var resp = await _http.GetAsync($"/api/occt/schedule{query}", cts.Token);
+        if (!resp.IsSuccessStatusCode) return null;
+        return await resp.Content.ReadFromJsonAsync<OcctSchedulePlan>(cts.Token);
+    }
+
+    /// <summary>Разбор `occt-report.html` последнего прогона (бэклог п.124/#60) — null: hub не
+    /// ответил, отчёта ещё нет, либо файл не распознан этим парсером.</summary>
+    public async Task<OcctReportSummary?> GetTestResultAsync(string sz, CancellationToken ct = default)
+    {
+        using var cts = Short(ct);
+        var resp = await _http.GetAsync($"/api/sessions/{sz}/test-result", cts.Token);
+        if (!resp.IsSuccessStatusCode) return null;
+        return await resp.Content.ReadFromJsonAsync<OcctReportSummary>(cts.Token);
     }
 
     /// <summary>Выполнить скрипт на агенте и дождаться вывода. null — СЗ не онлайн.</summary>

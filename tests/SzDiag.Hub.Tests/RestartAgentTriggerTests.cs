@@ -14,7 +14,7 @@ public class RestartAgentTriggerTests
     {
         public List<string> RestartedSz { get; } = new();
         public Task SendRevertAsync(string c, string sz, CancellationToken ct = default) => Task.CompletedTask;
-        public Task SendRunTestsAsync(string c, string sz, string? f, CancellationToken ct = default) => Task.CompletedTask;
+        public Task SendRunTestsAsync(string c, string sz, string? f, string? schedule = null, CancellationToken ct = default) => Task.CompletedTask;
         public Task SendRunDiagAsync(string c, string sz, string? s, CancellationToken ct = default) => Task.CompletedTask;
         public Task SendExecAsync(string c, ExecRequest r, CancellationToken ct = default) => Task.CompletedTask;
         public Task SendExecStatusAsync(string c, ExecStatusRequest r, CancellationToken ct = default) => Task.CompletedTask;
