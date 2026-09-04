@@ -110,6 +110,25 @@ public class TestReportRunnerTests
     }
 
     [Fact]
+    public async Task RunAndUpload_ReportMd_ContainsPlateauCoverageWarning()
+    {
+        // Критерий #93 на плато-пути: `test run` — единственный ровный (плато) прогон, он
+        // не создаёт переходов нагрузка↔простой, поэтому чистый результат не закрывает
+        // симптом «hard-off на простое/переходе» (обзор review final N-1).
+        var suite = new TestSuite { Steps = new[] { new TestStep("command", "Система", "systeminfo") } };
+        var runner = new TestRunner(new FakeExecutor(), new FakeCapturer());
+        var link = new CapturingLink();
+        var reportRunner = new TestReportRunner(runner, suite, link, "PC-1",
+            () => new DateTimeOffset(2026, 7, 1, 12, 30, 0, TimeSpan.Zero));
+
+        await reportRunner.RunAndUploadAsync("156864");
+
+        var reportMd = link.Uploaded.Single(u => u.FileName == "report.md");
+        var text = System.Text.Encoding.UTF8.GetString(reportMd.Content);
+        Assert.Contains(TransientStressScript.PlateauCoverageWarning, text);
+    }
+
+    [Fact]
     public async Task RunAndUpload_UnknownFilter_DoesNotRunOrUpload()
     {
         var suite = new TestSuite { Steps = new[] { App("occt") } };

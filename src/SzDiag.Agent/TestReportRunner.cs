@@ -65,7 +65,11 @@ public sealed class TestReportRunner
         // Стресс-тесты держат нагрузку минутами — уводим с потока обработчика SignalR.
         var output = await Task.Run(() => _runner.Run(runSuite, sz, _hostname, now, OnStep, schedule), ct);
 
-        var md = ReportMarkdownBuilder.Build(output.Report);
+        // `test run` — единственный ровный (плато) прогон (качели нагрузка/простой живут
+        // отдельно в `stress start --transient`, мимо этого раннера): чистый результат не
+        // закрывает симптом «hard-off на простое/переходе» (критерий #93, review final N-1).
+        var md = ReportMarkdownBuilder.Build(output.Report)
+            + "\n" + TransientStressScript.PlateauCoverageWarning + "\n";
         await _link.UploadReportFileAsync(
             new UploadReportPart(sz, timestamp, "report.md", Encoding.UTF8.GetBytes(md)), ct);
 
