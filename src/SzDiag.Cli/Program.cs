@@ -486,7 +486,11 @@ switch (command)
         var planIdx = Array.FindIndex(args, a => a.Equals("--plan", StringComparison.OrdinalIgnoreCase));
         if (planIdx >= 0)
         {
-            if (planIdx + 1 >= args.Length || !double.TryParse(args[planIdx + 1], out var requestedMinutes))
+            // InvariantCulture: на ru-RU хосте "--plan 3.5" иначе не парсится (запятая как
+            // десятичный разделитель, review W2 Minor).
+            if (planIdx + 1 >= args.Length ||
+                !double.TryParse(args[planIdx + 1], System.Globalization.NumberStyles.Float,
+                    System.Globalization.CultureInfo.InvariantCulture, out var requestedMinutes))
             {
                 AnsiConsole.MarkupLine("[red]--plan требует число минут:[/] szcli reboots <СЗ> --plan 3");
                 return 2;
@@ -915,6 +919,12 @@ switch (command)
             return idx >= 0 && a.Length > idx + 1 ? a[idx + 1] : null;
         }
     }
+
+    // Без скрипта после --in-session провалиться в общую ветку exec и выполнить строку
+    // "--in-session" как PowerShell (review W2 Minor) — явная ошибка вместо этого.
+    case "exec" when args.Length == 3 && args[2].Equals("--in-session", StringComparison.OrdinalIgnoreCase):
+        AnsiConsole.MarkupLine("[red]--in-session требует скрипт:[/] szcli exec <СЗ> --in-session \"<powershell>\"");
+        return 2;
 
     // exec: ad-hoc PowerShell на агенте (без SSH). Скрипт строкой или -f <файл>.
     case "exec" when args.Length >= 3:

@@ -115,6 +115,29 @@ public class AgentHubJournalTests : IClassFixture<WebApplicationFactory<Program>
 
         var text = JournalText("161346");
         Assert.Contains("сон", text);
+        // review W2 (тесты, качество): раньше проверялось только слово "сон" без самой
+        // длительности — регрессия в форматировании прошла бы незамеченной.
+        Assert.Contains("09хв", text);
+    }
+
+    // review W2 Minor: "h" (0-23) в формате длительности сна терял сутки для сна длиннее
+    // 24 ч — 25-часовой сон печатался как "1г", а не "1д 1г".
+    [Fact]
+    public async Task PowerEvents_SleepLongerThanDay_JournalShowsDaysNotJustHours()
+    {
+        await using var conn = BuildConnection();
+        await conn.StartAsync();
+        await conn.InvokeAsync(HubRoutes.Register, new RegisterRequest("161347", "PC-5"));
+
+        var sleepStart = new DateTimeOffset(2026, 8, 24, 14, 44, 14, TimeSpan.Zero);
+        await conn.InvokeAsync(HubRoutes.PowerEvents, new PowerEventsReport("161347", new[]
+        {
+            new PowerEvent(sleepStart, ShutdownKind.Sleep, DurationSeconds: 90000), // 25 ч
+        }));
+
+        var text = JournalText("161347");
+        Assert.Contains("1д", text);
+        Assert.Contains("1г", text);
     }
 
     [Fact]

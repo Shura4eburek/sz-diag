@@ -142,8 +142,14 @@ public sealed class TestRunner
         IReadOnlyList<OcctSchedule.Period>? scheduleInfo = null;
         if (step.RunToCompletion)
         {
-            var scheduleMatch = System.Text.RegularExpressions.Regex.Match(args, "--schedule=\"([^\"]+)\"");
-            var schedulePath = scheduleMatch.Success ? scheduleMatch.Groups[1].Value : null;
+            // Кавычки — не обязательны: без них проверка молча не срабатывала — ровно тот
+            // класс «молчаливого пропуска», против которого сам пункт #66 заводился
+            // (review W2 Minor, TestRunner.cs:187).
+            var scheduleMatch = System.Text.RegularExpressions.Regex.Match(
+                args, "--schedule=(?:\"([^\"]+)\"|(\\S+))");
+            var schedulePath = scheduleMatch.Success
+                ? (scheduleMatch.Groups[1].Success ? scheduleMatch.Groups[1].Value : scheduleMatch.Groups[2].Value)
+                : null;
             if (schedulePath is not null && File.Exists(schedulePath))
             {
                 try

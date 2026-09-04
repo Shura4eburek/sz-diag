@@ -921,7 +921,7 @@ public static class DiagnosticProbes
                 $buckets | Sort-Object Count -Descending | ForEach-Object { "{0}: {1}" -f $_.Name, $_.Count }
                 $eveningOrNight = @($kp | Where-Object { $_.TimeCreated.Hour -ge 18 -or $_.TimeCreated.Hour -lt 6 }).Count
                 if (($eveningOrNight / $kp.Count) -ge 0.66) {
-                    "!!! Bolshinstvo hard-off prihoditsya na vecher/noch ({0} iz {1}) - kosvennyy priznak" -f $eveningOrNight, $kp.Count
+                    "!!! Bolshinstvo hard-off prihoditsya na vecher/noch ({0} iz {1}) - kosvennyy" -f $eveningOrNight, $kp.Count
                     "priznak teplovogo stsenariya (nakoplenie tepla v zakrytom korpuse za den ekspluatatsii)."
                 }
             } else {

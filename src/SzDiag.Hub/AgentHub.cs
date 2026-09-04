@@ -124,7 +124,11 @@ public sealed class AgentHub : Microsoft.AspNetCore.SignalR.Hub
         foreach (var sleep in added.Where(e => e.Kind == ShutdownKind.Sleep))
         {
             var wake = sleep.DurationSeconds is { } d ? sleep.At.AddSeconds(d) : (DateTimeOffset?)null;
-            var durationText = sleep.DurationSeconds is { } ds ? $" ({TimeSpan.FromSeconds(ds):h\\г\\ mm\\х\\в})" : "";
+            // "h" (0-23) сам по себе теряет сутки для сна длиннее 24 ч (review W2 Minor) —
+            // выносим дни отдельным литералом перед часами/минутами.
+            var durationText = sleep.DurationSeconds is { } ds
+                ? $" ({(TimeSpan.FromSeconds(ds).Days > 0 ? $"{TimeSpan.FromSeconds(ds).Days}д " : "")}{TimeSpan.FromSeconds(ds):h\\г\\ mm\\х\\в})"
+                : "";
             var wakeText = wake is { } w ? $" -> пробудження {w.ToLocalTime():HH:mm}" : "";
             _journal.Machine(report.Sz, $"сон {sleep.At.ToLocalTime():HH:mm}{wakeText}{durationText}");
         }

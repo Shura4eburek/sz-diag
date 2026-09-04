@@ -26,8 +26,12 @@ public static class HealthApi
     {
         ThreadPool.GetAvailableThreads(out var availWorker, out var availIo);
         ThreadPool.GetMaxThreads(out var maxWorker, out var maxIo);
+        // using — Process.GetCurrentProcess() возвращает новый handle на каждый вызов
+        // (review W2 Minor): не освобождать его на эндпоинте здоровья, который может
+        // дёргаться часто, накопило бы утечку native-хэндлов.
+        using var self = System.Diagnostics.Process.GetCurrentProcess();
         return new HealthzResponse(
-            System.Diagnostics.Process.GetCurrentProcess().Threads.Count,
+            self.Threads.Count,
             availWorker, maxWorker,
             availIo, maxIo,
             ThreadPool.PendingWorkItemCount,

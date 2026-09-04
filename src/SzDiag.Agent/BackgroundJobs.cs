@@ -404,15 +404,21 @@ public sealed class BackgroundJobs
         if (_isolatedRunningCache.TryGetValue(taskName, out var cached) && now - cached.At < IsolatedStateCacheTtl)
             return cached.Running;
 
-        var running = false;
         try
         {
             var r = _ps!.Run(BuildQueryIsolatedJobCommand(taskName), throwOnError: false);
-            running = (r.StdOut ?? "").Trim().StartsWith("Running", StringComparison.OrdinalIgnoreCase);
+            var running = (r.StdOut ?? "").Trim().StartsWith("Running", StringComparison.OrdinalIgnoreCase);
+            _isolatedRunningCache[taskName] = (running, now);
+            return running;
         }
-        catch { /* планировщик недоступен прямо сейчас — оставим прошлое (или false) значение */ }
-        _isolatedRunningCache[taskName] = (running, now);
-        return running;
+        catch
+        {
+            // Планировщик недоступен прямо сейчас — оставляем прошлое (или false) значение,
+            // а не затираем его новым false (review W2 Minor: комментарий обещал это, а код
+            // до правки клал false безусловно, стирая прошлое true).
+            _isolatedRunningCache[taskName] = (cached.Running, now);
+            return cached.Running;
+        }
     }
 
     /// <summary>Убить фоновую задачу (и её дерево процессов). Для изолированной задачи —

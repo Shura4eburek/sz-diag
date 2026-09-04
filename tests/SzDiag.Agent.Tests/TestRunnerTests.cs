@@ -446,6 +446,43 @@ public class TestRunnerTests
         finally { File.Delete(exe); File.Delete(schedule); }
     }
 
+    // review W2 Minor (TestRunner.cs:187): --schedule= без кавычек (путь без пробелов —
+    // обычный случай) раньше не находился регексом вовсе, и проверка рассинхрона молча не
+    // срабатывала — ровно тот класс отказа, против которого #66 заводился.
+    [Fact]
+    public void Run_AppStep_ScheduleLongerThanTimeout_UnquotedPath_StillRefusesToStart()
+    {
+        var exe = Path.GetTempFileName();
+        var workDir = Path.GetDirectoryName(exe)!;
+        var schedule = Path.Combine(workDir, Guid.NewGuid() + "-schedule.json");
+        File.WriteAllText(schedule, """
+            { "Periods": [
+                { "TestType": "CpuOcct", "Duration": "00:45:00", "IsInfinite": false },
+                { "TestType": "PowerSupply", "Duration": "00:30:00", "IsInfinite": false },
+                { "TestType": "CpuLinpack", "Duration": "00:40:00", "IsInfinite": false }
+            ] }
+            """);
+        try
+        {
+            var exec = new RecordingExecutor();
+            var runner = new TestRunner(exec, new FakeCapturer(new ScreenCapture(null, "n/a")), initialGraceSeconds: 0);
+            var suite = new TestSuite { Steps = new[]
+            {
+                new TestStep("app", "OCCT", Exe: exe, Args: $"test --schedule={schedule}",
+                    DurationSeconds: 75 * 60, KillImage: "occtcmd.exe", RunToCompletion: true,
+                    ArtifactFile: Path.Combine(workDir, "occt-report.html")),
+            } };
+
+            var output = runner.Run(suite, "156864", "PC-1", At);
+
+            var step = output.Report.Steps.Single();
+            Assert.NotNull(step.Error);
+            Assert.Contains("НЕ ЗАПУЩЕН", step.Error);
+            Assert.DoesNotContain(exec.Commands, c => c.StartsWith("Start-Process"));
+        }
+        finally { File.Delete(exe); File.Delete(schedule); }
+    }
+
     private sealed class AlwaysAliveExecutor : ICommandExecutor
     {
         public List<string> Commands { get; } = new();
