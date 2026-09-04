@@ -90,15 +90,39 @@ public sealed class BackgroundJobs
             // цикла — бэклог п.53). Без `_ps` откатываемся в обычный дочерний процесс: он
             // всё ещё переживает штатное завершение агента (родитель не убивает детей сам
             // по себе), просто не переживает крах консоли/сессии целиком.
+            string isolationNote = "";
             if (request.Isolated && _ps is not null)
             {
                 var taskName = IsolatedTaskName(request.Sz, jobId);
-                File.WriteAllText(Path.Combine(dir, "task.txt"), taskName, new UTF8Encoding(false));
-                _ps.Run(BuildRegisterIsolatedJobCommand(taskName, scriptPath, dir));
-
-                _jobs[jobId] = new Job(jobId, null, outPath, DateTimeOffset.Now, taskName);
-                return new ExecResult(request.RequestId, 0,
-                    $"задача запущена изолированно (task {taskName}): {jobId}\nвывод: {outPath}", "", JobId: jobId);
+                string? registerError = null;
+                try
+                {
+                    // throwOnError:false + явный таймаут (Important-6, ревью волны 1): без
+                    // прав на регистрацию `Register-ScheduledTask` кидает исключение, и без
+                    // таймаута регистрация может залипнуть, держа единственный exec-канал,
+                    // который проходит под нагрузкой. task.txt пишем ТОЛЬКО после успеха —
+                    // раньше маркер ложился на диск заранее, и Status/Stop по фантомной
+                    // задаче уходили в ветку изолированной вместо честного «нет такой».
+                    var reg = _ps.Run(BuildRegisterIsolatedJobCommand(taskName, scriptPath, dir),
+                        throwOnError: false, timeout: TimeSpan.FromSeconds(60));
+                    if (reg.ExitCode == 0)
+                    {
+                        File.WriteAllText(Path.Combine(dir, "task.txt"), taskName, new UTF8Encoding(false));
+                        _jobs[jobId] = new Job(jobId, null, outPath, DateTimeOffset.Now, taskName);
+                        return new ExecResult(request.RequestId, 0,
+                            $"задача запущена изолированно (task {taskName}): {jobId}\nвывод: {outPath}", "", JobId: jobId);
+                    }
+                    registerError = $"код {reg.ExitCode}" + (string.IsNullOrWhiteSpace(reg.StdErr) ? "" : $": {reg.StdErr.Trim()}");
+                }
+                catch (Exception ex)
+                {
+                    registerError = ex.Message;
+                }
+                isolationNote = $" (изоляция не удалась ({registerError}) — обычный дочерний процесс)";
+            }
+            else if (request.Isolated)
+            {
+                isolationNote = " (изоляция недоступна: агент не передал IPowerShellRunner — обычный дочерний процесс)";
             }
 
             var psi = new ProcessStartInfo
@@ -115,11 +139,8 @@ public sealed class BackgroundJobs
             try { process.PriorityClass = ProcessPriorityClass.AboveNormal; } catch { }
 
             _jobs[jobId] = new Job(jobId, process, outPath, DateTimeOffset.Now);
-            var note = request.Isolated
-                ? " (изоляция недоступна: агент не передал IPowerShellRunner — обычный дочерний процесс)"
-                : "";
             return new ExecResult(request.RequestId, 0,
-                $"задача запущена в фоне: {jobId}\nвывод: {outPath}{note}", "", JobId: jobId);
+                $"задача запущена в фоне: {jobId}\nвывод: {outPath}{isolationNote}", "", JobId: jobId);
         }
         catch (Exception ex)
         {
@@ -131,24 +152,35 @@ public sealed class BackgroundJobs
     /// scheduled task под SYSTEM. Тот же паттерн, что у sshd (<see cref="PortableSshServer"/>):
     /// `-MultipleInstances IgnoreNew` и безлимитный `ExecutionTimeLimit` — тайминг решает вызывающий
     /// уровень (hub/пользователь), не сама задача.</summary>
-    public static string BuildRegisterIsolatedJobCommand(string taskName, string scriptPath, string workDir) =>
-        "$a = New-ScheduledTaskAction -Execute 'powershell.exe' " +
-        $"-Argument '-NoProfile -NonInteractive -ExecutionPolicy Bypass -File \"{scriptPath}\"' " +
-        $"-WorkingDirectory '{workDir}'; " +
-        "$s = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries " +
-        "-ExecutionTimeLimit ([TimeSpan]::Zero) -MultipleInstances IgnoreNew; " +
-        $"Register-ScheduledTask -TaskName '{taskName}' -Action $a -Settings $s " +
-        "-RunLevel Highest -User 'SYSTEM' -Force | Out-Null; " +
-        $"Start-ScheduledTask -TaskName '{taskName}'";
+    public static string BuildRegisterIsolatedJobCommand(string taskName, string scriptPath, string workDir)
+    {
+        // Апостроф в пути (`C:\Users\O'Brien\...`) без удвоения обрывает PS-литерал —
+        // тот же приём, что уже стоит в BuildStopIsolatedJobCommand (Important-7, ревью
+        // волны 1).
+        var script = scriptPath.Replace("'", "''");
+        var dir = workDir.Replace("'", "''");
+        var task = taskName.Replace("'", "''");
+        return "$a = New-ScheduledTaskAction -Execute 'powershell.exe' " +
+            $"-Argument '-NoProfile -NonInteractive -ExecutionPolicy Bypass -File \"{script}\"' " +
+            $"-WorkingDirectory '{dir}'; " +
+            "$s = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries " +
+            "-ExecutionTimeLimit ([TimeSpan]::Zero) -MultipleInstances IgnoreNew; " +
+            $"Register-ScheduledTask -TaskName '{task}' -Action $a -Settings $s " +
+            "-RunLevel Highest -User 'SYSTEM' -Force | Out-Null; " +
+            $"Start-ScheduledTask -TaskName '{task}'";
+    }
 
     /// <summary>PowerShell для опроса состояния изолированной задачи: `State` («Running»/«Ready»
     /// после однократного прогона) + `LastTaskResult` (код возврата, когда уже не Running).
     /// «absent» — задачу сняли (ручной cancel, ребут) или её никогда не было.</summary>
-    public static string BuildQueryIsolatedJobCommand(string taskName) =>
-        $"$t = Get-ScheduledTask -TaskName '{taskName}' -ErrorAction SilentlyContinue; " +
-        "if (-not $t) { 'absent' } else { " +
-        $"$i = Get-ScheduledTaskInfo -TaskName '{taskName}' -ErrorAction SilentlyContinue; " +
-        "$t.State.ToString() + '|' + $i.LastTaskResult }";
+    public static string BuildQueryIsolatedJobCommand(string taskName)
+    {
+        var task = taskName.Replace("'", "''");
+        return $"$t = Get-ScheduledTask -TaskName '{task}' -ErrorAction SilentlyContinue; " +
+            "if (-not $t) { 'absent' } else { " +
+            $"$i = Get-ScheduledTaskInfo -TaskName '{task}' -ErrorAction SilentlyContinue; " +
+            "$t.State.ToString() + '|' + $i.LastTaskResult }";
+    }
 
     /// <summary>PowerShell для снятия изолированной задачи: остановить + разрегистрировать
     /// саму scheduled task и добить дерево процессов по jobId в командной строке (задача не
@@ -304,8 +336,21 @@ public sealed class BackgroundJobs
         return result.Values.OrderByDescending(j => j.StartedAt).ToList();
     }
 
+    /// <summary>Сколько по времени можно доверять последнему опросу планировщика для
+    /// изолированной задачи из <see cref="RunningCount"/>, прежде чем спросить его заново.</summary>
+    private static readonly TimeSpan IsolatedStateCacheTtl = TimeSpan.FromSeconds(30);
+
+    private readonly ConcurrentDictionary<string, (bool Running, DateTime At)> _isolatedRunningCache = new(StringComparer.OrdinalIgnoreCase);
+
     /// <summary>Сколько задач сейчас реально выполняется. Нужно колонке активности: «была
-    /// занята» должна отвечать по текущему состоянию, а не по последней команде (бэклог п.73).</summary>
+    /// занята» должна отвечать по текущему состоянию, а не по последней команде (бэклог п.73).
+    ///
+    /// Вызывается из колбэка активности **на каждом heartbeat** (Critical-3, ревью волны 1):
+    /// без кэша изолированная задача гоняла бы `Get-ScheduledTask` через дочерний powershell.exe
+    /// на каждый тик — ровно тот антипаттерн, против которого написан
+    /// <see cref="ActivityProbe"/> (опрос в heartbeat-цикле обязан быть дешёвым, иначе сам
+    /// запуск powershell.exe становится узким местом под 100% нагрузкой, п.64). Точный опрос
+    /// планировщика по требованию остаётся в <see cref="Status"/>/<see cref="List"/>.</summary>
     public int RunningCount()
     {
         var n = 0;
@@ -317,17 +362,26 @@ public sealed class BackgroundJobs
                 catch { /* процесс умер между проверками */ }
                 continue;
             }
-            if (job.TaskName is { } tn && _ps is not null)
-            {
-                try
-                {
-                    var r = _ps.Run(BuildQueryIsolatedJobCommand(tn), throwOnError: false);
-                    if ((r.StdOut ?? "").Trim().StartsWith("Running", StringComparison.OrdinalIgnoreCase)) n++;
-                }
-                catch { /* планировщик недоступен прямо сейчас */ }
-            }
+            if (job.TaskName is { } tn && _ps is not null && IsIsolatedTaskRunningCached(tn)) n++;
         }
         return n;
+    }
+
+    private bool IsIsolatedTaskRunningCached(string taskName)
+    {
+        var now = DateTime.UtcNow;
+        if (_isolatedRunningCache.TryGetValue(taskName, out var cached) && now - cached.At < IsolatedStateCacheTtl)
+            return cached.Running;
+
+        var running = false;
+        try
+        {
+            var r = _ps!.Run(BuildQueryIsolatedJobCommand(taskName), throwOnError: false);
+            running = (r.StdOut ?? "").Trim().StartsWith("Running", StringComparison.OrdinalIgnoreCase);
+        }
+        catch { /* планировщик недоступен прямо сейчас — оставим прошлое (или false) значение */ }
+        _isolatedRunningCache[taskName] = (running, now);
+        return running;
     }
 
     /// <summary>Убить фоновую задачу (и её дерево процессов). Для изолированной задачи —

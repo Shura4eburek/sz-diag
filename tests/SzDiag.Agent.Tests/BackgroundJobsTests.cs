@@ -309,6 +309,58 @@ public class IsolatedBackgroundJobsTests : IDisposable
     }
 
     [Fact]
+    public void RunningCount_CachesIsolatedTaskState_DoesNotPollSchedulerEveryHeartbeat()
+    {
+        // Critical-3 (ревью волны 1): RunningCount() дёргается из heartbeat-колбэка на
+        // каждый тик; без кэша он гонял бы Get-ScheduledTask через дочерний powershell.exe
+        // ровно под той нагрузкой, где это дороже всего (тот же антипаттерн, которого
+        // избегает ActivityProbe.RunningStress, п.64).
+        var ps = new RecordingPs { Handler = _ => new PsResult(0, "Running|", "") };
+        var jobs = new BackgroundJobs(_root, ps);
+        jobs.Start(Req());
+        var queriesBefore = ps.Scripts.Count(s => s.Contains("Get-ScheduledTask"));
+
+        var n1 = jobs.RunningCount();
+        var n2 = jobs.RunningCount();
+
+        Assert.Equal(1, n1);
+        Assert.Equal(1, n2);
+        Assert.Equal(queriesBefore + 1, ps.Scripts.Count(s => s.Contains("Get-ScheduledTask")));
+    }
+
+    [Fact]
+    public void Start_Isolated_RegistrationFails_FallsBackToChildProcess_NoTaskMarker()
+    {
+        // Important-6 (ревью волны 1): без прав/при ошибке Register-ScheduledTask раньше
+        // task.txt уже лежал на диске — Status/Stop потом уходили в ветку изолированной
+        // задачи по фантому, которого планировщик никогда не видел.
+        var ps = new RecordingPs { Handler = s => s.Contains("Register-ScheduledTask")
+            ? new PsResult(1, "", "Access is denied")
+            : new PsResult(0, "", "") };
+        var jobs = new BackgroundJobs(_root, ps);
+
+        var result = jobs.Start(Req());
+
+        Assert.NotNull(result.JobId);
+        Assert.Contains("изоляция не удалась", result.StdOut);
+        var marker = Path.Combine(_root, result.JobId!, "task.txt");
+        Assert.False(File.Exists(marker), "маркер задачи не должен появляться, если регистрация не удалась");
+        jobs.Stop(result.JobId!);
+    }
+
+    [Fact]
+    public void BuildRegisterIsolatedJobCommand_EscapesSingleQuotesInPaths()
+    {
+        // Important-7 (ревью волны 1): путь профиля вида C:\Users\O'Brien\... без удвоения
+        // апострофа обрывает PS-литерал.
+        var script = BackgroundJobs.BuildRegisterIsolatedJobCommand(
+            "szdiag-job-160705-abc", @"C:\Users\O'Brien\jobs\1\script.ps1", @"C:\Users\O'Brien\jobs\1");
+
+        Assert.Contains(@"O''Brien", script);
+        Assert.DoesNotContain(@"O'Brien", script);
+    }
+
+    [Fact]
     public void Stop_IsolatedJob_StopsAndUnregistersTask()
     {
         var ps = new RecordingPs { Handler = _ => new PsResult(0, "Ready|0", "") };
