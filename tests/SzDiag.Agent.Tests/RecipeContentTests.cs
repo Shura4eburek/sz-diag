@@ -67,4 +67,21 @@ public class RecipeContentTests
 
     [Fact]
     public void StartGameCs2_ParsesAsValidPowerShell() => AssertAllParse("start-game-cs2.ps1");
+
+    [Fact]
+    public void PeOfflineTriage_HasWerLiveKernelSection()
+    {
+        // #136 / б.191 (161556): pe-offline-triage.ps1 (один заход по машине з PE) не дивився
+        // Report.wer взагалі - справжня причина 35 x KP41 без BSOD/WHEA лежала саме там.
+        var text = Recipe("pe-offline-triage.ps1");
+
+        Assert.Contains("WER: LiveKernelEvent", text);
+        Assert.Contains("ReportArchive", text);
+        Assert.Contains("Kernel_|Critical_", text);
+        Assert.Contains("VIDEO_ENGINE_TIMEOUT_DETECTED", text);
+        Assert.Contains("вимкнон", text);   // звірка з Kernel-Power 41
+    }
+
+    [Fact]
+    public void PeOfflineTriage_ParsesAsValidPowerShell() => AssertAllParse("pe-offline-triage.ps1");
 }

@@ -695,6 +695,32 @@ public static class DiagnosticProbes
                     "[{0}] {1}{2}" -f $c.TimeCreated, (($c.Message -split "`r?`n")[0]), $mark
                 }
             } else { "none" }
+
+            "=== Sverka LiveKernelEvent s Kernel-Power 41 (b.191, SZ 161556) ==="
+            # 35 x Kernel-Power 41 i NOL BugCheck 1001/WHEA v zhurnale System - "prichiny net" po
+            # zhurnalu. Nastoyashaya prichina - 9 x LiveKernelEvent 0x141 (VIDEO_ENGINE_TIMEOUT),
+            # kazhdyi za minutu do vyrubona. Bez etoy sverki svyaz vidna tolko ruchnym sopostavleniem.
+            try {
+                $kp41 = @(Get-WinEvent -FilterHashtable @{ LogName='System'; ProviderName='Microsoft-Windows-Kernel-Power'; Id=41 } -ErrorAction Stop |
+                    Select-Object -ExpandProperty TimeCreated)
+            } catch { $kp41 = @() }
+            $lkEvts = @($evts | Where-Object { $_ })
+            if ($lkEvts.Count -eq 0 -or $kp41.Count -eq 0) {
+                "LiveKernelEvent net ili Kernel-Power 41 net - sverka nevozmozhna."
+            } else {
+                $matched = 0
+                foreach ($e in ($lkEvts | Sort-Object Time)) {
+                    $near = $kp41 | Where-Object { $_ -ge $e.Time -and ($_ - $e.Time).TotalMinutes -le 5 } |
+                        Sort-Object | Select-Object -First 1
+                    if ($near) {
+                        $matched++
+                        "{0:yyyy-MM-dd HH:mm:ss} {1} -> vyrubon (KP41) cherez {2:N1} min" -f `
+                            $e.Time, $e.Code, ($near - $e.Time).TotalMinutes
+                    }
+                }
+                if ($matched -eq 0) { "Ni odno LiveKernelEvent ne sovpadaet s KP41 v okne 5 minut." }
+                else { "ITOGO: {0} iz {1} LiveKernelEvent predshestvuyut vyrubonu KP41 v okne 5 min." -f $matched, $lkEvts.Count }
+            }
             """),
 
         // Секция падала целиком с `ошибка: код 1:` и без единой подробности, а именно она
