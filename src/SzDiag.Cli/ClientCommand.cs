@@ -32,6 +32,17 @@ public static class ClientCommand
     /// <summary>Показать остатки. Ничего не трогает — только смотрит.</summary>
     public static async Task<int> InfoAsync(IHubApiClient client, string sz)
     {
+        // Под кем и в какой сессии живёт агент — меняет, что вообще возможно (GUI/скриншот)
+        // и почему прошлый запуск того же скрипта отработал, а этот — нет молча (бэклог п.220,
+        // СЗ 123123: полчаса на версии «UAC», пока whoami не показал СИСТЕМА).
+        var session = (await client.GetSessionsAsync()).FirstOrDefault(s => s.Sz == sz);
+        if (session?.AgentUser is { Length: > 0 } user)
+        {
+            var sessionText = session.AgentSessionId is { } id ? $"session {id}" : "session ?";
+            var guiNote = session.AgentInSessionZero ? " (GUI недоступен)" : "";
+            AnsiConsole.MarkupLineInterpolated($"[grey]агент:[/] {user}, {sessionText}{guiNote}");
+        }
+
         var res = await client.ExecAsync(sz, ClientTraces.BuildInventoryScript(), TimeoutSeconds);
         if (res is null)
         {

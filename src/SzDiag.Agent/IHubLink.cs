@@ -5,7 +5,7 @@ public interface IHubLink
 {
     Task ConnectAsync(CancellationToken ct = default);
     Task RegisterAsync(string sz, string hostname, DateTimeOffset? bootTime = null, string? lastShutdown = null,
-        CancellationToken ct = default);
+        string? agentUser = null, int? agentSessionId = null, CancellationToken ct = default);
     Task HeartbeatAsync(string sz, CancellationToken ct = default);
 
     /// <summary>Отдать hub события питания из журнала клиента — то, что hub сам увидеть не

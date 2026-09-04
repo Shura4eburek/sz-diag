@@ -7925,7 +7925,19 @@ base64/UTF-16, exec не блокируется.
 **Критерий готовности.** `szcli push <СЗ> <tool> --print-path` отдаёт голый путь, пригодный для подстановки
 в следующий `exec` без правки руками.
 
-### 220. После ребута агент живёт под SYSTEM в session 0 — GUI-операции ломаются молча
+### 220. ✅ СДЕЛАНО (2026-09-04) — После ребута агент живёт под SYSTEM в session 0 — GUI-операции ломаются молча
+
+**Как сделано.** (а) `RegisterRequest`/`SessionInfo` несут `AgentUser`
+(`WindowsIdentity.GetCurrent().Name`) и `AgentSessionId` (`Process.GetCurrentProcess().SessionId`);
+`szcli client info <СЗ>` печатает `агент: NT AUTHORITY\СИСТЕМА, session 0 (GUI недоступен)`.
+(б) `szcli exec <СЗ> --in-session "<script>" [--timeout N]` — `InteractiveSessionExec` пишет
+скрипт во временный `.ps1`, гонит его транзиентной задачей от активного пользователя
+(`LogonType Interactive`) с выводом в файл, ждёт завершения и возвращает содержимое. (в)
+`list`/`watch` показывают жёлтую метку `session 0` в колонке статуса
+(`SessionInfo.AgentInSessionZero`). Обе поправки из повтора на 111111 учтены: `RunLevel Limited`
+по умолчанию (не Highest) и имя пользователя из `Win32_ComputerSystem.UserName`, а не `quser`
+(та же логика, что у `InteractiveSessionRun` для #164). Живой e2e-прогон (`--in-session
+"notepad"` открывает окно на глазах у клиента) не делался — нет доступа к живой СЗ из этой сессии.
 
 **Факты (123123, 2026-08-27 21:24).** До ребута `szcli exec` шёл под `desktop-...\kiril`, session 1:
 скриншот снимался, окна показывались, `Start-Process` работал. После ребута агент поднялся

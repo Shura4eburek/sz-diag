@@ -22,6 +22,31 @@ public class SessionRegistryTests
         Assert.Equal(SessionStatus.Online, s.Status);
     }
 
+    // #194/бэклог п.220: hub обязан знать, под кем и в какой сессии живёт агент — GUI-операции
+    // ломаются молча из session 0 (СЗ 123123).
+    [Fact]
+    public void Register_WithAgentIdentity_StoresUserAndSession()
+    {
+        var reg = NewRegistry();
+        reg.Register("123123", "10.0.0.42", "PC-1", "conn-1",
+            agentUser: @"NT AUTHORITY\СИСТЕМА", agentSessionId: 0);
+
+        var s = Assert.Single(reg.GetActive());
+        Assert.Equal(@"NT AUTHORITY\СИСТЕМА", s.AgentUser);
+        Assert.Equal(0, s.AgentSessionId);
+        Assert.True(s.AgentInSessionZero);
+    }
+
+    [Fact]
+    public void Register_UserSession_IsNotSessionZero()
+    {
+        var reg = NewRegistry();
+        reg.Register("123123", "10.0.0.42", "PC-1", "conn-1",
+            agentUser: @"DESKTOP-1\kiril", agentSessionId: 1);
+
+        Assert.False(Assert.Single(reg.GetActive()).AgentInSessionZero);
+    }
+
     [Fact]
     public void Register_WithBootTime_StoresIt()
     {

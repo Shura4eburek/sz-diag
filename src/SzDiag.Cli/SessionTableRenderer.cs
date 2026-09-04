@@ -41,17 +41,22 @@ public static class SessionTableRenderer
     /// только по счётчику ⚡N и подсветке uptime, а не в самом статусе (бэклог п.42).</summary>
     private static string StatusCell(SessionInfo s, DateTimeOffset now)
     {
+        // Агент в session 0 (автостарт-задача под SYSTEM) — GUI-операции там ломаются молча
+        // (Start-Process без задачи-обхода, скриншот), не гадать об этом заново после каждого
+        // ребута (бэклог п.220).
+        var sessionZero = s.AgentInSessionZero ? " [yellow]session 0[/]" : "";
+
         // Без юникод-глифов (●/○) — не в каждом шрифте консоли есть их отрисовка, из-за
         // чего колонка резервирует место под невидимый символ и текст съезжает.
         // Неудачный watchdog/headless-откат (бэклог п.59) обязан выглядеть иначе, чем
         // штатный offline: доступ (sshd, учётка, фаервол) мог остаться на клиенте навсегда.
         if (!string.IsNullOrEmpty(s.RevertNote)) return "[red]⚠ откат[/]";
-        if (s.Status == SessionStatus.Online) return "[green]online[/]";
+        if (s.Status == SessionStatus.Online) return $"[green]online[/]{sessionZero}";
 
         var silentFor = now - s.LastHeartbeat;
         return silentFor >= LikelyFailureThreshold
-            ? "[red]offline (ВЫРУБОН?)[/]"
-            : "[grey]offline (лаг?)[/]";
+            ? $"[red]offline (ВЫРУБОН?)[/]{sessionZero}"
+            : $"[grey]offline (лаг?)[/]{sessionZero}";
     }
 
     /// <summary>Ячейка uptime: сколько машина работает с загрузки ОС. Свежий ребут (менее часа

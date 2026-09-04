@@ -576,6 +576,35 @@ switch (command)
         return 0;
     }
 
+    // exec --in-session: прогнать скрипт в ИНТЕРАКТИВНОЙ сессии пользователя, а не в session 0
+    // агента — GUI-запуски (explorer, notepad, лаунчеры) там либо не создают окна, либо
+    // ломаются молча (бэклог п.220). Пример из живой заявки 111111: «открой диск в
+    // проводнике» через обычный exec стартовал explorer.exe в session 0 — окна не видел никто.
+    case "exec" when args.Length >= 4 && args[2].Equals("--in-session", StringComparison.OrdinalIgnoreCase):
+    {
+        var inSessionSz = args[1];
+        var innerScript = args[3];
+        var inSessionTimeout = ArgValue(args, "--timeout") is { } tv && int.TryParse(tv, out var tvv) ? tvv : 60;
+
+        var wrapped = InteractiveSessionExec.BuildScript(inSessionSz, innerScript, inSessionTimeout);
+        var inSessionRes = await client.ExecAsync(inSessionSz, wrapped, inSessionTimeout + 30);
+        if (inSessionRes is null)
+        {
+            AnsiConsole.MarkupLineInterpolated($"[red]СЗ {inSessionSz} не найдена[/] среди активных.");
+            return 1;
+        }
+        if (!string.IsNullOrEmpty(inSessionRes.StdOut)) Console.WriteLine(CliXml.Decode(inSessionRes.StdOut).TrimEnd());
+        if (!string.IsNullOrEmpty(inSessionRes.StdErr))
+            AnsiConsole.MarkupLineInterpolated($"[yellow]stderr:[/] {CliXml.Decode(inSessionRes.StdErr).TrimEnd()}");
+        return inSessionRes.ExitCode == 0 ? 0 : 1;
+
+        static string? ArgValue(string[] a, string name)
+        {
+            var idx = Array.FindIndex(a, x => x.Equals(name, StringComparison.OrdinalIgnoreCase));
+            return idx >= 0 && a.Length > idx + 1 ? a[idx + 1] : null;
+        }
+    }
+
     // exec: ad-hoc PowerShell на агенте (без SSH). Скрипт строкой или -f <файл>.
     case "exec" when args.Length >= 3:
     {
@@ -702,6 +731,7 @@ static void PrintUsage()
                 [grey]--isolated — фон переживает падение/закрытие агента (scheduled task под SYSTEM)[/]
               [yellow]szcli exec[/] [blue]<СЗ>[/] [grey]--result <jobId> [[--tail N]]   состояние фоновой задачи[/]
               [yellow]szcli exec[/] [blue]<СЗ>[/] [grey]--cancel <jobId> | --jobs      снять задачу / список задач[/]
+              [yellow]szcli exec[/] [blue]<СЗ>[/] [grey]--in-session "<powershell>" [[--timeout <сек>]]   в сессии пользователя, не в session 0 агента[/]
                 [grey]выполнить скрипт на агенте и получить вывод (без SSH)[/]
                 [grey]всё сложнее однострочника — через [/][yellow]-f[/][grey]: inline-строку портит твой шелл[/]
                 [grey]exit code: 0 успех · N код скрипта · 3 отказ агента · 4 таймаут[/]

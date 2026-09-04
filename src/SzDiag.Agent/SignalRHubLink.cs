@@ -19,9 +19,9 @@ public sealed class SignalRHubLink : IHubLink
     public Task ConnectAsync(CancellationToken ct = default) => _conn.StartAsync(ct);
 
     public Task RegisterAsync(string sz, string hostname, DateTimeOffset? bootTime = null, string? lastShutdown = null,
-        CancellationToken ct = default)
+        string? agentUser = null, int? agentSessionId = null, CancellationToken ct = default)
         => _conn.InvokeAsync(HubRoutes.Register,
-            new RegisterRequest(sz, hostname, bootTime, lastShutdown), ct);
+            new RegisterRequest(sz, hostname, bootTime, lastShutdown, agentUser, agentSessionId), ct);
 
     public Task HeartbeatAsync(string sz, CancellationToken ct = default)
         => _conn.InvokeAsync(HubRoutes.Heartbeat, sz, ct);

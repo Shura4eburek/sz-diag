@@ -38,7 +38,7 @@ public sealed class AgentHub : Microsoft.AspNetCore.SignalR.Hub
     {
         var ip = Context.GetHttpContext()?.Connection.RemoteIpAddress?.ToString() ?? "unknown";
         var outcome = _registry.Register(request.Sz, ip, request.Hostname, Context.ConnectionId,
-            request.BootTime, request.LastShutdown);
+            request.BootTime, request.LastShutdown, request.AgentUser, request.AgentSessionId);
         if (outcome.Rebooted)
         {
             // Пишем в SQLite сразу: in-memory реестр не переживает рестарт hub, а вырубон,

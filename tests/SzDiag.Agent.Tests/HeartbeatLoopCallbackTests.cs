@@ -14,7 +14,7 @@ public class HeartbeatLoopCallbackTests
 
         public Task ConnectAsync(CancellationToken ct = default) => Task.CompletedTask;
         public Task RegisterAsync(string sz, string hostname, DateTimeOffset? bootTime = null, string? lastShutdown = null,
-            CancellationToken ct = default) => Task.CompletedTask;
+            string? agentUser = null, int? agentSessionId = null, CancellationToken ct = default) => Task.CompletedTask;
         public Task ReportPowerEventsAsync(SzDiag.Contracts.PowerEventsReport report, CancellationToken ct = default) => Task.CompletedTask;
         public Task HeartbeatAsync(string sz, CancellationToken ct = default)
         {
@@ -159,7 +159,8 @@ public class HeartbeatLoopCallbackTests
         public List<string> Activities { get; } = new();
         public Task ConnectAsync(CancellationToken ct = default) => Task.CompletedTask;
         public Task RegisterAsync(string sz, string hostname, DateTimeOffset? bootTime = null,
-            string? lastShutdown = null, CancellationToken ct = default) => Task.CompletedTask;
+            string? lastShutdown = null, string? agentUser = null, int? agentSessionId = null,
+            CancellationToken ct = default) => Task.CompletedTask;
         public Task HeartbeatAsync(string sz, CancellationToken ct = default) => Task.CompletedTask;
         public Task ReportPowerEventsAsync(SzDiag.Contracts.PowerEventsReport report, CancellationToken ct = default) => Task.CompletedTask;
         public void OnRevert(Func<string, Task> handler) { }
