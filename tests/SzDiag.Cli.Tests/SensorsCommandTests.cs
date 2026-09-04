@@ -23,4 +23,16 @@ public class SensorsCommandTests
         Assert.Contains("job-1", warning);
         Assert.Contains("156864-20260904-100000.csv", warning);
     }
+
+    // Бэклог п.7: автозабор CSV в журнал СЗ по завершении прогона — «была ли нагрузка
+    // настоящей» без отдельного ритуала «забрать → написать разбор → вставить в заметку».
+    [Fact]
+    public void BuildJournalNote_IncludesFileNameAndSummary()
+    {
+        var note = SensorsCommand.BuildJournalNote("160306-20260904-100000.csv",
+            "Под нагрузкой: 4.2 мин — 18% времени");
+
+        Assert.Contains("160306-20260904-100000.csv", note);
+        Assert.Contains("Под нагрузкой: 4.2 мин", note);
+    }
 }
