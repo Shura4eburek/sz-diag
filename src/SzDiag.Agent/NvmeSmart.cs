@@ -12,6 +12,8 @@ public static class NvmeSmart
 {
     /// <summary>PowerShell-пролог: <c>Get-NvmeSmartRows</c> возвращает по одной строке на
     /// каждый физический NVMe-диск (или строку с полем <c>ReadError</c>, если лог не читается).</summary>
+    // M-6 (ревью волны 1): хвостовая пустая строка перед закрывающими """ даёт trailing \n —
+    // без него конкатенация со следующей секцией, начинающейся с оператора, ломалась бы молча.
     public static string PowerShellPrologue() => """
         Add-Type -ErrorAction SilentlyContinue -TypeDefinition @'
         using System;
@@ -113,5 +115,6 @@ public static class NvmeSmart
             }
             $rows
         }
+
         """;
 }

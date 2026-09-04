@@ -72,7 +72,11 @@ public sealed class AgentSession
             try
             {
                 var failed = outcome.Failed.Select(f => new RevertResultFailure(f.Step, f.Error)).ToList();
-                await _link.SendRevertResultAsync(new RevertResult(_spec.Sz, outcome.Done.ToList(), failed));
+                // Таймаут короче дефолтного HubConnection.ServerTimeout (30 с, M-3, ревью
+                // волны 1): без него зависший hub держал бы откат по клавише C полминуты без
+                // объяснения — сводка и так best-effort, дольше нескольких секунд ждать смысла нет.
+                using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+                await _link.SendRevertResultAsync(new RevertResult(_spec.Sz, outcome.Done.ToList(), failed), cts.Token);
             }
             catch { /* канал недоступен — откат всё равно выполнен */ }
         }

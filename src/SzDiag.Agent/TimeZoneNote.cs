@@ -14,6 +14,10 @@ public static class TimeZoneNote
     /// смещение от UTC и признак WinPE (тот же детектор — X: + startnet.cmd — что и
     /// <see cref="WinPeEnvironment"/> в C#, но независимо: тело пробы исполняется отдельным
     /// процессом powershell.exe и своего .NET-кода агента не видит).</summary>
+    // M-6 (ревью волны 1): раньше строка заканчивалась на '}' без \n — при конкатенации со
+    // следующим прологом/секцией, начинающейся с оператора, склейка молча ломалась бы. Пустая
+    // строка перед закрывающими """ добавляет хвостовой \n (тесты проверяют только наличие
+    // подстрок, не итоговый парсинг склеенного скрипта).
     public static string PowerShellPrologue() => """
         function Write-TzNote {
             $tz = [System.TimeZoneInfo]::Local
@@ -23,5 +27,6 @@ public static class TimeZoneNote
             "Vremya v etom otchete: poyas '{0}' (UTC{1}{2}), WinPE={3}. Sravnivaya s hostom ili drugim zapuskom - uchityvay raznitsu poyasov." -f `
                 $tz.Id, $sign, $offset.ToString('hh\:mm'), $isPe
         }
+
         """;
 }
