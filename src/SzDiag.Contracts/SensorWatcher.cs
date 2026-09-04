@@ -1,4 +1,4 @@
-namespace SzDiag.Contracts;
+﻿namespace SzDiag.Contracts;
 
 /// <summary>Лёгкий наблюдатель нагрузки на клиенте: CSV раз в N секунд, построчной дозаписью.
 ///
@@ -41,7 +41,7 @@ public static class SensorWatcher
             $procNames = @({{procs}})
             {{deadline}}
             if (-not (Test-Path $csv)) {
-                'time;cpu_pct;stress_procs;cpu_temp_c;ram_used_pct;gpu_pct;gpu_temp_c;gpu_power_w' | Out-File -FilePath $csv -Encoding utf8
+                'time;cpu_pct;stress_procs;cpu_temp_c;ram_used_pct;gpu_pct;gpu_temp_c;gpu_power_w;cpu_clock_mhz' | Out-File -FilePath $csv -Encoding utf8
             }
             # Поднимаем приоритет наблюдателя: под 100% нагрузкой общий пул потоков CIM/WMI
             # (Get-CimInstance) сам становится узким местом, и cpu_pct/ram_used_pct уходят
@@ -72,17 +72,20 @@ public static class SensorWatcher
             while ((Get-Date) -lt $deadline) {
                 $i++
                 # Win32_Processor.LoadPercentage - дешёвый счётчик; счётчики производительности
-                # под 100% нагрузкой сами становятся узким местом и рвут ряд наблюдений. Один
-                # ретрай с короткой паузой — счётчик под пиковой нагрузкой иногда отвечает
-                # со второго раза, а не мёртв насовсем.
-                $cpu = $null
+                # под 100% нагрузкой сами становятся узким местом и рвут ряд наблюдений.
+                # Отсюда ретрай с короткой паузой (счётчик часто отвечает со второго раза),
+                # а CurrentClockSpeed берётся из ТОГО ЖЕ запроса (бэклог п.153): без частоты
+                # вердикт «троттлинга нет» недоказуем, а второй WMI-запрос под нагрузкой лишний.
+                $cpu = $null; $clock = $null
                 for ($try = 0; $try -lt 2 -and $null -eq $cpu; $try++) {
                     try {
-                        $cpu = (Get-CimInstance Win32_Processor -ErrorAction Stop).LoadPercentage
-                        if ($cpu -is [array]) { $cpu = ($cpu | Measure-Object -Average).Average }
+                        $proc = @(Get-CimInstance Win32_Processor -ErrorAction Stop)
+                        $cpu = ($proc | Measure-Object -Property LoadPercentage -Average).Average
+                        $clock = ($proc | Measure-Object -Property CurrentClockSpeed -Maximum).Maximum
                     } catch { Start-Sleep -Milliseconds 300 }
                 }
                 if ($null -eq $cpu) { $cpu = 'n/a' }
+                if ($null -eq $clock) { $clock = 'n/a' }
                 $running = 0
                 foreach ($n in $procNames) { $running += @(Get-Process -Name $n -ErrorAction SilentlyContinue).Count }
                 $temp = 'n/a'
@@ -109,7 +112,7 @@ public static class SensorWatcher
                 # Add-Content открывает и закрывает файл на каждой строке: пережить вырубон
                 # важнее, чем сэкономить на вводе-выводе.
                 ((Get-Date -Format 'yyyy-MM-dd HH:mm:ss') + ';' + $cpu + ';' + $running + ';' + $temp + ';' + $ram +
-                 ';' + $gpu + ';' + $gpuTemp + ';' + $gpuPower) |
+                 ';' + $gpu + ';' + $gpuTemp + ';' + $gpuPower + ';' + $clock) |
                     Add-Content -Path $csv -Encoding utf8
                 # Хартбит в stdout фоновой задачи — единственное, что `sensors status` читает
                 # без похода за CSV (см. комментарий выше про LastOutputAt).

@@ -448,6 +448,21 @@ public class DiagnosticProbesTests
     }
 
     [Fact]
+    public void LiveKernelProbe_CorrelatesWithKernelPower41()
+    {
+        // Регрессия (#136 / б.191, СЗ 161556): System.evtx показал 35 x Kernel-Power 41 и НОЛЬ
+        // BugCheck 1001/WHEA - "причины нет" по журналу. Настоящий диагноз лежал в
+        // LiveKernelEvent 0x141, каждый за минуту до вырубона, - без явной сверки по времени
+        // связь видна только ручным сопоставлением.
+        var run = Body("livekernel");
+
+        Assert.Contains("Kernel-Power", run);
+        Assert.Contains("kp41", run.ToLowerInvariant());
+        Assert.Contains("vyrubon (KP41)", run);
+        Assert.Contains("catch { $kp41 = @() }", run);   // незарегистрированный провайдер не валит секцию
+    }
+
+    [Fact]
     public void LiveKernelProbe_MarksEventsNearBootOrLogonAsOwnActivityNotSymptom()
     {
         // Регрессия (бэклог п.219, СЗ 161190): пары 0x117+0x1cc легли ровно на минуту нашего

@@ -126,6 +126,65 @@ public class SensorReportTests
     [Fact]
     public void Format_EmptyCsv_SaysRunIsNotConfirmed()
         => Assert.Contains("не подтверждён", SensorReport.Format(SensorReport.Summarize(SensorReport.Parse(""))));
+
+    [Fact]
+    public void Format_CpuTempColumnAlwaysEmpty_WarnsInsteadOfSilentlyOmitting()
+    {
+        // Регрессия (бэклог п.153, СЗ 160587): на машине без ACPI-датчика колонка cpu_temp_c
+        // пуста во ВСЕХ строках, а CSV при этом честно пишется (GPU-колонки живые) — выглядит
+        // как рабочий прогон, хотя вопрос "перегрев или нет" не закрыт вовсе.
+        var csv = Csv(
+            "2026-08-13 17:46:04;100;1;;35",
+            "2026-08-13 17:46:14;100;1;;35",
+            "2026-08-13 17:46:24;98;1;;36");
+
+        var text = SensorReport.Format(SensorReport.Summarize(SensorReport.Parse(csv)));
+
+        Assert.Contains("Температура CPU недоступна", text);
+        Assert.Contains("start-sensors.ps1", text);
+        Assert.DoesNotContain("Температура max", text);
+    }
+
+    [Fact]
+    public void Format_CpuClockPresent_PrintsMaxClock()
+    {
+        // Бэклог п.153: без частоты вердикт "троттлинга нет" недоказуем.
+        var csv = "time;cpu_pct;stress_procs;cpu_temp_c;ram_used_pct;gpu_pct;gpu_temp_c;gpu_power_w;cpu_clock_mhz\n" +
+                  "2026-08-13 17:46:04;100;1;70;35;;;;4550\n" +
+                  "2026-08-13 17:46:14;100;1;71;35;;;;4650\n";
+
+        var text = SensorReport.Format(SensorReport.Summarize(SensorReport.Parse(csv)));
+
+        Assert.Contains("Частота CPU max 4650 МГц", text);
+    }
+
+    [Fact]
+    public void ConstantTemperature_VaryingLoad_StillCalledBroken()
+    {
+        // Регрессия (#95 / б.156, СЗ 161190): cpu_temp_c=27,9 не шевельнулась НИ РАЗУ, пока
+        // cpu_pct прыгал от простоя до 100% под prime95 — источник (ACPI thermal zone) отдаёт
+        // температуру корпуса, а не ядер, и такое "ровно держит" само по себе диагноз.
+        var rows = new[]
+        {
+            "2026-08-13 10:00:00;2;0;27.9;30",
+            "2026-08-13 10:00:10;100;1;27.9;35",
+            "2026-08-13 10:00:20;100;1;27.9;35",
+            "2026-08-13 10:00:30;100;1;27.9;35",
+            "2026-08-13 10:00:40;100;1;27.9;35",
+            "2026-08-13 10:00:50;100;1;27.9;35",
+            "2026-08-13 10:01:00;100;1;27.9;35",
+            "2026-08-13 10:01:10;100;1;27.9;35",
+            "2026-08-13 10:01:20;100;1;27.9;35",
+            "2026-08-13 10:01:30;100;1;27.9;35",
+            "2026-08-13 10:01:40;5;0;27.9;30",
+        };
+        var csv = "time;cpu_pct;stress_procs;cpu_temp_c;ram_used_pct\n" + string.Join("\n", rows);
+
+        var text = SensorReport.Format(SensorReport.Summarize(SensorReport.Parse(csv)));
+
+        Assert.Contains("датчик не отвечает", text);
+        Assert.Matches(@"27[.,]9", text);
+    }
 }
 
 public class SensorWatcherScriptTests
@@ -165,6 +224,19 @@ public class SensorWatcherScriptTests
     [Fact]
     public void Script_ZeroMinutes_RunsUntilKilled()
         => Assert.Contains("AddYears(1)", SensorWatcher.BuildScript(@"C:\x.csv", 5, 0, new[] { "OCCT" }));
+
+    [Fact]
+    public void Script_WritesCpuClockColumn_FromSameProcessorQuery()
+    {
+        // Бэклог п.153: без частоты вердикт "троттлинга нет" недоказуем. Частоту берём из
+        // того же запроса Win32_Processor, что и загрузку - второй дорогой WMI-вызов под
+        // нагрузкой не нужен.
+        var script = SensorWatcher.BuildScript(@"C:\x.csv", 5, 0, new[] { "OCCT" });
+
+        Assert.Contains("cpu_clock_mhz", script);
+        Assert.Contains("CurrentClockSpeed", script);
+        Assert.Contains("$clock", script);
+    }
 
     [Fact]
     public void Script_ScrubsNvidiaSmiNotAvailableValues()

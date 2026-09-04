@@ -105,16 +105,23 @@ Start-ScheduledTask -TaskName $Task
 
 Start-Sleep -Seconds 120
 $g = Get-Process cs2 -ErrorAction SilentlyContinue
-('cs2.exe: ' + $(if ($g) { 'жив, pid ' + $g.Id + ', RAM ' + [int]($g.WorkingSet64/1MB) + ' МБ' } else { 'НЕ ПОДНЯЛСЯ' }))
 
-# Карта реально загрузилась? Строки про ботов в console.log — единственное надёжное
-# подтверждение, что мы не стоим в меню.
+# #133 / б.188 (160705, 19.08.2026): раньше «cs2.exe: НЕ ПОДНЯЛСЯ» и «ботов в матче: 9»
+# печатались ДВУМЯ независимыми строками — человек читал их по отдельности и старый
+# console.log (с прошлого прогона) засчитывался как живой матч. С п.1 (уборка console.log
+# до старта) это расхождение стало структурно невозможным, но сам разнобой строк остался:
+# «процесс не поднялся» и «карта не загрузилась» — это ОДНА ошибка, а не наблюдение плюс
+# отдельная пометка. Печатаем единственный вывод по прогону, а не набор строк вразнобой.
 $log = 'C:\Program Files (x86)\Steam\steamapps\common\Counter-Strike Global Offensive\game\csgo\console.log'
-if (Test-Path $log) {
-    $bots = @(Select-String -Path $log -Pattern 'BOT.*ChangeTeam' -ErrorAction SilentlyContinue).Count
-    ('ботов в матче (по console.log): ' + $bots + $(if ($bots -eq 0) { '  ← КАРТА НЕ ЗАГРУЗИЛАСЬ, игра в меню' } else { '' }))
-    if (-not $g -and $bots -gt 0) {
-        'ОШИБКА: процесса cs2 нет, но боты в логе есть — значит лог не от этого прогона. Прогон НЕ засчитывать.'
-    }
-} else { 'console.log не создан — игра не стартовала (проверь параметры запуска Steam)' }
+$bots = 0
+if (Test-Path $log) { $bots = @(Select-String -Path $log -Pattern 'BOT.*ChangeTeam' -ErrorAction SilentlyContinue).Count }
+
+if (-not $g) {
+    $detail = if (Test-Path $log) { "ботов в свежем console.log: $bots — лог от этого прогона, но процесса нет" } else { 'console.log не создан вовсе' }
+    throw "ОШИБКА: cs2.exe НЕ ПОДНЯЛСЯ — прогон НЕ СОСТОЯЛСЯ ($detail). Проверь Steam/StateFlags и запусти заново."
+} elseif ($bots -eq 0) {
+    "ОШИБКА: cs2.exe жив (pid $($g.Id)), НО КАРТА НЕ ЗАГРУЗИЛАСЬ — ботов в console.log: 0, игра стоит в меню. Прогон НЕ засчитывать."
+} else {
+    ('ПРОГОН ЗАСЧИТАН: cs2.exe жив, pid ' + $g.Id + ', RAM ' + [int]($g.WorkingSet64/1MB) + ' МБ; ботов в матче: ' + $bots)
+}
 'приёмка нагрузки — game-load-check.ps1 (GPU >= 60 % большую часть замеров)'

@@ -16,7 +16,10 @@ public sealed record SensorSample(
     double? GpuPowerW = null,
     double? Volt12 = null,
     double? Volt5 = null,
-    double? Volt33 = null);
+    double? Volt33 = null,
+    // Частота CPU (бэклог п.153): без неё вердикт «троттлинга нет» недоказуем — 100 % LoadPercentage
+    // ничего не говорит про то, упёрся ли CPU в турбо-лимит или троттлит на пониженной частоте.
+    double? CpuClockMhz = null);
 
 /// <summary>Какой CSV нам дали. `Unknown` — это НЕ «прогон не подтверждён»: это «мы не поняли
 /// файл», и разница принципиальна (бэклог п.91).</summary>
@@ -87,6 +90,7 @@ public sealed record SensorSummary(
     double? MaxGpuTempC = null,
     double? MaxCpuPowerW = null,
     double? MaxGpuPowerW = null,
+    double? MaxCpuClockMhz = null,
     IReadOnlyList<RailStats>? Rails = null,
     IReadOnlyList<ConstantSensor>? ConstantSensors = null,
     SensorCsvFormat Format = SensorCsvFormat.Watcher)
@@ -163,6 +167,8 @@ public static class SensorReport
                     DateTimeStyles.AssumeLocal, out var time)) continue;
 
             // Колонки 5-7 (GPU) появились позже — старые CSV просто короче (бэклог п.80).
+            // Колонка 8 (cpu_clock_mhz) — ещё позже (бэклог п.153): без частоты «троттлинга
+            // нет» недоказуемо. ElementAtOrDefault на коротких старых строках даёт null — ок.
             samples.Add(new SensorSample(
                 time,
                 Num(parts.ElementAtOrDefault(1)),
@@ -171,7 +177,8 @@ public static class SensorReport
                 Num(parts.ElementAtOrDefault(4)),
                 GpuPercent: Num(parts.ElementAtOrDefault(5)),
                 GpuTempC: Num(parts.ElementAtOrDefault(6)),
-                GpuPowerW: Num(parts.ElementAtOrDefault(7))));
+                GpuPowerW: Num(parts.ElementAtOrDefault(7)),
+                CpuClockMhz: Num(parts.ElementAtOrDefault(8))));
         }
         return samples;
     }
@@ -362,6 +369,7 @@ public static class SensorReport
             MaxGpuTempC: ordered.Max(s => s.GpuTempC),
             MaxCpuPowerW: ordered.Max(s => s.CpuPowerW),
             MaxGpuPowerW: ordered.Max(s => s.GpuPowerW),
+            MaxCpuClockMhz: ordered.Max(s => s.CpuClockMhz),
             Rails: BuildRails(ordered),
             ConstantSensors: FindConstants(ordered),
             Format: format);
@@ -456,8 +464,19 @@ public static class SensorReport
                       + $"{constantTemp.Samples} замерах) — перегрев по этим данным ни подтвердить, ни исключить нельзя.");
         else if (s.MaxTempC is not null)
             lines.Add($"Температура max {s.MaxTempC:N1} °C");
+        // Колонка пуста ВСЕГДА (не «сломанный константный датчик», а датчика нет вовсе на этой
+        // машине) — на 160587 это молча читалось как «перегрева нет», хотя штатный наблюдатель
+        // вопрос вообще не закрывал: ACPI-зоны нет, а GPU-колонки живые создавали видимость
+        // рабочего CSV (бэклог п.153).
+        else if (s.Format == SensorCsvFormat.Watcher)
+            lines.Add("⚠ Температура CPU недоступна: колонка cpu_temp_c пуста на всех замерах "
+                      + "(датчика ACPI на этой машине нет) — вопрос «перегрев или нет» этот CSV не закрывает, "
+                      + "подними lhmmon (tools/recipes/client/start-sensors.ps1).");
 
         if (s.MaxCpuPowerW is not null) lines.Add($"Мощность CPU max {s.MaxCpuPowerW:N0} Вт");
+        // F0, не N0: значения в тысячах МГц, и разделитель разрядов N0 зависит от локали
+        // раннера (узкий неразрывный пробел в ru-RU) — тест на конкретный текст иначе хрупкий.
+        if (s.MaxCpuClockMhz is not null) lines.Add($"Частота CPU max {s.MaxCpuClockMhz:F0} МГц");
         if (s.MaxRamPercent is not null) lines.Add($"Память max {s.MaxRamPercent:N0}%");
 
         foreach (var rail in s.Rails ?? Array.Empty<RailStats>())

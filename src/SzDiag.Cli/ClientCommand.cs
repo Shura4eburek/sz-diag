@@ -55,6 +55,16 @@ public static class ClientCommand
         if (ClientTraces.AgentLogPath(stdout) is { } logPath)
             AnsiConsole.MarkupLineInterpolated($"[grey]Лог агента:[/] {logPath}");
 
+        // Бэклог п.201: на машине со сломанными perf-счётчиками рецепты (Get-Counter,
+        // Win32_PerfRawData_*) молча отчитываются успехом с пустой таблицей — «нагрузки нет»
+        // читается как правда, хотя источник данных недоступен.
+        if (ClientTraces.PerfCountersBroken(stdout) is { } perfError)
+        {
+            AnsiConsole.MarkupLineInterpolated($"[red]⚠ Perf-счётчики разрушены:[/] {perfError}");
+            AnsiConsole.MarkupLine("[grey]Чинится (не посреди прогона!):[/] lodctr /R  и  winmgmt /resyncperf");
+            AnsiConsole.MarkupLine("[grey]Пока не починено — I/O по процессам через:[/] tools/recipes/client/process-io-top.ps1 (GetProcessIoCounters, не завязан на lodctr)");
+        }
+
         // Задачи текущей сессии — отдельным блоком: раньше рабочий sshd/watchdog печатались
         // как «остатки» с советом cleanup, выполнить который значило снести себе доступ (п.107).
         var report = ClientTraces.FindLeftoversDetailed(stdout, sz);
