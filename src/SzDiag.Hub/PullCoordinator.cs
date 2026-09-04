@@ -41,15 +41,19 @@ public sealed class PullCoordinator
     public int PendingCount => _pending.Count;
 
     /// <summary>Забрать файлы с клиента. null — СЗ не онлайн.</summary>
+    /// <param name="label">Подпапка на хосте вместо метки времени по умолчанию — например
+    /// <c>jobs/&lt;jobId&gt;</c> для вывода фоновой задачи (`exec --result --save`, бэклог
+    /// п.214): повторный забор той же задачи ложится рядом же, а не расползается по времени.</param>
     /// <exception cref="TimeoutException">Агент не завершил забор в отведённое время.</exception>
     public async Task<PullResponse?> PullAsync(string sz, string path, long? maxBytes = null,
-        bool recurse = false, CancellationToken ct = default)
+        bool recurse = false, string? label = null, CancellationToken ct = default)
     {
         var connId = _registry.TryGetConnectionId(sz);
         if (connId is null) return null;
 
         var requestId = Guid.NewGuid().ToString("N");
-        var dir = Path.Combine(ResolveRoot(), sz, DateTime.Now.ToString("yyyyMMdd-HHmmss"));
+        var sub = SanitizeLabel(label) ?? DateTime.Now.ToString("yyyyMMdd-HHmmss");
+        var dir = Path.Combine(ResolveRoot(), sz, sub);
         var session = new Session { Sz = sz, Dir = dir };
         _pending[requestId] = session;
         try
@@ -169,4 +173,15 @@ public sealed class PullCoordinator
 
     private string ResolveRoot()
         => Path.IsPathRooted(_root) ? _root : Path.Combine(AppContext.BaseDirectory, _root);
+
+    /// <summary>Метка — наша же строка (`jobs/&lt;jobId&gt;`), но выходить за пределы
+    /// <see cref="ResolveRoot"/>/&lt;СЗ&gt; ей нельзя ни при какой опечатке выше по стеку.</summary>
+    private static string? SanitizeLabel(string? label)
+    {
+        if (string.IsNullOrWhiteSpace(label)) return null;
+        var parts = label.Split('/', '\\', StringSplitOptions.RemoveEmptyEntries)
+            .Where(p => p != "." && p != "..");
+        var clean = string.Join(Path.DirectorySeparatorChar, parts);
+        return clean.Length == 0 ? null : clean;
+    }
 }

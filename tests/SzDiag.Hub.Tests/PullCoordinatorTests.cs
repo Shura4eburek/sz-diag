@@ -148,6 +148,31 @@ public class PullCoordinatorTests : IDisposable
     }
 
     [Fact]
+    public async Task Pull_WithLabel_SavesUnderLabelledSubdirInsteadOfTimestamp()
+    {
+        // exec --result --save (бэклог п.214): вывод фоновой задачи должен лечь предсказуемо
+        // под jobs/<jobId>, а не под меткой времени забора, которую нельзя предсказать заранее.
+        var content = Bytes(50);
+        var sender = new SpySender();
+        var coordinator = new PullCoordinator(RegistryWith("160705"), sender, _root, timeoutSeconds: 10);
+        sender.OnSent = req =>
+        {
+            coordinator.AcceptChunk(new PullChunk(req.RequestId, @"C:\jobs\j1\out.txt", 0, content, true));
+            coordinator.Complete(new PullResult(req.RequestId, new[]
+            {
+                new PullFileInfo("out.txt", @"C:\jobs\j1\out.txt", content.Length, Sha(content))
+            }));
+            return Task.CompletedTask;
+        };
+
+        var response = await coordinator.PullAsync("160705", @"C:\jobs\j1", label: "jobs/j1");
+
+        var file = Assert.Single(response!.Files);
+        Assert.False(file.Skipped);
+        Assert.Equal(Path.Combine(_root, "160705", "jobs", "j1", "out.txt"), file.SavedPath);
+    }
+
+    [Fact]
     public async Task Pull_OfflineSz_ReturnsNull()
     {
         var coordinator = new PullCoordinator(new SessionRegistry(), new SpySender(), _root, timeoutSeconds: 5);

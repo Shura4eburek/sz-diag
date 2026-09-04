@@ -66,6 +66,7 @@ CLI-токен — заголовок `X-SzDiag-Mgmt-Token` (`ManagementApi.Toke
 | `GET /api/sessions/{sz}/exec/{jobId}?tail=` | `ExecCoordinator.StatusAsync` | `ExecJobStatus` (+`Error` из `err.txt` при parse-ошибке скрипта; `LastOutputAt` — mtime `out.txt`, `szcli exec --result` печатает по нему «последняя строка N сек назад», пока задача выполняется — бэклог п.208) |
 | `GET /api/sessions/{sz}/exec` | `StatusAsync(sz, "*")` | список фоновых задач (сводка в `Tail`) |
 | `DELETE /api/sessions/{sz}/exec/{jobId}` | `StatusAsync(cancel: true)` | отмена задачи; `Cancelled=true` в ответе |
+| `POST /api/sessions/{sz}/pull` (тело `PullCommandRequest{Path,MaxBytes,Recurse,Label}`) | `PullCoordinator.PullAsync` | `PullResponse`/`NotFound`/`504`; кладёт на хост в `pulled\<sz>\<Label ?? метка_времени>\`. `Label` (например `jobs/<jobId>`) — сюда попадает `szcli exec --result --save`, чтобы вывод detached-задачи не терялся вместе с клиентом (бэклог п.214) |
 
 Exit-коды `szcli exec` (`ExecExitCode`): 0 успех · N — код скрипта как есть · 3 отказ/ошибка
 агента · 4 таймаут. `--result` мапится по исходу задачи (п.103).

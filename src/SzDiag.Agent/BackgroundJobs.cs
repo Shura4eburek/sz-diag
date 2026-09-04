@@ -37,8 +37,7 @@ public sealed class BackgroundJobs
     /// запрос с Isolated: true молча откатывается в обычный дочерний процесс.</param>
     public BackgroundJobs(string? root = null, IPowerShellRunner? ps = null)
     {
-        _root = root ?? Path.Combine(
-            Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData), "szdiag", "jobs");
+        _root = root ?? ClientTraces.JobsRoot;
         _ps = ps;
     }
 

@@ -546,6 +546,29 @@ switch (command)
         // «завершена (exit 1), вывода 0 б» была неотличима от упавшего агента (п.177).
         if (!string.IsNullOrEmpty(status.Error))
             AnsiConsole.MarkupLineInterpolated($"[red]ошибка скрипта:[/] {status.Error}");
+
+        // --save: вывод detached-задачи живёт только на клиенте и не переживает его потерю —
+        // переустановка/вырубон уносит единственное приборное доказательство (бэклог п.214,
+        // СЗ 161972). Тянем ту же папку задачи тем же каналом, что и `pull`, без отдельного
+        // вызова: `jobs/<jobId>` на хосте, а не метка времени — повторный `--save` ложится рядом.
+        if (args.Any(a => a.Equals("--save", StringComparison.OrdinalIgnoreCase)))
+        {
+            var saveRes = await client.PullAsync(args[1], JobOutputPull.ClientDir(args[3]),
+                maxBytes: null, recurse: false, label: JobOutputPull.HostLabel(args[3]));
+            if (saveRes is null)
+                AnsiConsole.MarkupLine("[yellow]⚠ вывод не сохранён на хосте: СЗ уже не в сети[/]");
+            else if (!string.IsNullOrEmpty(saveRes.Error))
+                AnsiConsole.MarkupLineInterpolated($"[yellow]⚠ вывод не сохранён на хосте:[/] {saveRes.Error}");
+            else
+            {
+                var savedFiles = saveRes.Files.Where(f => !f.Skipped && f.SavedPath is not null).ToList();
+                if (savedFiles.Count == 0)
+                    AnsiConsole.MarkupLine("[grey]сохранять пока нечего — вывода на клиенте ещё нет[/]");
+                else
+                    AnsiConsole.MarkupLineInterpolated(
+                        $"[green]✓ сохранено на хосте:[/] {Path.GetDirectoryName(savedFiles[0].SavedPath)}");
+            }
+        }
         // Код возврата отражает исход задачи — поверх можно строить автоматизацию (п.103).
         return ExecExitCode.FromStatus(status);
     }
@@ -704,7 +727,8 @@ static void PrintUsage()
                 [grey]можно через запятую или пробел; all — все; алиасы: hw ram disks video bsod tdr temp[/]
               [yellow]szcli exec[/] [blue]<СЗ>[/] [grey]"<powershell>" | -f <файл> [[--timeout <сек>]] [[--detach [[--isolated]]]][/]
                 [grey]--isolated — фон переживает падение/закрытие агента (scheduled task под SYSTEM)[/]
-              [yellow]szcli exec[/] [blue]<СЗ>[/] [grey]--result <jobId> [[--tail N]]   состояние фоновой задачи[/]
+              [yellow]szcli exec[/] [blue]<СЗ>[/] [grey]--result <jobId> [[--tail N]] [[--save]]   состояние фоновой задачи[/]
+                [grey]--save — забрать вывод задачи (out.txt/err.txt) на хост, чтобы он пережил потерю клиента[/]
               [yellow]szcli exec[/] [blue]<СЗ>[/] [grey]--cancel <jobId> | --jobs      снять задачу / список задач[/]
                 [grey]выполнить скрипт на агенте и получить вывод (без SSH)[/]
                 [grey]всё сложнее однострочника — через [/][yellow]-f[/][grey]: inline-строку портит твой шелл[/]

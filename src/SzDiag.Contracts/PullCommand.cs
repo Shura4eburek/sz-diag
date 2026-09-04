@@ -42,7 +42,12 @@ public sealed record PullResult(
     string? Error = null);
 
 /// <summary>Тело HTTP-запроса CLI → hub.</summary>
-public sealed record PullCommandRequest(string Path, long? MaxBytes = null, bool Recurse = false);
+/// <param name="Label">Подпапка на хосте вместо метки времени по умолчанию — например
+/// <c>jobs/&lt;jobId&gt;</c> для вывода фоновой задачи (`exec --result --save`, бэклог п.214):
+/// без этого вывод detached-задачи оставался только на клиенте и не переживал его потерю
+/// или переустановку.</param>
+public sealed record PullCommandRequest(string Path, long? MaxBytes = null, bool Recurse = false,
+    string? Label = null);
 
 /// <summary>Hub → CLI: что и куда реально забрали.</summary>
 /// <param name="SavedPath">Путь на хосте, куда лёг файл (null — файл пропущен).</param>
