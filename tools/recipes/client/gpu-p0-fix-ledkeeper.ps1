@@ -32,6 +32,18 @@ $svcs = @('MSI_Center_Service', 'MSI_Case_Service', 'Mystic_Light_Service')
 $smi = Join-Path $env:SystemRoot 'System32\nvidia-smi.exe'
 function Pstate { (& $smi --query-gpu=pstate,clocks.current.graphics,fan.speed,temperature.gpu --format=csv,noheader,nounits) -join '' }
 
+# R-I1 (ревью волны 1): StartMode из Win32_Service ('Auto'/'Manual'/'Disabled'/'Boot'/'System')
+# и -StartupType у Set-Service ('Automatic'/'Manual'/'Disabled'/…) — РАЗНЫЕ словари. Подстановка
+# StartMode как есть (Set-Service -StartupType Auto) валится ошибкой привязки параметра, и
+# точка возврата (#113) молча не возвращает подсветку — цена «не перезаписываем бэкап» тогда
+# обнуляется тем, что откат из него не работает вообще.
+function ConvertTo-StartupType($startMode) {
+    switch ($startMode) {
+        'Auto' { 'Automatic' }
+        default { $startMode }   # Manual/Disabled совпадают дословно; Boot/System у обычных служб не встречаются
+    }
+}
+
 if ($Restore) {
     if (-not (Test-Path $state)) { 'файла состояния нет — откатывать нечего'; return }
     $s = Get-Content $state -Raw | ConvertFrom-Json
@@ -41,9 +53,13 @@ if ($Restore) {
     "   задача '$($s.Task)': была $($s.TaskWas)"
     foreach ($x in $s.Services) { "   $($x.Name) -> $($x.StartMode)/$($x.State)" }
     ''
-    Enable-ScheduledTask -TaskName $s.Task -ErrorAction SilentlyContinue | Out-Null
+    # R-M10 (ревью волны 1): без -TaskPath Enable-/Disable-ScheduledTask подразумевают корень
+    # '\' — задача из подпапки находится в Get-ScheduledTask (по имени), но не переключается.
+    # $s.TaskPath может отсутствовать в старой точке возврата — фоллбэк на корень.
+    $taskPath = if ($s.TaskPath) { $s.TaskPath } else { '\' }
+    Enable-ScheduledTask -TaskName $s.Task -TaskPath $taskPath -ErrorAction SilentlyContinue | Out-Null
     foreach ($x in $s.Services) {
-        Set-Service -Name $x.Name -StartupType $x.StartMode -ErrorAction SilentlyContinue
+        Set-Service -Name $x.Name -StartupType (ConvertTo-StartupType $x.StartMode) -ErrorAction SilentlyContinue
         if ($x.State -eq 'Running') { Start-Service -Name $x.Name -ErrorAction SilentlyContinue }
         "   применено: $($x.Name) -> $($x.StartMode)/$($x.State)"
     }
@@ -69,7 +85,8 @@ else {
     }
     $dir = Split-Path $state -Parent
     if (-not (Test-Path $dir)) { New-Item -ItemType Directory $dir -Force | Out-Null }
-    @{ Task = $task; TaskWas = "$($t.State)"; Services = @($saved); Saved = (Get-Date).ToString('s') } |
+    @{ Task = $task; TaskWas = "$($t.State)"; TaskPath = "$(if ($t) { $t.TaskPath } else { '\' })";
+       Services = @($saved); Saved = (Get-Date).ToString('s') } |
         ConvertTo-Json -Depth 4 | Set-Content $state -Encoding UTF8
     "состояние сохранено в $state"
 }
@@ -84,7 +101,7 @@ foreach ($n in $svcs) {
     }
     catch { "   $n : $($_.Exception.Message)" }
 }
-if ($t) { Disable-ScheduledTask -TaskName $task -ErrorAction SilentlyContinue | Out-Null; "   задача '$task' выключена" }
+if ($t) { Disable-ScheduledTask -TaskName $task -TaskPath $t.TaskPath -ErrorAction SilentlyContinue | Out-Null; "   задача '$task' выключена" }
 Get-Process LEDKeeper2 -ErrorAction SilentlyContinue | ForEach-Object {
     try { Stop-Process -Id $_.Id -Force -ErrorAction Stop; "   LEDKeeper2 pid=$($_.Id) остановлен" } catch { "   $($_.Exception.Message)" }
 }
