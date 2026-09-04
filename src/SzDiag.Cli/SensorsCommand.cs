@@ -68,7 +68,11 @@ public static class SensorsCommand
         // Пишем в ProgramData, а не рядом с агентом: папка агента может оказаться внутри
         // OneDrive клиента (п.63), а CSV прогона туда уезжать не должен.
         var csvPath = $@"C:\ProgramData\szdiag\sensors\{sz}-{DateTime.Now:yyyyMMdd-HHmmss}.csv";
+        // Маркер приборного захвата (бэклог п.147, #86): агент при `--resume` после ребута
+        // клиента видит его и поднимает наблюдатель заново сам — без него после hard-off
+        // приборка терялась, хотя доступ агент восстанавливал.
         var script = "New-Item -ItemType Directory -Force -Path (Split-Path '" + csvPath + "') | Out-Null\n"
+                     + SensorResumeMarker.BuildWriteScript(sz, interval, minutes) + "\n"
                      + SensorWatcher.BuildScript(csvPath, interval, minutes, StressProcesses);
 
         var res = await client.ExecAsync(sz, script, 60, default, detached: true);
@@ -149,6 +153,13 @@ public static class SensorsCommand
         AnsiConsole.MarkupLine($"Наблюдатель {Markup.Escape(run.JobId)}: {state}, CSV {Markup.Escape(run.CsvPath)}");
         AnsiConsole.MarkupLine($"[grey]{Markup.Escape(FreshnessLine(rows, status.LastOutputAt, DateTimeOffset.Now))}[/]");
         if (!string.IsNullOrEmpty(status.Error)) AnsiConsole.MarkupLineInterpolated($"[red]{status.Error}[/]");
+
+        // Бэклог п.147 (#86): «идёт»/«не пишет» без причины сбивает с толку, если причина —
+        // ребут клиента, а не деградация наблюдателя. `LastRebootAt` уже трекается хабом
+        // (см. reboots) — сверяем с моментом старта этого захвата.
+        var session = (await client.GetSessionsAsync()).FirstOrDefault(s => s.Sz == sz);
+        if (RebootInterruptionNote(session?.LastRebootAt, run.StartedAt) is { } rebootNote)
+            AnsiConsole.MarkupLineInterpolated($"[yellow]⚠ {rebootNote}[/]");
         return 0;
     }
 
@@ -182,9 +193,12 @@ public static class SensorsCommand
         }
 
         // Наблюдатель — обычный PowerShell-цикл; глушим по имени файла его скрипта.
+        // Маркер (бэклог п.147, #86) снимаем тем же вызовом — сознательно остановленный
+        // захват агент не должен поднимать заново после следующего же ребута.
         var script = $"Get-CimInstance Win32_Process -Filter \"Name='powershell.exe'\" | " +
                      $"Where-Object {{ $_.CommandLine -like '*{run.JobId}*' }} | " +
-                     "ForEach-Object { Stop-Process -Id $_.ProcessId -Force }; 'stopped'";
+                     "ForEach-Object { Stop-Process -Id $_.ProcessId -Force }; " +
+                     SensorResumeMarker.BuildRemoveScript() + "; 'stopped'";
         var res = await client.ExecAsync(sz, script, 120, default, detached: false);
         if (res is null)
         {
@@ -263,6 +277,19 @@ public static class SensorsCommand
         return $"Прошлый прогон не остановлен явно: job {previousJobId}, CSV {previousCsvPath} " +
                $"(запущен {previousStartedAt:dd.MM HH:mm}). Новые данные пишутся в отдельный файл — " +
                "старые не тронуты, но процесс на клиенте мог продолжать работать: szcli exec <СЗ> --jobs";
+    }
+
+    /// <summary>Клиент перезагружался после старта захвата — старый ряд оборван на ребуте,
+    /// а не докручен до конца намеченных минут. Агент при `--resume` поднимает наблюдатель
+    /// заново в НОВЫЙ файл (см. <see cref="SensorCaptureGuard"/> в SzDiag.Agent, недоступен
+    /// отсюда напрямую — только по марке), но CLI-состояние (<c>run.CsvPath</c>) по-прежнему
+    /// указывает на старый: явно предупреждаем, а не оставляем «идёт»/«не пишет» без объяснения
+    /// причины (бэклог п.147, #86). Чистая функция — тестируется без сети.</summary>
+    public static string? RebootInterruptionNote(DateTimeOffset? lastRebootAt, DateTimeOffset runStartedAt)
+    {
+        if (lastRebootAt is not { } reboot || reboot <= runStartedAt) return null;
+        return $"клиент перезагрузился в {reboot:HH:mm:ss} — старый ряд оборван на этом моменте, " +
+               "агент должен был поднять наблюдатель заново (новый CSV с той же СЗ и свежей меткой времени)";
     }
 
     /// <summary>Номер строки CSV из последнего хартбита наблюдателя в хвосте вывода фоновой

@@ -164,4 +164,31 @@ public class SensorsCommandTests
         Assert.Contains("процесс жив", line);
         Assert.Contains("42 строк", line);
     }
+
+    // Бэклог п.147 (#86, СЗ 160705): «идёт»/«не пишет» без причины сбивает с толку, если
+    // причина — ребут клиента, а не деградация наблюдателя.
+    [Fact]
+    public void RebootInterruptionNote_NoReboot_ReturnsNull()
+        => Assert.Null(SensorsCommand.RebootInterruptionNote(null, DateTimeOffset.UtcNow));
+
+    [Fact]
+    public void RebootInterruptionNote_RebootBeforeCaptureStarted_ReturnsNull()
+    {
+        var started = new DateTimeOffset(2026, 9, 4, 12, 0, 0, TimeSpan.Zero);
+        var oldReboot = started.AddMinutes(-30);
+
+        Assert.Null(SensorsCommand.RebootInterruptionNote(oldReboot, started));
+    }
+
+    [Fact]
+    public void RebootInterruptionNote_RebootAfterCaptureStarted_MentionsTime()
+    {
+        var started = new DateTimeOffset(2026, 9, 4, 12, 0, 0, TimeSpan.Zero);
+        var reboot = started.AddMinutes(20);
+
+        var note = SensorsCommand.RebootInterruptionNote(reboot, started);
+
+        Assert.NotNull(note);
+        Assert.Contains("12:20", note);
+    }
 }
