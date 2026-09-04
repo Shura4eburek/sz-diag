@@ -60,14 +60,51 @@ ssh_do() { ssh -i "$KEY" -o StrictHostKeyChecking=no -o ConnectTimeout=15 "$USER
 # Комментарии (строка целиком начинается с #) и пустые строки — вон. Инлайн-комментарии
 # (`код # пояснение`) НЕ трогаем: `#` внутри строкового литерала ('a#b') резать нельзя, а
 # отличить его от реального комментария построчным вырезанием без парсера — нельзя тоже.
+#
+# I-18 (ревью волны 2): построчное вырезание не знало про блочные комментарии (`<# ... #>`)
+# и here-string'и (`@'...'@` / `@"..."@`). Блочный комментарий: открывающая строка (начинается
+# с `<`) не резалась, а закрывающая `#>` резалась как обычная строка-комментарий — комментарий
+# оставался незакрытым (в репо такой файл есть — erp-fetch-raw.ps1). Here-string: `#`-строки и
+# пустые строки внутри него — это ДАННЫЕ (например, содержимое конфига), а не комментарии, и
+# резать их молча нельзя. Теперь строки внутри блочного комментария/here-string проходят
+# насквозь без изменений, а обычное вырезание работает только вне них.
 STRIPPED=$(python -c "
+import re
 import sys
 src = open(sys.argv[1], 'rb').read().decode('utf-8-sig')
-lines = [l for l in src.splitlines() if l.strip() and not l.strip().startswith('#')]
-sys.stdout.write('\n'.join(lines))
+out = []
+state = 'normal'   # normal | block_comment | herestring
+here_end = None
+herestring_start = re.compile(r'''@(['\"])\s*\$''')
+for line in src.splitlines():
+    if state == 'block_comment':
+        out.append(line)
+        if '#>' in line:
+            state = 'normal'
+        continue
+    if state == 'herestring':
+        out.append(line)
+        if line.startswith(here_end):
+            state = 'normal'
+        continue
+    stripped = line.strip()
+    if stripped.startswith('<#') and '#>' not in stripped:
+        out.append(line)
+        state = 'block_comment'
+        continue
+    m = herestring_start.search(line)
+    if m:
+        out.append(line)
+        state = 'herestring'
+        here_end = m.group(1) + '@'
+        continue
+    if not stripped or stripped.startswith('#'):
+        continue
+    out.append(line)
+sys.stdout.write('\n'.join(out))
 " "$SCRIPT")
 
-B64=$(printf '%s' "$STRIPPED" | python -c "
+B64=$(printf '%s\n' "$STRIPPED" | python -c "
 import sys, base64
 print(base64.b64encode(sys.stdin.buffer.read().decode('utf-8').encode('utf-16-le')).decode())
 ")
@@ -80,9 +117,11 @@ fi
 
 # Длинный скрипт даже после вырезания — потоком в stdin. PowerShell читает stdin в
 # OEM-кодировке консоли (cp866), поэтому UTF-8 в него слать нельзя: кириллица в выводе
-# превращается в мусор. Кодируем в cp866.
+# превращается в мусор. Кодируем в cp866. I-18: без завершающего перевода строки последняя
+# строка потока могла остаться недоразобранной тем же классом ошибки, что и #112 — теперь
+# printf добавляет `\n`.
 echo "доставка: stdin (${#B64} симв. база64 даже после вырезания комментариев — лимит -EncodedCommand $LIMIT превышен)" >&2
-printf '%s' "$STRIPPED" | python -c "
+printf '%s\n' "$STRIPPED" | python -c "
 import sys
 sys.stdout.buffer.write(sys.stdin.buffer.read().decode('utf-8').encode('cp866','replace'))
 " | ssh_do "powershell -NoProfile -Command -"

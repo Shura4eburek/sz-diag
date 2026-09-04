@@ -144,16 +144,25 @@ $werRows = foreach ($d in ($werAll | Where-Object { $_.Name -match '^(Kernel_|Cr
     [pscustomobject]@{ Time = $h.Time; Type = $h.Type; Code = $h.v0 }
 }
 if (-not $werRows) { 'LiveKernelEvent/BSOD у WER немає' }
-'!!! часи нижче - UTC (не локальний час PE, не локальний час клієнта) !!!'
+# I-19 (ревью волны 2): банер друкувався навіть коли $werRows порожній - нижче тоді нічого
+# немає, і рядок про UTC висить сам по собі без сенсу.
+if ($werRows) { '!!! часи нижче - UTC (не локальний час PE, не локальний час клієнта) !!!' }
 foreach ($r in ($werRows | Sort-Object Time)) {
-    $what = if ($werCodes[$r.Code]) { $werCodes[$r.Code] } else { "код $($r.Code)" }
+    # I-19: $werCodes[$r.Code] падав, якщо у звіту немає Sig[0].Value ($r.Code = $null) -
+    # індексація за $null валилась "Index operation failed; the array index evaluated to null".
+    $what = if ($r.Code -and $werCodes[$r.Code]) { $werCodes[$r.Code] } else { "код $($r.Code)" }
     '{0:yyyy-MM-dd HH:mm:ss} {1,-16} {2}' -f $r.Time, $r.Type, $what
 }
 $werLog = "$Sys\Windows\System32\winevt\Logs\System.evtx"
 if ((Test-Path $werLog) -and $werRows) {
-    $k41 = (Get-WinEvent -Path $werLog -ErrorAction SilentlyContinue |
-        Where-Object { $_.Id -eq 41 -and $_.ProviderName -match 'Kernel-Power' }).TimeCreated |
-        ForEach-Object { $_.ToUniversalTime() }
+    # I-19: `Get-WinEvent -Path` без фільтра матеріалізує весь System.evtx і фільтрує вже в
+    # PowerShell - у PE це хвилини. FilterHashtable фільтрує на боці провайдера. Крім того,
+    # коли Kernel-Power 41 у логу немає, конвеєр давав один $null (у PS 5.1 "$null |
+    # ForEach-Object" ітерується ОДИН раз), і виклик .ToUniversalTime() на ньому падав
+    # "You cannot call a method on a null-valued expression" - обгортаємо @() і фільтруємо
+    # $null явно.
+    $k41 = @(Get-WinEvent -FilterHashtable @{ Path = $werLog; Id = 41; ProviderName = 'Microsoft-Windows-Kernel-Power' } -ErrorAction SilentlyContinue |
+        ForEach-Object { $_.TimeCreated.ToUniversalTime() })
     foreach ($r in ($werRows | Where-Object { $_.Type -eq 'LiveKernelEvent' } | Sort-Object Time)) {
         $near = $k41 | Where-Object { $_ -ge $r.Time -and ($_ - $r.Time).TotalMinutes -le 120 } |
             Sort-Object | Select-Object -First 1
