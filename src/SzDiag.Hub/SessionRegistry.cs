@@ -39,11 +39,16 @@ public sealed class SessionRegistry
     /// <param name="PreviousBootTime">Прежний boot-time (для записи события).</param>
     /// <param name="UptimeBefore">Сколько машина продержалась до вырубона.</param>
     /// <param name="ActivityBefore">Чем была занята — «продержалась N минут под тестом».</param>
+    /// <param name="ReconnectedAfterGap">Заполнено, когда boot-time НЕ сменился, но прошлая
+    /// сессия была помечена offline (heartbeat пропадал) — сколько молчала связь. Отвал под
+    /// нагрузкой без реального ребута иначе не оставляет в журнале ни следа (бэклог п.202,
+    /// СЗ 161972: «вырубился или висит» пришлось выяснять руками).</param>
     public sealed record RegisterOutcome(
         bool Rebooted,
         DateTimeOffset? PreviousBootTime = null,
         TimeSpan? UptimeBefore = null,
-        string? ActivityBefore = null);
+        string? ActivityBefore = null,
+        TimeSpan? ReconnectedAfterGap = null);
 
     /// <summary>Регистрация (или переподключение) агента. Если у СЗ уже был известен boot-time
     /// и пришёл другой — значит клиент реально перезагрузился: фиксируем момент в
@@ -75,7 +80,18 @@ public sealed class SessionRegistry
             BootTime: bootTime, LastRebootAt: lastReboot, RebootCount: rebootCount);
         _bySz[sz] = new Entry(info, connectionId);
 
-        if (!rebooted) return new RegisterOutcome(false);
+        if (!rebooted)
+        {
+            // Переподключение после пропажи heartbeat, но БЕЗ смены boot-time: машина не
+            // ребутилась, просто молчала — тоже факт диагностики (бэклог п.202).
+            var gap = prev is { Info.Status: SessionStatus.Offline }
+                ? now - prev.Info.LastHeartbeat
+                : (TimeSpan?)null;
+            var busyDuringGap = gap is not null && !string.IsNullOrWhiteSpace(prev!.Info.Activity)
+                ? prev.Info.Activity
+                : null;
+            return new RegisterOutcome(false, ActivityBefore: busyDuringGap, ReconnectedAfterGap: gap);
+        }
 
         // Аптайм считаем от прежнего boot-time до нового: это и есть «сколько продержалась».
         TimeSpan? uptime = prev!.Info.BootTime is { } oldBoot && bootTime is { } newBoot

@@ -33,7 +33,20 @@ public sealed class OfflineSweeper : BackgroundService
                 _registry.RecordMassOfflineEvent();
 
             foreach (var sz in stale)
-                _journal.Machine(sz, "зв'язок втрачено (heartbeat не приходить)");
+            {
+                // «Чем была занята» едет в журнал СЗ сразу, не дожидаясь возврата (бэклог
+                // п.202, СЗ 161972): отвал под дисковым тестом иначе связывают с прогоном
+                // только по памяти инженера, который помнит время старта.
+                var activity = _registry.TryGetInfo(sz)?.Activity;
+                _journal.Machine(sz, FormatLostMessage(activity));
+            }
         }
     }
+
+    /// <summary>Вынесено ради тестируемости — сам цикл со <see cref="PeriodicTimer"/>
+    /// unit-тестом не накрыть.</summary>
+    public static string FormatLostMessage(string? activity)
+        => string.IsNullOrWhiteSpace(activity)
+            ? "зв'язок втрачено (heartbeat не приходить)"
+            : $"зв'язок втрачено (heartbeat не приходить), була зайнята: {activity}";
 }

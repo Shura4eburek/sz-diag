@@ -87,6 +87,15 @@ public sealed class AgentHub : Microsoft.AspNetCore.SignalR.Hub
                 (long?)outcome.UptimeBefore?.TotalSeconds, outcome.ActivityBefore,
                 effectiveShutdown));
         }
+        else if (outcome.ReconnectedAfterGap is { } gap)
+        {
+            // Boot-time тот же — машина не ребутилась, просто молчала (сеть/exec задавлены
+            // нагрузкой). Отвал под фоновой задачей иначе связывают с ней только по памяти
+            // инженера, который помнит время старта (бэклог п.202, СЗ 161972).
+            var busyUa = outcome.ActivityBefore is { } a ? $", була зайнята: {a}" : "";
+            _journal.Machine(request.Sz,
+                $"з'єднання відновлено (мовчала {gap:hh\\:mm\\:ss}){busyUa}");
+        }
         _kb.EnsureSkeleton(request.Sz);
         await _store.RecordOpenAsync(
             new SessionRecord(request.Sz, ip, request.Hostname, now, null));

@@ -53,7 +53,7 @@ if (!CliCommands.IsKnown(command))
 // Мусорный ввод раньше молча уезжал в hub и в базу знаний (бэклог п.57).
 var szArgIndex = command switch
 {
-    "close" or "target" or "exec" or "pull" or "reboots" or "unfreeze" or "note"
+    "close" or "target" or "exec" or "pull" or "reboots" or "unfreeze" or "note" or "alive"
         when args.Length >= 2 => 1,
     // freeze принимает --status в любой позиции (п.175): номер СЗ — первый не-флаг.
     "freeze" when args.Length >= 2 => Array.FindIndex(args, 1, a => !a.StartsWith('-')),
@@ -381,6 +381,11 @@ switch (command)
         break;
     }
 
+    // alive: heartbeat + boot-time + TCP/ICMP/ARP одной командой — вердикт «вырубилась или
+    // висит» без шести ручных прогонов (бэклог п.202, СЗ 161972).
+    case "alive" when args.Length >= 2:
+        return await AliveCommand.RunAsync(client, args[1]);
+
     case "kb" when args.Length >= 2:
         return await KbCommand.RunAsync(args[1..], options.KbRoot);
 
@@ -680,6 +685,7 @@ static void PrintUsage()
                                             характерного интервала между отказами по истории СЗ
               [yellow]szcli target[/] [blue]<СЗ>[/]        SSH-адрес по номеру СЗ
               [yellow]szcli reboots[/] [blue]<СЗ>[/]       таймлайн вырубонов (по смене boot-time)
+              [yellow]szcli alive[/] [blue]<СЗ>[/]         heartbeat + TCP/ICMP/ARP одной командой — вырубилась или висит?
               [yellow]szcli note[/] [blue]<СЗ>[/] [grey]<текст>[/]  ручной шаг в журнал СЗ (свап железа, BIOS, осмотр)
                 [grey]принимается и когда машина offline или СЗ закрыта[/]
               [yellow]szcli sz fetch[/] [blue]<СЗ>[/] [grey][[--force]][/]  подтянуть заявку из учётной системы в kb
