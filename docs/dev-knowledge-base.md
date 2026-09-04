@@ -33,6 +33,7 @@
 | `Heartbeat` | `Heartbeat(string sz)` | `Registry.Heartbeat` (обновляет `LastHeartbeat`, статус Online) |
 | `ReportActivity` | `ReportActivity(sz, activity, since)` | `Registry.SetActivity`; `since=null` = простой. Fire-and-forget |
 | `UploadReportFile` | `UploadReportFile(UploadReportPart{Sz,Timestamp,FileName,Content})` | `ReportStore.Save` → `kb/СЗ/<sz>/reports/<ts>/<file>` |
+| `RevertResult` | `RevertResult(Sz,Done,Failed)` | Итог отката ДО отключения канала (self-revert по `C`, close с хоста — пока коннект ещё жив). `RevertResultStore.Set` (деталь для `close`) + `SessionRegistry.MarkRevertOutcome` (тот же `SessionInfo.RevertNote`, что и у headless-пути `/agent/revert-status` ниже) + запись в журнал СЗ |
 
 **Hub → агент** (client-методы; физически — `SignalRAgentCommandSender` через
 `IHubContext<AgentHub>.Clients.Client(connId).SendAsync`; агент подписан в `SignalRHubLink`):
@@ -57,7 +58,7 @@ CLI-токен — заголовок `X-SzDiag-Mgmt-Token` (`ManagementApi.Toke
 | Метод + путь | Сервис | Ответ |
 |---|---|---|
 | `GET /api/sessions` | `Registry.GetActive()` | `SessionInfo[]` |
-| `POST /api/sessions/{sz}/close` | `SessionCloser.CloseAsync` | `Ok`/`NotFound` |
+| `POST /api/sessions/{sz}/close` | `SessionCloser.CloseAsync` | `Ok{CloseOutcome{Closed,Revert?}}`/`NotFound`; `Revert` — сводка из `RevertResultStore` (агент уже мог прислать её `RevertResult`'ом ДО этого close), а не только от `wasOnline`-ожидания |
 | `POST /api/sessions/{sz}/test` (тело `TestRunRequest{Filter,Config,SameConfig}`) | `TestRunTrigger.TriggerAsync` + метка конфигурации в SQLite и журнал | `Ok`/`NotFound`/`BadRequest` без метки |
 | `POST /api/sessions/{sz}/journal` (тело `JournalNoteRequest{Text}`) | `JournalWriter.Manual` → `kb/СЗ/<sz>/журнал.md` | `Ok`/`BadRequest`; **активная сессия не требуется** |
 | `POST /api/sessions/{sz}/diag?sections=` | `DiagRunTrigger.TriggerAsync` | `Ok`/`NotFound` |
@@ -86,10 +87,15 @@ Exit-коды `szcli exec` (`ExecExitCode`): 0 успех · N — код скр
 
 Тот же токен/префикс, что у раздачи пакета. `agent.exe --revert` (watchdog-задача, headless-
 откат после ребута) POST'ит `RevertStatusReport{Sz,Success,Summary}` — в этом режиме нет живого
-SignalR-коннекта, чтобы ответить обычным путём. `SessionRegistry.MarkRevertOutcome`: успех —
-`Remove(sz)`; неудача — `Status=Offline` + `SessionInfo.RevertNote`, и `list`/`watch` показывают
-`⚠ откат` вместо `online`/`offline` (бэклог п.59) — без этого упавший на середине откат оставлял
-доступ на клиенте, а hub считал СЗ штатной.
+SignalR-коннекта, чтобы ответить обычным путём. `Sz` валидируется `SzNumber.IsValid` (агентский
+токен общий на всех агентов — иначе произвольная строка уезжала мимо vault), плюс сверка IP
+вызова с IP, под которым эта СЗ зарегистрирована по SignalR (`RevertStatusApi.IsAuthorizedForSz`,
+permissive, если сверять не с чем). `SessionRegistry.MarkRevertOutcome`: успех — `ISessionStore.
+RecordCloseAsync` + `Remove(sz)`; неудача — `Status=Offline` + `SessionInfo.RevertNote`, и
+`list`/`watch` показывают `⚠ откат` вместо `online`/`offline` (бэклог п.59) — без этого упавший
+на середине откат оставлял доступ на клиенте, а hub считал СЗ штатной. Тот же `SessionInfo.
+RevertNote` выставляет и живой SignalR-путь `RevertResult` выше — единое состояние сессии
+независимо от того, кто откат инициировал (self-revert по `C`, close с хоста, watchdog).
 
 ### Автообнаружение hub (`DiscoveryProtocol`, UDP `5098`)
 
@@ -100,10 +106,15 @@ discovery не запускается.
 
 ### DTO (`SzDiag.Contracts`, все `sealed record`)
 
-`RegisterRequest(Sz,Hostname)` · `SessionInfo(Sz,Ip,Hostname,Status,ConnectedAt,LastHeartbeat,Activity="",ActivitySince=null)`
+`RegisterRequest(Sz,Hostname)` ·
+`SessionInfo(Sz,Ip,Hostname,Status,ConnectedAt,LastHeartbeat,Activity="",ActivitySince=null,BootTime=null,LastRebootAt=null,RebootCount=0,RevertNote=null)`
 · `SessionRecord(Sz,Ip,Hostname,OpenedAt,ClosedAt?)` (история) · `TargetInfo(Sz,Ip,User,Ssh)`
-· `UploadReportPart(Sz,Timestamp,FileName,Content:byte[])`. Enum `SessionStatus{Online,Offline}`
-(в JSON — число). Enum статусов тестов НЕТ (статус идёт меткой через `ReportActivity`).
+· `UploadReportPart(Sz,Timestamp,FileName,Content:byte[])` ·
+`RevertResult(Sz,Done:string[],Failed:RevertResultFailure[])` (агент → hub, живой канал) ·
+`RevertStatusReport(Sz,Success,Summary)` (агент → hub, HTTP/headless) ·
+`CloseOutcome(Closed,Revert:RevertResult?)` (hub → CLI, ответ `close`). Enum
+`SessionStatus{Online,Offline}` (в JSON — число). Enum статусов тестов НЕТ (статус идёт меткой
+через `ReportActivity`).
 
 ## Агент (`SzDiag.Agent`)
 
