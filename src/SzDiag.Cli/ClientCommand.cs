@@ -29,6 +29,19 @@ public static class ClientCommand
         return sub == "info" ? await InfoAsync(client, sz) : await CleanupAsync(client, sz);
     }
 
+    /// <summary>Строка «под кем и в какой сессии живёт агент» для `client info` — чистая
+    /// функция ради тестов (review W2 T-7): раньше собиралась инлайн прямо в вызове
+    /// AnsiConsole и не была покрыта тестами, хотя это ровно та строка, которая на СЗ 123123
+    /// сэкономила бы полчаса гадания «UAC/Secure Desktop» до `whoami`. Null — агент не прислал
+    /// идентичность (старая сборка).</summary>
+    public static string? FormatAgentIdentityLine(SessionInfo? session)
+    {
+        if (session?.AgentUser is not { Length: > 0 } user) return null;
+        var sessionText = session.AgentSessionId is { } id ? $"session {id}" : "session ?";
+        var guiNote = session.AgentInSessionZero ? " (GUI недоступен)" : "";
+        return $"{user}, {sessionText}{guiNote}";
+    }
+
     /// <summary>Показать остатки. Ничего не трогает — только смотрит.</summary>
     public static async Task<int> InfoAsync(IHubApiClient client, string sz)
     {
@@ -36,12 +49,8 @@ public static class ClientCommand
         // и почему прошлый запуск того же скрипта отработал, а этот — нет молча (бэклог п.220,
         // СЗ 123123: полчаса на версии «UAC», пока whoami не показал СИСТЕМА).
         var session = (await client.GetSessionsAsync()).FirstOrDefault(s => s.Sz == sz);
-        if (session?.AgentUser is { Length: > 0 } user)
-        {
-            var sessionText = session.AgentSessionId is { } id ? $"session {id}" : "session ?";
-            var guiNote = session.AgentInSessionZero ? " (GUI недоступен)" : "";
-            AnsiConsole.MarkupLineInterpolated($"[grey]агент:[/] {user}, {sessionText}{guiNote}");
-        }
+        if (FormatAgentIdentityLine(session) is { } identityLine)
+            AnsiConsole.MarkupLineInterpolated($"[grey]агент:[/] {identityLine}");
 
         var res = await client.ExecAsync(sz, ClientTraces.BuildInventoryScript(), TimeoutSeconds);
         if (res is null)

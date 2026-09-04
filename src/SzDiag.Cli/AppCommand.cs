@@ -69,10 +69,7 @@ public static class AppCommand
         // Гасим процессы → поднимаем службу → запускаем лаунчер в интерактивной сессии.
         // Три шага одной командой — раньше это была ad-hoc последовательность SSH-команд,
         // переписываемая заново на каждой заявке (бэклог, пункт без номера).
-        var stopScript = $"Get-Process -Name '{app.ProcessMask.TrimEnd('*')}*' -ErrorAction SilentlyContinue | " +
-                          "Stop-Process -Force -ErrorAction SilentlyContinue; " +
-                          $"try {{ Start-Service -Name '{app.ServiceName}' -ErrorAction Stop; 'служба {app.ServiceName}: запущена' }} " +
-                          $"catch {{ 'служба {app.ServiceName}: ' + $_.Exception.Message }}";
+        var stopScript = BuildStopAndStartServiceScript(app);
         var stopRes = await client.ExecAsync(sz, stopScript, 60);
         if (stopRes is null)
         {
@@ -85,6 +82,16 @@ public static class AppCommand
         var launchRes = await client.ExecAsync(sz, launchScript, 60);
         return PrintExecResult(launchRes, sz);
     }
+
+    /// <summary>Скрипт «погасить процессы приложения по маске → поднять его службу» — чистый
+    /// билдер ради тестов (review W2 T-6, критерий #164): раньше строка собиралась инлайн
+    /// в <see cref="RestartAppAsync"/>, и всю последовательность нельзя было проверить без
+    /// сети — покрытие ограничивалось статическим словарём <see cref="KnownApps"/>.</summary>
+    public static string BuildStopAndStartServiceScript(KnownApp app)
+        => $"Get-Process -Name '{app.ProcessMask.TrimEnd('*')}*' -ErrorAction SilentlyContinue | " +
+           "Stop-Process -Force -ErrorAction SilentlyContinue; " +
+           $"try {{ Start-Service -Name '{app.ServiceName}' -ErrorAction Stop; 'служба {app.ServiceName}: запущена' }} " +
+           $"catch {{ 'служба {app.ServiceName}: ' + $_.Exception.Message }}";
 
     private static int PrintExecResult(ExecResult? res, string sz)
     {
