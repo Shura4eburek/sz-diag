@@ -62,6 +62,9 @@ public sealed class SignalRHubLink : IHubLink
     public void OnPull(Func<PullRequest, Task> handler)
         => _conn.On<PullRequest>(HubRoutes.Pull, req => handler(req));
 
+    public Task SendPullAckAsync(PullAck ack, CancellationToken ct = default)
+        => _conn.SendAsync(HubRoutes.PullAck, ack, ct);   // Send, а не Invoke: ack не должен ждать hub
+
     // InvokeAsync (а не SendAsync): чанки обязаны дойти по порядку и с подтверждением —
     // потерянный кусок означал бы битый файл на хосте.
     public Task SendPullChunkAsync(PullChunk chunk, CancellationToken ct = default)
@@ -80,6 +83,9 @@ public sealed class SignalRHubLink : IHubLink
     // раньше, чем сообщение реально ушло по сети — итог отката потерялся бы молча.
     public Task SendRevertResultAsync(RevertResult result, CancellationToken ct = default)
         => _conn.InvokeAsync(HubRoutes.RevertResult, result, ct);
+
+    public void OnRestartAgent(Action<string> handler)
+        => _conn.On<string>(HubRoutes.RestartAgent, sz => handler(sz));
 
     public ValueTask DisposeAsync() => _conn.DisposeAsync();
 }

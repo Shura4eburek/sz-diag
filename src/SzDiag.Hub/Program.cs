@@ -71,6 +71,7 @@ builder.Services.AddSingleton<IAgentCommandSender, SignalRAgentCommandSender>();
 builder.Services.AddSingleton<SessionCloser>();
 builder.Services.AddSingleton<TestRunTrigger>();
 builder.Services.AddSingleton<DiagRunTrigger>();
+builder.Services.AddSingleton<RestartAgentTrigger>();
 builder.Services.AddSingleton<ExecCoordinator>();
 builder.Services.AddSingleton(sp =>
 {

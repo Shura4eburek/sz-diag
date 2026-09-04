@@ -36,6 +36,14 @@ $sched.Periods = @(foreach ($p in $plan) {
     $c.Duration = $p.Dur
     $c.IsInfinite = $false
     $c.GpuUnrealConfig.IntensityType = 'Switch'
+
+    # Донор кладёт Priority=Normal — под ним `exec --detach` не проходит вовсе (ack не
+    # доходит, бэклог п.127/201). BelowNormal — дешёвый обратимый шаг, освобождает
+    # OS-планировщику приоритет для процесса агента, саму нагрузку теста не меняет.
+    $c.Gpu3dConfig.Priority       = 'BelowNormal'
+    $c.VramConfig.Priority        = 'BelowNormal'
+    $c.GpuUnrealConfig.Priority   = 'BelowNormal'
+    $c.PowerSupplyConfig.Priority = 'BelowNormal'
     $c
 })
 $out = Join-Path $occt 'schedule-gpu.json'

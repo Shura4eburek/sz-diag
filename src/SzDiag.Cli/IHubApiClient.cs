@@ -16,8 +16,12 @@ public interface IHubApiClient
     /// <param name="isolated">Только вместе с <paramref name="detached"/>: обернуть фоновую
     /// задачу транзиентной scheduled task под SYSTEM вместо дочернего процесса агента — дерево
     /// процессов переживает падение агента (бэклог п.53).</param>
+    /// <param name="asSystem">Синхронный запуск под SYSTEM (та же транзиентная scheduled task,
+    /// что у sshd) — часть операций (задачи `UpdateOrchestrator`, объекты TrustedInstaller)
+    /// упирается в Access denied даже под админом (бэклог п.39). Игнорируется вместе с
+    /// <paramref name="detached"/> — там для SYSTEM уже есть <paramref name="isolated"/>.</param>
     Task<ExecResult?> ExecAsync(string sz, string script, int? timeoutSeconds = null,
-        CancellationToken ct = default, bool detached = false, bool isolated = false);
+        CancellationToken ct = default, bool detached = false, bool isolated = false, bool asSystem = false);
     Task<ExecJobStatus?> ExecStatusAsync(string sz, string jobId, int tailLines, CancellationToken ct = default);
 
     /// <summary>Снять фоновую exec-задачу. null — СЗ не онлайн (бэклог п.134/172/176).</summary>
@@ -35,6 +39,11 @@ public interface IHubApiClient
 
     /// <summary>Версия/дата сборки hub — null, если hub не ответил (протух молча — бэклог п.165).</summary>
     Task<string?> GetHubVersionAsync(CancellationToken ct = default);
+
+    /// <summary>Перезапустить агента — отдельный от exec путь (бэклог п.202/п.215): раньше
+    /// `agent restart` сам ходил через exec-канал и был бесполезен ровно тогда, когда нужен
+    /// (канал забит). false — СЗ не найдена среди активных.</summary>
+    Task<bool> RestartAgentAsync(string sz, CancellationToken ct = default);
 }
 
 /// <summary>Итог запуска прогона: hub возвращает текст причины, и CLI обязан его показать —

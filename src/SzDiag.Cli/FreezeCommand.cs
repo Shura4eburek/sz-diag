@@ -57,6 +57,14 @@ public static class FreezeCommand
             return 1;
         }
 
+        // Задачи оркестратора под учёткой агента (админ) нередко не поддаются — владелец
+        // SYSTEM/TrustedInstaller, `Access is denied` (бэклог п.39/113). Повторяем ровно те же
+        // строки под SYSTEM (`exec --as-system`) — той же транзиентной scheduled task, что
+        // поднимает sshd. Best-effort: свой результат не проверяем (честный ответ даст verify
+        // ниже), и не должен ронять всю заморозку, если сам этот шаг не уложился в таймаут.
+        try { await client.ExecAsync(sz, WindowsUpdateFreeze.BuildTaskDisableScript(), TimeoutSeconds, asSystem: true); }
+        catch { /* verify ниже честно скажет, что не поддалось */ }
+
         // Не рапортуем об успехе по факту записи в реестр: на 160306 всё «применилось», а
         // после ребута wuauserv оказался живым (бэклог п.72). Перечитываем фактическое
         // состояние и говорим правду.
@@ -187,6 +195,13 @@ public static class FreezeCommand
             AnsiConsole.MarkupLineInterpolated($"[red]Разморозка не удалась:[/] {result.StdErr}");
             return 1;
         }
+
+        // Симметрично заморозке: включение задач оркестратора под учёткой агента может так
+        // же упереться в Access denied — повторяем под SYSTEM (бэклог п.39/113). Машина
+        // обязана уехать к клиенту с работающими обновлениями безопасности, поэтому это не
+        // необязательный шаг косметики, а часть самой разморозки.
+        try { await client.ExecAsync(sz, WindowsUpdateFreeze.BuildTaskEnableScript(previous), TimeoutSeconds, asSystem: true); }
+        catch { /* не критично — задачи и так штатно поднимаются WU/медиком со временем */ }
 
         if (File.Exists(path)) File.Delete(path);
         AnsiConsole.MarkupLineInterpolated($"[green]СЗ {sz}: Windows Update разморожен[/] (прежние значения возвращены).");

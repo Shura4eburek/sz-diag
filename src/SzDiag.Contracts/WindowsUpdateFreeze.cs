@@ -163,10 +163,11 @@ public static class WindowsUpdateFreeze
         lines.Add($"Set-ItemProperty -Path '{AuKey}' -Name AUOptions -Value 1 -Type DWord -Force");
 
         // Второй эшелон, переживающий ребут: задачи оркестратора. Именно они поднимают
-        // `wuauserv` обратно в `Start=3 Running` после перезагрузки (бэклог п.72).
-        foreach (var folder in TaskFolders)
-            lines.Add($"Get-ScheduledTask -TaskPath '{folder}' -ErrorAction SilentlyContinue | " +
-                      "Disable-ScheduledTask -ErrorAction SilentlyContinue | Out-Null");
+        // `wuauserv` обратно в `Start=3 Running` после перезагрузки (бэклог п.72). Под учёткой
+        // агента (админ) часть из них не поддаётся («Access is denied» — владелец
+        // SYSTEM/TrustedInstaller, бэклог п.39/113): пробуем здесь как есть, а FreezeCommand
+        // повторяет ровно эти же строки под SYSTEM через `exec --as-system`.
+        lines.AddRange(TaskDisableLines());
 
         // Маркер для агента: после ребута он переприменит заморозку сам, не дожидаясь оператора.
         lines.Add($"New-Item -ItemType Directory -Force -Path (Split-Path '{MarkerPath}') | Out-Null");
@@ -206,26 +207,9 @@ public static class WindowsUpdateFreeze
                 lines.Add($"Remove-ItemProperty -Path '{key}' -Name {name} -ErrorAction SilentlyContinue");
             }
         }
-        // Задачи оркестратора: включаем обратно те, что были готовы к запуску до нас.
-        // Машина обязана уехать к клиенту с работающими обновлениями безопасности.
-        foreach (var kv in previous.Where(p => p.Key.StartsWith("task:", StringComparison.OrdinalIgnoreCase)))
-        {
-            if (!kv.Value.Trim().Equals("Ready", StringComparison.OrdinalIgnoreCase)) continue;
-            var full = kv.Key["task:".Length..];
-            var slash = full.LastIndexOf('\\');
-            if (slash < 0) continue;
-            var path = full[..(slash + 1)].Replace("'", "''");
-            var name = full[(slash + 1)..].Replace("'", "''");
-            lines.Add($"Enable-ScheduledTask -TaskPath '{path}' -TaskName '{name}' -ErrorAction SilentlyContinue | Out-Null");
-        }
-        // Прежних значений не знаем (замораживали с другой машины) — включаем всё, что нашли:
-        // оставленная выключенной задача WU опаснее лишнего включения.
-        if (!previous.Keys.Any(k => k.StartsWith("task:", StringComparison.OrdinalIgnoreCase)))
-        {
-            foreach (var folder in TaskFolders)
-                lines.Add($"Get-ScheduledTask -TaskPath '{folder}' -ErrorAction SilentlyContinue | " +
-                          "Enable-ScheduledTask -ErrorAction SilentlyContinue | Out-Null");
-        }
+        // Задачи оркестратора: включаем обратно (под учёткой агента часть тоже не поддастся —
+        // тот же Access denied, что и при заморозке; FreezeCommand повторяет это под SYSTEM).
+        lines.AddRange(TaskEnableLines(previous));
 
         foreach (var svc in Services)
             lines.Add($"Start-Service {svc} -ErrorAction SilentlyContinue");
@@ -233,6 +217,51 @@ public static class WindowsUpdateFreeze
         lines.Add("'unfrozen'");
         return string.Join("\n", lines);
     }
+
+    /// <summary>Строки отключения задач оркестратора — общие для <see cref="BuildFreezeScript"/>
+    /// и отдельного <see cref="BuildTaskDisableScript"/> (для повтора под SYSTEM).</summary>
+    private static IEnumerable<string> TaskDisableLines() =>
+        TaskFolders.Select(folder =>
+            $"Get-ScheduledTask -TaskPath '{folder}' -ErrorAction SilentlyContinue | " +
+            "Disable-ScheduledTask -ErrorAction SilentlyContinue | Out-Null");
+
+    /// <summary>Строки включения задач оркестратора — общие для <see cref="BuildUnfreezeScript"/>
+    /// и отдельного <see cref="BuildTaskEnableScript"/> (для повтора под SYSTEM). Включает
+    /// обратно те, что были «Ready» до заморозки; если прежнего состояния не знаем (замораживали
+    /// с другой машины) — включает все задачи из <see cref="TaskFolders"/>: оставленная
+    /// выключенной задача WU опаснее лишнего включения.</summary>
+    private static IEnumerable<string> TaskEnableLines(IReadOnlyDictionary<string, string> previous)
+    {
+        var hadTaskState = false;
+        foreach (var kv in previous.Where(p => p.Key.StartsWith("task:", StringComparison.OrdinalIgnoreCase)))
+        {
+            hadTaskState = true;
+            if (!kv.Value.Trim().Equals("Ready", StringComparison.OrdinalIgnoreCase)) continue;
+            var full = kv.Key["task:".Length..];
+            var slash = full.LastIndexOf('\\');
+            if (slash < 0) continue;
+            var path = full[..(slash + 1)].Replace("'", "''");
+            var name = full[(slash + 1)..].Replace("'", "''");
+            yield return $"Enable-ScheduledTask -TaskPath '{path}' -TaskName '{name}' -ErrorAction SilentlyContinue | Out-Null";
+        }
+        if (!hadTaskState)
+        {
+            foreach (var folder in TaskFolders)
+                yield return $"Get-ScheduledTask -TaskPath '{folder}' -ErrorAction SilentlyContinue | " +
+                             "Enable-ScheduledTask -ErrorAction SilentlyContinue | Out-Null";
+        }
+    }
+
+    /// <summary>Отдельный скрипт «только отключить задачи оркестратора» — для повтора под
+    /// SYSTEM (`exec --as-system`), когда под учёткой агента (админ) они не поддались:
+    /// владелец SYSTEM/TrustedInstaller, и админских прав недостаточно (бэклог п.39/113).</summary>
+    public static string BuildTaskDisableScript() =>
+        string.Join("\n", new[] { "$ErrorActionPreference='SilentlyContinue'" }.Concat(TaskDisableLines()));
+
+    /// <summary>Отдельный скрипт «только включить задачи оркестратора обратно» — тот же
+    /// повтор под SYSTEM, симметрично <see cref="BuildTaskDisableScript"/> при разморозке.</summary>
+    public static string BuildTaskEnableScript(IReadOnlyDictionary<string, string> previous) =>
+        string.Join("\n", new[] { "$ErrorActionPreference='SilentlyContinue'" }.Concat(TaskEnableLines(previous)));
 
     /// <summary>Разбор вывода <see cref="BuildCaptureScript"/> в словарь.</summary>
     public static Dictionary<string, string> ParseCapture(string stdout)

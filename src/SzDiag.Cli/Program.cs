@@ -145,6 +145,9 @@ switch (command)
     // agent restart <СЗ>: поднять агента заново, не подходя к машине. Агент себя НЕ убивает —
     // он ставит отложенную задачу под SYSTEM, и только она гасит процесс и запускает новый
     // (прошлая попытка сделать это скриптом стоила потери машины — бэклог п.83).
+    // Идёт ОТДЕЛЬНЫМ от exec путём (бэклог п.202/п.215): раньше команда сама ходила через
+    // exec-канал и была бесполезна ровно тогда, когда нужна — канал забит тем же зависанием,
+    // которое агента и требовалось перезапустить.
     case "agent" when args.Length >= 3 && args[1].Equals("restart", StringComparison.OrdinalIgnoreCase):
     {
         var restartSz = args[2];
@@ -154,20 +157,14 @@ switch (command)
             return 2;
         }
 
-        var restart = await client.ExecAsync(restartSz, AgentRestart.BuildScript(restartSz), 120);
-        if (restart is null)
+        var sent = await client.RestartAgentAsync(restartSz);
+        if (!sent)
         {
             AnsiConsole.MarkupLineInterpolated($"[red]СЗ {restartSz} не найдена[/] среди активных.");
             return 1;
         }
-        if (!string.IsNullOrEmpty(restart.StdOut)) Console.WriteLine(CliXml.Decode(restart.StdOut).TrimEnd());
-        if (restart.ExitCode != 0)
-        {
-            AnsiConsole.MarkupLineInterpolated($"[red]Перезапуск не поставлен:[/] {CliXml.Decode(restart.StdErr).TrimEnd()}");
-            return 1;
-        }
         AnsiConsole.MarkupLineInterpolated(
-            $"[green]СЗ {restartSz}: перезапуск поставлен.[/] Через минуту СЗ должна вернуться в [green]online[/] — следи в szcli watch.");
+            $"[green]СЗ {restartSz}: перезапуск поставлен[/] (мимо exec-канала). Через минуту СЗ должна вернуться в [green]online[/] — следи в szcli watch.");
         break;
     }
 
@@ -473,6 +470,14 @@ switch (command)
     // запрос — проходит даже под полной нагрузкой, когда обычный exec уже не проходит.
     case "exec" when args.Length >= 4 && args[2].Equals("--result", StringComparison.OrdinalIgnoreCase):
     {
+        // Пустой jobId не должен уходить в hub: там он превращается в неоднозначный маршрут
+        // и 405, который CliErrors раньше рендерил как «Hub недоступен» при живом hub
+        // (бэклог п.212, СЗ 161498).
+        if (ExecResultGuard.IsMissingJobId(args[3]))
+        {
+            AnsiConsole.MarkupLine("[red]Не передан jobId[/] — укажи `szcli exec --result <jobId>`.");
+            return 2;
+        }
         var tailIdx = Array.FindIndex(args, a => a.Equals("--tail", StringComparison.OrdinalIgnoreCase));
         var tailLines = tailIdx >= 0 && args.Length > tailIdx + 1 && int.TryParse(args[tailIdx + 1], out var tl)
             ? tl : ExecLimits.DefaultTailLines;
@@ -512,6 +517,11 @@ switch (command)
     // коротким каналом, что и --result — проходит под полной нагрузкой (п.134/172/176).
     case "exec" when args.Length >= 4 && args[2].Equals("--cancel", StringComparison.OrdinalIgnoreCase):
     {
+        if (ExecResultGuard.IsMissingJobId(args[3]))
+        {
+            AnsiConsole.MarkupLine("[red]Не передан jobId[/] — укажи `szcli exec --cancel <jobId>`.");
+            return 2;
+        }
         var status = await client.ExecCancelAsync(args[1], args[3]);
         if (status is null)
         {
@@ -585,13 +595,20 @@ switch (command)
         if (isolated && !detach)
             AnsiConsole.MarkupLine("[yellow]⚠ --isolated без --detach ни на что не влияет[/]");
 
+        // --as-system: синхронный запуск транзиентной scheduled task под SYSTEM (как sshd) —
+        // часть операций (задачи UpdateOrchestrator, объекты TrustedInstaller) недоступна даже
+        // под админом (бэклог п.39). Вместе с --detach уже есть --isolated для той же цели.
+        var asSystem = args.Any(a => a.Equals("--as-system", StringComparison.OrdinalIgnoreCase));
+        if (asSystem && detach)
+            AnsiConsole.MarkupLine("[yellow]⚠ --as-system с --detach ни на что не влияет — используй --isolated[/]");
+
         // До старта, а не после потери данных: синхронный exec копит вывод целиком и отдаёт
         // его только в конце — обрыв хоста/сети на длинном прогоне уносит всё разом (п.220).
         if (ExecLongRunHint.ShouldWarn(execTimeout, detach))
             AnsiConsole.MarkupLineInterpolated(
                 $"[yellow]⚠ таймаут {execTimeout} с без --detach:[/] вывод придёт только по завершении целиком — обрыв по пути хост↔hub↔агент унесёт его весь. Для длинных прогонов — szcli exec <СЗ> ... --detach");
 
-        var execRes = await client.ExecAsync(execSz, script, execTimeout, default, detach, isolated);
+        var execRes = await client.ExecAsync(execSz, script, execTimeout, default, detach, isolated, asSystem);
         if (execRes is null)
         {
             AnsiConsole.MarkupLineInterpolated($"[red]СЗ {execSz} не найдена[/] среди активных.");
@@ -599,6 +616,14 @@ switch (command)
         }
         // CLIXML разворачиваем на своей стороне: ошибка PowerShell должна читаться как
         // ошибка, а не как XML-дамп с _x000D__x000A_ вместо переносов (бэклог п.28).
+        // --detach без JobId — отказ агента, а не пустая строка, уходящая дальше по
+        // конвейеру (бэклог п.212): раньше такой исход можно было принять за нормальный.
+        if (ExecResultGuard.DetachMissingJobId(detach, execRes.JobId))
+        {
+            AnsiConsole.MarkupLineInterpolated(
+                $"[red]--detach не вернул jobId:[/] {(string.IsNullOrEmpty(execRes.StdErr) ? "агент не подтвердил фоновый запуск" : CliXml.Decode(execRes.StdErr).TrimEnd())}");
+            return ExecExitCode.AgentFailure;
+        }
         if (!string.IsNullOrEmpty(execRes.StdOut)) Console.WriteLine(CliXml.Decode(execRes.StdOut).TrimEnd());
         if (!string.IsNullOrEmpty(execRes.StdErr))
             AnsiConsole.MarkupLineInterpolated($"[yellow]stderr:[/] {CliXml.Decode(execRes.StdErr).TrimEnd()}");
@@ -657,8 +682,9 @@ static void PrintUsage()
               [yellow]szcli diag run[/] [blue]<СЗ>[/] [grey][[storage,events|…]][/]  диагностика (снапшот; секции точечно)
                 [grey]секции: system cpu memory gpu storage temps drivers events reboots whea livekernel reliability battery[/]
                 [grey]можно через запятую или пробел; all — все; алиасы: hw ram disks video bsod tdr temp[/]
-              [yellow]szcli exec[/] [blue]<СЗ>[/] [grey]"<powershell>" | -f <файл> [[--timeout <сек>]] [[--detach [[--isolated]]]][/]
+              [yellow]szcli exec[/] [blue]<СЗ>[/] [grey]"<powershell>" | -f <файл> [[--timeout <сек>]] [[--detach [[--isolated]]]] [[--as-system]][/]
                 [grey]--isolated — фон переживает падение/закрытие агента (scheduled task под SYSTEM)[/]
+                [grey]--as-system — синхронный запуск под SYSTEM: задачи UpdateOrchestrator и объекты TrustedInstaller недоступны админу[/]
               [yellow]szcli exec[/] [blue]<СЗ>[/] [grey]--result <jobId> [[--tail N]]   состояние фоновой задачи[/]
               [yellow]szcli exec[/] [blue]<СЗ>[/] [grey]--cancel <jobId> | --jobs      снять задачу / список задач[/]
                 [grey]выполнить скрипт на агенте и получить вывод (без SSH)[/]

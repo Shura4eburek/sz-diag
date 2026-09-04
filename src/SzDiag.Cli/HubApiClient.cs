@@ -86,7 +86,7 @@ public sealed class HubApiClient : IHubApiClient
     /// <summary>Выполнить скрипт на агенте и дождаться вывода. null — СЗ не онлайн.</summary>
     /// <exception cref="TimeoutException">Агент не ответил (hub вернул 504).</exception>
     public async Task<ExecResult?> ExecAsync(string sz, string script, int? timeoutSeconds = null,
-        CancellationToken ct = default, bool detached = false, bool isolated = false)
+        CancellationToken ct = default, bool detached = false, bool isolated = false, bool asSystem = false)
     {
         // HttpClient.Timeout должен быть больше, чем ждёт hub, иначе клиент отвалится раньше
         // и мы увидим невнятный TaskCanceledException вместо честного 504.
@@ -94,7 +94,7 @@ public sealed class HubApiClient : IHubApiClient
                    + ExecLimits.HubGraceSeconds + 30;
         using var req = new HttpRequestMessage(HttpMethod.Post, $"/api/sessions/{sz}/exec")
         {
-            Content = JsonContent.Create(new ExecCommandRequest(script, timeoutSeconds, detached, isolated)),
+            Content = JsonContent.Create(new ExecCommandRequest(script, timeoutSeconds, detached, isolated, asSystem)),
         };
         using var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
         cts.CancelAfter(TimeSpan.FromSeconds(wait));
@@ -239,5 +239,12 @@ public sealed class HubApiClient : IHubApiClient
             return await resp.Content.ReadAsStringAsync(cts.Token);
         }
         catch { return null; }   // hub недоступен — --version не должен падать из-за этого
+    }
+
+    public async Task<bool> RestartAgentAsync(string sz, CancellationToken ct = default)
+    {
+        using var cts = Short(ct);
+        var resp = await _http.PostAsync($"/api/sessions/{sz}/agent/restart", null, cts.Token);
+        return resp.StatusCode == HttpStatusCode.OK;
     }
 }

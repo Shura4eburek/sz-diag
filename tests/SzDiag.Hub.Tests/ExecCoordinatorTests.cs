@@ -27,6 +27,8 @@ public class ExecCoordinatorTests
             => Task.CompletedTask;
         public Task SendPushAsync(string c, PushRequest request, CancellationToken ct = default)
             => Task.CompletedTask;
+        public Task SendRestartAgentAsync(string c, string sz, CancellationToken ct = default)
+            => Task.CompletedTask;
     }
 
     private static SessionRegistry RegistryWith(string sz)
@@ -42,6 +44,22 @@ public class ExecCoordinatorTests
         var coordinator = new ExecCoordinator(new SessionRegistry(), new SpySender());
 
         Assert.Null(await coordinator.RunAsync("160306", "Get-Date"));
+    }
+
+    [Fact]
+    public async Task RunAsync_AsSystem_IsForwardedToAgentRequest()
+    {
+        // Бэклог п.39: `--as-system` обязан доехать до агента флагом в ExecRequest, иначе
+        // задачи UpdateOrchestrator/TrustedInstaller снова упрутся в Access denied под
+        // учёткой агента.
+        var sender = new SpySender();
+        var coordinator = new ExecCoordinator(RegistryWith("160306"), sender);
+
+        var call = coordinator.RunAsync("160306", "Get-Date", asSystem: true);
+        var sent = await WaitForRequest(sender);
+        Assert.True(sent.AsSystem);
+        coordinator.Complete(new ExecResult(sent.RequestId, 0, "", ""));
+        await call;
     }
 
     [Fact]

@@ -119,6 +119,13 @@ public sealed class AgentHub : Microsoft.AspNetCore.SignalR.Hub
         return Task.CompletedTask;
     }
 
+    /// <summary>Агент подтвердил приём команды забора — до поиска файлов на диске.</summary>
+    public Task PullAck(PullAck ack)
+    {
+        _pull.Acknowledge(ack);
+        return Task.CompletedTask;
+    }
+
     /// <summary>Агент прислал кусок забираемого файла.</summary>
     public Task PullChunk(PullChunk chunk)
     {

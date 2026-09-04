@@ -29,4 +29,7 @@ public sealed class SignalRAgentCommandSender : IAgentCommandSender
 
     public Task SendPushAsync(string connectionId, PushRequest request, CancellationToken ct = default)
         => _hub.Clients.Client(connectionId).SendAsync(HubRoutes.Push, request, ct);
+
+    public Task SendRestartAgentAsync(string connectionId, string sz, CancellationToken ct = default)
+        => _hub.Clients.Client(connectionId).SendAsync(HubRoutes.RestartAgent, sz, ct);
 }

@@ -93,13 +93,22 @@ public static class AgentCommandWiring
         var syncRunning = 0;
         DateTimeOffset? syncStartedAt = null;
 
+        // Ack — с выделенного потока максимального приоритета, а не инлайн через await на
+        // ThreadPool: под Combined/PowerSupply (100% CPU на всех ядрах) ack не доходил вовсе —
+        // «команда не принята», а не обещанное «принята, но задавлена» (бэклог п.201/п.212).
+        var ackDispatcher = new HighPriorityAckDispatcher();
+
         link.OnExec(async req =>
         {
             // Ack уходит ДО запуска: иначе «команда не дошла» и «скрипт долго идёт»
             // неотличимы — оба выглядят глухим таймаутом (бэклог п.35/п.43).
-            try { await link.SendExecAckAsync(new ExecAck(req.RequestId, DateTimeOffset.UtcNow)); } catch { }
+            ackDispatcher.Enqueue(() =>
+            {
+                try { link.SendExecAckAsync(new ExecAck(req.RequestId, DateTimeOffset.UtcNow)).GetAwaiter().GetResult(); }
+                catch { }
+            });
 
-            var mode = req.Detached ? "фоном" : $"таймаут {req.TimeoutSeconds}с";
+            var mode = req.Detached ? "фоном" : req.AsSystem ? $"под SYSTEM, таймаут {req.TimeoutSeconds}с" : $"таймаут {req.TimeoutSeconds}с";
             announce($"Exec на СЗ {req.Sz} ({req.Script.Length} символов, {mode})…", null);
 
             // Фоновая задача стартует мгновенно — её обрабатываем прямо здесь.
@@ -185,6 +194,17 @@ public static class AgentCommandWiring
             (chunk, ct) => link.SendPullChunkAsync(chunk, ct));
         link.OnPull(async req =>
         {
+            // Ack уходит ДО поиска файлов на диске — как у exec (бэклог п.35/п.43): иначе
+            // «команда не дошла» и «диск/сеть тормозят» неотличимы, глухой таймаут одинаков
+            // (бэклог п.215, СЗ 161946 — pull в PE молчал до таймаута без единого отклика).
+            // С того же выделенного потока максимального приоритета, что и ack exec'а
+            // (бэклог п.201/п.212) — под нагрузкой это тот же ThreadPool.
+            ackDispatcher.Enqueue(() =>
+            {
+                try { link.SendPullAckAsync(new PullAck(req.RequestId, DateTimeOffset.UtcNow)).GetAwaiter().GetResult(); }
+                catch { }
+            });
+
             announce($"Забор файлов для СЗ {req.Sz}: {req.Path}", null);
             PullResult result;
             try { result = await pullHandler.HandleAsync(req); }
@@ -197,6 +217,17 @@ public static class AgentCommandWiring
             announce($"Забор завершён: отдано файлов {sent} из {result.Files.Count}.", null);
             try { await link.SendPullResultAsync(result); }
             catch (Exception ex) { announce($"Не смог вернуть итог забора: {ex.Message}", null); }
+        });
+
+        // RestartAgent: отдельный от exec путь (бэклог п.202/п.215) — сама подписка на
+        // SignalR-метод не завязана на exec-очередь/ack, поэтому доходит даже когда обычный
+        // exec задавлен. Регистрация задачи-перезапуска — независимый Process.Start, а не
+        // поход через IPowerShellRunner/exec.
+        link.OnRestartAgent(restartSz =>
+        {
+            announce($"Перезапуск СЗ {restartSz} запрошен с хоста (мимо exec-канала)…", null);
+            try { NativeAgentRestart.Run(restartSz); }
+            catch (Exception ex) { announce($"Не удалось поставить задачу перезапуска: {ex.Message}", null); }
         });
 
         return execHandler;
@@ -238,8 +269,11 @@ public static class AgentCommandWiring
                 announce($"Перезапускаюсь через задачу {autostartTaskName}…", null);
                 try
                 {
-                    ps.Run(CommandChannelWatchdog.BuildSelfHealCommand(autostartTaskName),
-                        throwOnError: false, timeout: TimeSpan.FromSeconds(30));
+                    // Напрямую через Process.Start (cmd.exe + schtasks.exe), НЕ через
+                    // IPowerShellRunner: самолечение не должно зависеть от того же
+                    // powershell.exe, чьё зависание оно и чинит (бэклог п.202/п.215 —
+                    // на 161211/162367 новый powershell.exe сам не успевал стартовать за 30 с).
+                    CommandChannelWatchdog.Heal(autostartTaskName);
                     Environment.Exit(2);   // старый экземпляр обязан уйти: мьютекс держит слот
                 }
                 catch (Exception ex)

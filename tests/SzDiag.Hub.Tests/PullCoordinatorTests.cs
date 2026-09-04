@@ -1,3 +1,4 @@
+using System.Linq;
 using System.Security.Cryptography;
 using SzDiag.Contracts;
 using SzDiag.Hub;
@@ -20,6 +21,8 @@ public class PullCoordinatorTests : IDisposable
         public Task SendExecAsync(string c, ExecRequest r, CancellationToken ct = default) => Task.CompletedTask;
         public Task SendExecStatusAsync(string c, ExecStatusRequest request, CancellationToken ct = default) => Task.CompletedTask;
         public Task SendPushAsync(string c, PushRequest request, CancellationToken ct = default)
+            => Task.CompletedTask;
+        public Task SendRestartAgentAsync(string c, string sz, CancellationToken ct = default)
             => Task.CompletedTask;
         public Task SendPullAsync(string c, PullRequest request, CancellationToken ct = default)
         {
@@ -162,6 +165,78 @@ public class PullCoordinatorTests : IDisposable
 
         await Assert.ThrowsAsync<TimeoutException>(() => coordinator.PullAsync("160705", @"C:\x.dmp"));
         Assert.Equal(0, coordinator.PendingCount);
+    }
+
+    [Fact]
+    public async Task Pull_AgentSilent_LeavesNoEmptyDirectoryOnHost()
+    {
+        // Регрессия (бэклог п.215, СЗ 161946): таймаут оставлял пустую папку
+        // dist\host\hub\pulled\<СЗ>\<время>\ — по виду каталога выглядело так, будто файлы
+        // забрали, хотя канал молчал целиком.
+        var coordinator = new PullCoordinator(RegistryWith("160705"), new SpySender(), _root, timeoutSeconds: 1);
+
+        await Assert.ThrowsAsync<TimeoutException>(() => coordinator.PullAsync("160705", @"C:\x.dmp"));
+
+        var szDir = Path.Combine(_root, "160705");
+        Assert.True(!Directory.Exists(szDir) || !Directory.EnumerateFileSystemEntries(szDir, "*", SearchOption.AllDirectories).Any(),
+            "не должно остаться пустых папок прогона после таймаута");
+    }
+
+    [Fact]
+    public async Task Pull_NoFilesFound_LeavesNoEmptyDirectoryOnHost()
+    {
+        // «Дампов нет» — штатный исход, но и он не должен рисовать на диске пустую папку,
+        // выглядящую как «что-то забрали».
+        var sender = new SpySender();
+        var coordinator = new PullCoordinator(RegistryWith("160705"), sender, _root, timeoutSeconds: 10);
+        sender.OnSent = req =>
+        {
+            coordinator.Complete(new PullResult(req.RequestId, Array.Empty<PullFileInfo>()));
+            return Task.CompletedTask;
+        };
+
+        var response = await coordinator.PullAsync("160705", @"C:\nodumps\*.dmp");
+
+        Assert.Empty(response!.Files);
+        var szDir = Path.Combine(_root, "160705");
+        Assert.True(!Directory.Exists(szDir) || !Directory.EnumerateFileSystemEntries(szDir, "*", SearchOption.AllDirectories).Any(),
+            "ноль найденных файлов не должен оставлять пустую папку прогона");
+    }
+
+    [Fact]
+    public async Task Pull_Acked_ButNoResult_TimeoutMentionsAcceptance()
+    {
+        // Как у exec (бэклог п.35/п.43): «принял, но не отдал» — другой диагноз, чем
+        // «не принял вовсе». Ack различает их и тут (бэклог п.215).
+        var sender = new SpySender();
+        var coordinator = new PullCoordinator(RegistryWith("160705"), sender, _root, timeoutSeconds: 1);
+        sender.OnSent = req =>
+        {
+            coordinator.Acknowledge(new PullAck(req.RequestId, DateTimeOffset.UtcNow));
+            return Task.CompletedTask;
+        };
+
+        var ex = await Assert.ThrowsAsync<TimeoutException>(() => coordinator.PullAsync("160705", @"C:\x.dmp"));
+
+        Assert.Contains("ПРИНЯЛ", ex.Message);
+    }
+
+    [Fact]
+    public async Task Pull_NotAcked_TimeoutSaysNotAccepted()
+    {
+        var coordinator = new PullCoordinator(RegistryWith("160705"), new SpySender(), _root, timeoutSeconds: 1);
+
+        var ex = await Assert.ThrowsAsync<TimeoutException>(() => coordinator.PullAsync("160705", @"C:\x.dmp"));
+
+        Assert.Contains("не принял", ex.Message);
+    }
+
+    [Fact]
+    public void Acknowledge_UnknownRequestId_ReturnsFalse()
+    {
+        var coordinator = new PullCoordinator(RegistryWith("160705"), new SpySender(), _root);
+
+        Assert.False(coordinator.Acknowledge(new PullAck("нет-такого", DateTimeOffset.UtcNow)));
     }
 
     [Fact]

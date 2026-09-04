@@ -1,5 +1,6 @@
 using System.Collections.Concurrent;
 using System.Security.Cryptography;
+using System.Linq;
 using SzDiag.Contracts;
 
 namespace SzDiag.Hub;
@@ -28,6 +29,7 @@ public sealed class PullCoordinator
     private readonly string _root;
     private readonly int _timeoutSeconds;
     private readonly ConcurrentDictionary<string, Session> _pending = new();
+    private readonly ConcurrentDictionary<string, DateTimeOffset> _acked = new();
 
     public PullCoordinator(SessionRegistry registry, IAgentCommandSender sender, string root,
         int timeoutSeconds = PullLimits.TimeoutSeconds)
@@ -41,7 +43,9 @@ public sealed class PullCoordinator
     public int PendingCount => _pending.Count;
 
     /// <summary>Забрать файлы с клиента. null — СЗ не онлайн.</summary>
-    /// <exception cref="TimeoutException">Агент не завершил забор в отведённое время.</exception>
+    /// <exception cref="TimeoutException">Агент не принял/не завершил забор в отведённое время —
+    /// текст различает «не принял команду» (канал/сеть) от «принял, но не отдал» (задавлен
+    /// нагрузкой либо застрял чанк-канал), как и у exec (бэклог п.215, СЗ 161946/161498).</exception>
     public async Task<PullResponse?> PullAsync(string sz, string path, long? maxBytes = null,
         bool recurse = false, CancellationToken ct = default)
     {
@@ -49,19 +53,28 @@ public sealed class PullCoordinator
         if (connId is null) return null;
 
         var requestId = Guid.NewGuid().ToString("N");
+        // Каталог создаётся ЛЕНИВО, при первом реально записанном чанке (см. AcceptChunk):
+        // раньше он появлялся сразу и оставался пустым при таймауте/нуле найденных файлов,
+        // выглядя на диске так, будто что-то забрали (бэклог п.215, СЗ 161946).
         var dir = Path.Combine(ResolveRoot(), sz, DateTime.Now.ToString("yyyyMMdd-HHmmss"));
         var session = new Session { Sz = sz, Dir = dir };
         _pending[requestId] = session;
         try
         {
-            Directory.CreateDirectory(dir);
             await _sender.SendPullAsync(connId,
                 new PullRequest(sz, requestId, path, maxBytes ?? PullLimits.DefaultMaxBytes, recurse), ct);
 
             var wait = TimeSpan.FromSeconds(_timeoutSeconds);
             var done = await Task.WhenAny(session.Done.Task, Task.Delay(wait, ct));
             if (done != session.Done.Task)
-                throw new TimeoutException($"агент СЗ {sz} не завершил забор за {wait.TotalSeconds:N0} с");
+            {
+                var hint = _acked.TryGetValue(requestId, out var acceptedAt)
+                    ? $"агент СЗ {sz} ПРИНЯЛ команду забора {(DateTimeOffset.UtcNow - acceptedAt).TotalSeconds:N0} с назад, " +
+                      "но не закончил — вероятно, задавлен нагрузкой или застрял чанк-канал"
+                    : $"агент СЗ {sz} не принял команду забора за {wait.TotalSeconds:N0} с " +
+                      "(heartbeat при этом может идти — он отдельным лёгким путём)";
+                throw new TimeoutException(hint);
+            }
 
             var result = await session.Done.Task;
             return Materialize(session, result);
@@ -69,8 +82,20 @@ public sealed class PullCoordinator
         finally
         {
             _pending.TryRemove(requestId, out _);
+            _acked.TryRemove(requestId, out _);
             CloseStreams(session);
+            // Ничего не записалось (таймаут до первого чанка, ноль найденных файлов) —
+            // не оставляем пустую папку, которая на диске выглядит как «забрали».
+            RemoveIfEmpty(dir);
         }
+    }
+
+    /// <summary>Агент подтвердил приём команды забора — до поиска файлов на диске.</summary>
+    public bool Acknowledge(PullAck ack)
+    {
+        if (!_pending.ContainsKey(ack.RequestId)) return false;
+        _acked[ack.RequestId] = ack.AcceptedAt;
+        return true;
     }
 
     /// <summary>Агент прислал кусок файла — дописываем на диск. Чанк с неизвестным RequestId
@@ -81,6 +106,8 @@ public sealed class PullCoordinator
 
         var stream = session.Streams.GetOrAdd(chunk.FullPath, source =>
         {
+            // Каталог — только теперь, когда реально есть что в него класть.
+            Directory.CreateDirectory(session.Dir);
             var target = UniqueTargetPath(session.Dir, Path.GetFileName(source));
             session.Saved[source] = target;
             return new FileStream(target, FileMode.Create, FileAccess.Write, FileShare.Read);
@@ -94,6 +121,18 @@ public sealed class PullCoordinator
     /// <summary>Агент отчитался об окончании — будим ожидающий запрос.</summary>
     public bool Complete(PullResult result)
         => _pending.TryGetValue(result.RequestId, out var session) && session.Done.TrySetResult(result);
+
+    /// <summary>Папка так и осталась пустой (таймаут до первого чанка, ноль найденных файлов,
+    /// все найденные — пропущены по лимиту) — сносим, а не оставляем «улику» на диске.</summary>
+    private static void RemoveIfEmpty(string dir)
+    {
+        try
+        {
+            if (Directory.Exists(dir) && !Directory.EnumerateFileSystemEntries(dir).Any())
+                Directory.Delete(dir);
+        }
+        catch { /* занято/уже нет — не критично, это только уборка мусора */ }
+    }
 
     /// <summary>Сверяет принятое с тем, что обещал агент: размер и sha256. Расхождение —
     /// явная ошибка в ответе, а не тихо битый файл на диске.</summary>

@@ -47,6 +47,7 @@ $sched.Periods = @(foreach ($p in $plan) {
     $c.CpuOcctConfig.DataSet            = 'Large'
     $c.CpuOcctConfig.LoadType           = 'Variable'
     $c.CpuOcctConfig.OcctInstructionSet = 'Auto'
+    $c.CpuOcctConfig.Priority           = 'BelowNormal'   # ← донор кладёт Normal; под ним ack не доходит вовсе (п.127/201)
 
     # Только ядра: донор приходит на одном потоке в Normal — правим оба поля
     $c.CpuOnlyOcctConfig.Mode               = 'Extreme'
@@ -54,9 +55,11 @@ $sched.Periods = @(foreach ($p in $plan) {
     $c.CpuOnlyOcctConfig.DataSet            = 'Small'
     $c.CpuOnlyOcctConfig.LoadType           = 'Variable'
     $c.CpuOnlyOcctConfig.OcctInstructionSet = 'Auto'
+    $c.CpuOnlyOcctConfig.Priority           = 'BelowNormal'
 
-    $c.CpuLinpackConfig.Threads = 'PhysicalAndVirtual'
-    $c.CpuLinpackConfig.Memory  = $LinpackMemMb
+    $c.CpuLinpackConfig.Threads  = 'PhysicalAndVirtual'
+    $c.CpuLinpackConfig.Memory   = $LinpackMemMb
+    $c.CpuLinpackConfig.Priority = 'BelowNormal'
     $c
 })
 
@@ -72,9 +75,9 @@ $check = Get-Content $out -Raw -Encoding UTF8 | ConvertFrom-Json
 $total = [TimeSpan]::Zero
 foreach ($p in $check.Periods) {
     $cfg = switch ($p.TestType) {
-        'CpuOcct'     { "$($p.CpuOcctConfig.Mode)/$($p.CpuOcctConfig.Threads)/$($p.CpuOcctConfig.DataSet)" }
-        'CpuOnlyOcct' { "$($p.CpuOnlyOcctConfig.Mode)/$($p.CpuOnlyOcctConfig.Threads)/$($p.CpuOnlyOcctConfig.DataSet)" }
-        'CpuLinpack'  { "$($p.CpuLinpackConfig.Threads)/$($p.CpuLinpackConfig.Memory) МБ" }
+        'CpuOcct'     { "$($p.CpuOcctConfig.Mode)/$($p.CpuOcctConfig.Threads)/$($p.CpuOcctConfig.DataSet), приоритет $($p.CpuOcctConfig.Priority)" }
+        'CpuOnlyOcct' { "$($p.CpuOnlyOcctConfig.Mode)/$($p.CpuOnlyOcctConfig.Threads)/$($p.CpuOnlyOcctConfig.DataSet), приоритет $($p.CpuOnlyOcctConfig.Priority)" }
+        'CpuLinpack'  { "$($p.CpuLinpackConfig.Threads)/$($p.CpuLinpackConfig.Memory) МБ, приоритет $($p.CpuLinpackConfig.Priority)" }
         default       { '' }
     }
     "   {0,-12} {1}  {2}" -f $p.TestType, $p.Duration, $cfg

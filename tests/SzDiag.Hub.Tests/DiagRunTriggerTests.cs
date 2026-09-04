@@ -16,6 +16,7 @@ public class DiagRunTriggerTests
         public Task SendExecStatusAsync(string connectionId, SzDiag.Contracts.ExecStatusRequest request, CancellationToken ct = default) => Task.CompletedTask;
         public Task SendPullAsync(string connectionId, SzDiag.Contracts.PullRequest request, CancellationToken ct = default) => Task.CompletedTask;
         public Task SendPushAsync(string connectionId, SzDiag.Contracts.PushRequest request, CancellationToken ct = default) => Task.CompletedTask;
+        public Task SendRestartAgentAsync(string connectionId, string sz, CancellationToken ct = default) => Task.CompletedTask;
     }
 
     [Fact]

@@ -222,6 +222,29 @@ public class ExecCommandHandlerTests
     }
 
     [Fact]
+    public void Handle_AsSystem_RoutesToSystemExecRunner()
+    {
+        // Бэклог п.39: `--as-system` не должен идти обычным путём под учёткой агента —
+        // ExecCommandHandler обязан отдать запрос SystemExecRunner (транзиентная scheduled
+        // task под SYSTEM), а не пытаться выполнить скрипт напрямую через IPowerShellRunner.
+        var root = Path.Combine(Path.GetTempPath(), $"szassystem-{Guid.NewGuid():N}");
+        try
+        {
+            var ps = new StubPs(new PsResult(0, "Ready|7", ""));
+            var handler = new ExecCommandHandler(ps, systemExec: new SystemExecRunner(ps, root));
+
+            var r = handler.Handle(new ExecRequest("160306", "req-1", "'ok'", 30, AsSystem: true));
+
+            Assert.Equal("req-1", r.RequestId);
+            Assert.Equal(7, r.ExitCode);
+        }
+        finally
+        {
+            try { Directory.Delete(root, recursive: true); } catch { }
+        }
+    }
+
+    [Fact]
     public void Handle_UnexpectedError_ReturnsAnswerNotSilence()
     {
         // Молчание агента выглядело бы как потеря связи, и вызывающий ждал бы впустую.

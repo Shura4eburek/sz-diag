@@ -44,4 +44,31 @@ public class CliErrorsTests
         // Дефект CLI должен падать со стектрейсом, а не маскироваться под «агент занят».
         Assert.False(CliErrors.IsExpected(new InvalidOperationException("bug")));
     }
+
+    [Fact]
+    public void HttpErrorWithStatusCode_IsNotDescribedAsHubUnavailable()
+    {
+        // Регрессия (бэклог п.212, СЗ 161498): `--result ""` уходил в hub без jobId и получал
+        // 405 (Method Not Allowed) — hub был полностью жив, но CLI рендерил это как
+        // «Hub недоступен», уводя диагностику не туда. 4xx/5xx с явным StatusCode — это ОТВЕТ
+        // от живого hub, а не недоступность транспорта.
+        var ex = new HttpRequestException("Response status code does not indicate success: 405 (Method Not Allowed).",
+            null, System.Net.HttpStatusCode.MethodNotAllowed);
+
+        var text = CliErrors.Describe(ex, "http://127.0.0.1:5080");
+
+        Assert.DoesNotContain("Hub недоступен", text);
+        Assert.Contains("405", text);
+        Assert.NotEqual(CliErrors.ExitCode(new HttpRequestException("x")), CliErrors.ExitCode(ex));
+    }
+
+    [Fact]
+    public void HttpErrorWithoutStatusCode_StaysHubUnavailable()
+    {
+        // Настоящий обрыв транспорта (connection refused и т.п.) не несёт StatusCode —
+        // такие остаются «Hub недоступен», как и раньше.
+        var text = CliErrors.Describe(new HttpRequestException("Connection refused"), "http://127.0.0.1:5080");
+
+        Assert.Contains("Hub недоступен", text);
+    }
 }

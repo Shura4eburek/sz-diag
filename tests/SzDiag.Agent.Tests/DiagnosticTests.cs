@@ -713,6 +713,7 @@ public class DiagReportRunnerTests
         public void OnPush(Func<SzDiag.Contracts.PushRequest, Task> handler) { }
         public Task SendPushResultAsync(SzDiag.Contracts.PushResult result, CancellationToken ct = default) => Task.CompletedTask;
         public void OnPull(Func<SzDiag.Contracts.PullRequest, Task> handler) { }
+        public Task SendPullAckAsync(SzDiag.Contracts.PullAck ack, CancellationToken ct = default) => Task.CompletedTask;
         public Task SendPullChunkAsync(SzDiag.Contracts.PullChunk chunk, CancellationToken ct = default) => Task.CompletedTask;
         public Task SendPullResultAsync(SzDiag.Contracts.PullResult result, CancellationToken ct = default) => Task.CompletedTask;
         public Task UploadReportFileAsync(UploadReportPart part, CancellationToken ct = default)
@@ -723,6 +724,7 @@ public class DiagReportRunnerTests
         public Task ReportActivityAsync(string sz, string activity, DateTimeOffset? since, CancellationToken ct = default)
             => Task.CompletedTask;
         public Task SendRevertResultAsync(SzDiag.Contracts.RevertResult result, CancellationToken ct = default) => Task.CompletedTask;
+        public void OnRestartAgent(Action<string> handler) { }
         public ValueTask DisposeAsync() => ValueTask.CompletedTask;
     }
 
