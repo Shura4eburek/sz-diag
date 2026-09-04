@@ -71,6 +71,33 @@ public class ManagementApiTests : IClassFixture<WebApplicationFactory<Program>>,
         Assert.Equal("ssh svc-diag@10.0.0.77", target.Ssh);
     }
 
+    // review W2 I-9: "СЗ не найдена" и "hub не знает такого маршрута" раньше давали один и
+    // тот же 404 — CLI против старого hub рапортовал "СЗ не найдена" вместо "hub старее CLI".
+    // Эндпоинт обязан отдавать 200 с Sent=false для отсутствующей сессии — 404 остаётся ТОЛЬКО
+    // за отсутствующим маршрутом (старый hub).
+    [Fact]
+    public async Task AgentRestart_UnknownSz_ReturnsOkWithSentFalse_NotNotFound()
+    {
+        var resp = await Client().PostAsync("/api/sessions/000000/agent/restart", null);
+
+        Assert.Equal(HttpStatusCode.OK, resp.StatusCode);
+        var body = await resp.Content.ReadFromJsonAsync<RestartAgentResponse>();
+        Assert.False(body!.Sent);
+    }
+
+    [Fact]
+    public async Task AgentRestart_KnownOnlineSz_ReturnsOkWithSentTrue()
+    {
+        _factory.Services.GetRequiredService<SessionRegistry>()
+            .Register("156864", "10.0.0.42", "PC-1", "conn-1");
+
+        var resp = await Client().PostAsync("/api/sessions/156864/agent/restart", null);
+
+        Assert.Equal(HttpStatusCode.OK, resp.StatusCode);
+        var body = await resp.Content.ReadFromJsonAsync<RestartAgentResponse>();
+        Assert.True(body!.Sent);
+    }
+
     public void Dispose()
     {
         SqliteConnection.ClearAllPools();

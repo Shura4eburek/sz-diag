@@ -241,10 +241,15 @@ public sealed class HubApiClient : IHubApiClient
         catch { return null; }   // hub недоступен — --version не должен падать из-за этого
     }
 
-    public async Task<bool> RestartAgentAsync(string sz, CancellationToken ct = default)
+    public async Task<RestartAgentOutcome> RestartAgentAsync(string sz, CancellationToken ct = default)
     {
         using var cts = Short(ct);
         var resp = await _http.PostAsync($"/api/sessions/{sz}/agent/restart", null, cts.Token);
-        return resp.StatusCode == HttpStatusCode.OK;
+        // 404 здесь означает ровно одно: hub не знает такого маршрута вообще (старая сборка) —
+        // "СЗ не найдена" отдаётся телом 200 (review W2 I-9), а не кодом 404.
+        if (resp.StatusCode == HttpStatusCode.NotFound) return RestartAgentOutcome.HubTooOld;
+        if (resp.StatusCode != HttpStatusCode.OK) return RestartAgentOutcome.SessionNotFound;
+        var body = await resp.Content.ReadFromJsonAsync<RestartAgentResponse>(cts.Token);
+        return body?.Sent == true ? RestartAgentOutcome.Sent : RestartAgentOutcome.SessionNotFound;
     }
 }

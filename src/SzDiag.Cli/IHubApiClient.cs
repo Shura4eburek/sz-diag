@@ -44,8 +44,8 @@ public interface IHubApiClient
 
     /// <summary>Перезапустить агента — отдельный от exec путь (бэклог п.202/п.215): раньше
     /// `agent restart` сам ходил через exec-канал и был бесполезен ровно тогда, когда нужен
-    /// (канал забит). false — СЗ не найдена среди активных.</summary>
-    Task<bool> RestartAgentAsync(string sz, CancellationToken ct = default);
+    /// (канал забит).</summary>
+    Task<RestartAgentOutcome> RestartAgentAsync(string sz, CancellationToken ct = default);
 }
 
 /// <summary>Итог запуска прогона: hub возвращает текст причины, и CLI обязан его показать —
@@ -58,3 +58,9 @@ public sealed record TriggerResult(bool Ok, string? Error);
 /// «hub не принял заметку», и на живой заявке (161190) причину пришлось искать вручную
 /// (бэклог п.191).</summary>
 public enum NoteResult { Ok, Rejected, HubTooOld }
+
+/// <summary>Итог `RestartAgentAsync`. Раньше и «СЗ не найдена среди активных», и «hub старее
+/// CLI, такого маршрута ещё нет» давали один и тот же 404, и CLI печатал «СЗ не найдена» даже
+/// когда причина была в устаревшем hub (review W2 I-9, тот же урок, что уже учтён в
+/// <see cref="NoteResult"/>).</summary>
+public enum RestartAgentOutcome { Sent, SessionNotFound, HubTooOld }

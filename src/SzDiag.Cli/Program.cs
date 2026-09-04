@@ -63,6 +63,10 @@ var szArgIndex = command switch
     "test" or "diag" when args.Length >= 3 => 2,
     "app" when args.Length >= 3 && (args[1].Equals("run", StringComparison.OrdinalIgnoreCase)
         || args[1].Equals("restart", StringComparison.OrdinalIgnoreCase)) => 2,
+    // hw passport <СЗ> [scope] — номер третий, как у test/diag (review W2 I-10: раньше
+    // args[2] уходил в ExecAsync без SzNumber.IsValid, `hw` не был добавлен в эту таблицу
+    // хотя app/alive добавлены).
+    "hw" when args.Length >= 3 && args[1].Equals("passport", StringComparison.OrdinalIgnoreCase) => 2,
     _ => -1
 };
 if (szArgIndex > 0 && !SzNumber.IsValid(args[szArgIndex]))
@@ -309,11 +313,18 @@ switch (command)
         // Путь по умолчанию — отдельный от exec (бэклог п.202/п.215): раньше команда сама ходила
         // через exec и была бесполезна ровно тогда, когда нужна — канал забит той же нагрузкой,
         // из-за которой агента и требовалось перезапустить.
-        var sent = await client.RestartAgentAsync(restartSz);
-        if (!sent)
+        var restartOutcome = await client.RestartAgentAsync(restartSz);
+        switch (restartOutcome)
         {
-            AnsiConsole.MarkupLineInterpolated($"[red]СЗ {restartSz} не найдена[/] среди активных.");
-            return 1;
+            case RestartAgentOutcome.HubTooOld:
+                // review W2 I-9: раньше это давало то же самое "СЗ не найдена", что и
+                // отсутствующая сессия — на живой заявке причину пришлось бы искать вручную.
+                AnsiConsole.MarkupLineInterpolated(
+                    $"[red]hub старее CLI[/] — на нём ещё нет маршрута agent/restart. Пересобери dist.");
+                return 4;
+            case RestartAgentOutcome.SessionNotFound:
+                AnsiConsole.MarkupLineInterpolated($"[red]СЗ {restartSz} не найдена[/] среди активных.");
+                return 1;
         }
         AnsiConsole.MarkupLineInterpolated(
             $"[green]СЗ {restartSz}: перезапуск поставлен[/] (мимо exec-канала). Через минуту СЗ должна вернуться в [green]online[/] — следи в szcli watch.");

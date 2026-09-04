@@ -263,6 +263,33 @@ public class HubApiClientTests
             => throw new HttpRequestException("hub недоступен");
     }
 
+    // review W2 I-9: раньше и «СЗ не найдена среди активных», и «hub старее CLI, такого
+    // маршрута ещё нет» давали одинаковый 404 — тот же класс ошибки, что уже чинили
+    // AddNoteAsync/NoteResult (бэклог п.191).
+    [Fact]
+    public async Task RestartAgentAsync_SentTrue_ReturnsSentOutcome()
+    {
+        var client = NewClient(new StubHandler(HttpStatusCode.OK, """{"sent":true}"""));
+
+        Assert.Equal(RestartAgentOutcome.Sent, await client.RestartAgentAsync("156864"));
+    }
+
+    [Fact]
+    public async Task RestartAgentAsync_UnknownSz_ReturnsSessionNotFound_NotHubTooOld()
+    {
+        var client = NewClient(new StubHandler(HttpStatusCode.OK, """{"sent":false}"""));
+
+        Assert.Equal(RestartAgentOutcome.SessionNotFound, await client.RestartAgentAsync("000000"));
+    }
+
+    [Fact]
+    public async Task RestartAgentAsync_RouteMissing_ReturnsHubTooOld()
+    {
+        var client = NewClient(new StubHandler(HttpStatusCode.NotFound));
+
+        Assert.Equal(RestartAgentOutcome.HubTooOld, await client.RestartAgentAsync("156864"));
+    }
+
     [Fact]
     public void Ctor_SnimaetDefoltniyTaymautHttpClient()
     {
