@@ -318,6 +318,38 @@ switch (command)
             break;
         }
 
+        // --plan <минуты>: калькулятор окна прицельного прогона по исторической частоте
+        // отказов — отказ стартовать заведомо короткий прогон вслепую (бэклог п.45, СЗ 160587:
+        // 18 минут per-core прогона при интервале ~11 минут дали мощность ~25 %, а "+0 WHEA"
+        // выглядело как отрицательный результат, хотя им не являлось).
+        var planIdx = Array.FindIndex(args, a => a.Equals("--plan", StringComparison.OrdinalIgnoreCase));
+        if (planIdx >= 0)
+        {
+            if (planIdx + 1 >= args.Length || !double.TryParse(args[planIdx + 1], out var requestedMinutes))
+            {
+                AnsiConsole.MarkupLine("[red]--plan требует число минут:[/] szcli reboots <СЗ> --plan 3");
+                return 2;
+            }
+            var failureTimes = timeline.Events.Where(e => e.IsFailure).Select(e => e.At).ToList();
+            var plan = WindowCalculator.Build(failureTimes, requestedMinutes);
+            if (plan is null)
+            {
+                AnsiConsole.MarkupLine("[yellow]Недостаточно истории отказов для расчёта окна[/] (нужно минимум 2 отказа).");
+                return 1;
+            }
+            AnsiConsole.MarkupLineInterpolated(
+                $"[grey]По истории интервал ~{plan.MeanIntervalMinutes:N0} мин, для 95% нужно ≥{plan.RequiredMinutes:N0} мин.[/]");
+            if (plan.TooShort)
+            {
+                AnsiConsole.MarkupLineInterpolated(
+                    $"[red]Запрошено {plan.RequestedMinutes:N0} мин — мощность {plan.Power * 100:N0}%.[/] «Не воспроизвелось» за такое окно не является отрицательным результатом. Предлагаемая длительность: ≥{plan.RequiredMinutes:N0} мин.");
+                return 5;
+            }
+            AnsiConsole.MarkupLineInterpolated(
+                $"[green]Запрошено {plan.RequestedMinutes:N0} мин — мощность {plan.Power * 100:N0}%.[/] Окно достаточное.");
+            break;
+        }
+
         var rebootTable = new Table().Border(TableBorder.Rounded).BorderColor(Color.Grey);
         rebootTable.AddColumn("Когда");
         rebootTable.AddColumn("Как");
