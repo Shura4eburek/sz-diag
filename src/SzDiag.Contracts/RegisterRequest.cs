@@ -8,8 +8,15 @@ namespace SzDiag.Contracts;
 /// <param name="LastShutdown">Чем закончилась ПРОШЛАЯ сессия ОС (<see cref="ShutdownKind"/>):
 /// hub по нему отличает настоящий обрыв питания от выключения кнопкой. Без этого «выключили
 /// кнопкой» и «оборвалось питание» падали в один счётчик вырубонов (бэклог п.93).</param>
+/// <param name="AgentUser">Под кем работает агент (`WindowsIdentity.GetCurrent().Name`) —
+/// `NT AUTHORITY\СИСТЕМА` после автостарт-задачи или `<машина>\<юзер>` при ручном запуске.
+/// Меняет, что вообще возможно: из session 0 GUI-операции ломаются молча (бэклог п.220,
+/// СЗ 123123 — `setup.exe` мгновенно исчезал, снимок экрана падал, и получаса ушло на
+/// версии «UAC» и «несовместимость», пока `whoami` не показал СИСТЕМА).</param>
+/// <param name="AgentSessionId">Сессия Windows, в которой живёт процесс агента. 0 — служебная
+/// сессия без рабочего стола (никто не увидит открытое окно).</param>
 public sealed record RegisterRequest(string Sz, string Hostname, DateTimeOffset? BootTime = null,
-    string? LastShutdown = null);
+    string? LastShutdown = null, string? AgentUser = null, int? AgentSessionId = null);
 
 /// <summary>Как завершилась прошлая сессия ОС. Строки, а не enum: значение ездит по SignalR и
 /// лежит в SQLite, а агенты старых сборок его вообще не шлют.</summary>

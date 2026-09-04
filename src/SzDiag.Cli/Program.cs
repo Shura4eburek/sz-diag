@@ -61,6 +61,8 @@ var szArgIndex = command switch
     // szcli sz fetch <СЗ>: номер третий. У `sz release` номера нет — ветка не сработает.
     "sz" when args.Length >= 3 && args[1].Equals("fetch", StringComparison.OrdinalIgnoreCase) => 2,
     "test" or "diag" when args.Length >= 3 => 2,
+    "app" when args.Length >= 3 && (args[1].Equals("run", StringComparison.OrdinalIgnoreCase)
+        || args[1].Equals("restart", StringComparison.OrdinalIgnoreCase)) => 2,
     _ => -1
 };
 if (szArgIndex > 0 && !SzNumber.IsValid(args[szArgIndex]))
@@ -90,6 +92,9 @@ switch (command)
         // был ли агент жив в момент close (бэклог п.119).
         var wasOnline = (await client.GetSessionsAsync())
             .Any(s => s.Sz == args[1] && s.Status == SessionStatus.Online);
+        // Тоже ДО закрытия: бэкап настроек сетевого адаптера — файл на клиенте, после close
+        // канала для проверки не будет (бэклог п.206, СЗ 162367).
+        if (wasOnline) await NetAdapterBackupCheck.WarnIfLeftoverAsync(client, args[1]);
         var closeOutcome = await client.CloseAsync(args[1]);
         if (closeOutcome.Closed)
         {
@@ -157,6 +162,36 @@ switch (command)
             return 2;
         }
 
+        // --ssh: путь В ОБХОД hub/SignalR целиком. На 162367 exec-канал не отвечал целый час при
+        // живом heartbeat (ресет сетевого адаптера рецептом) — а обычный `agent restart` тоже не
+        // доедет, если у агента порван сам канал к hub, а не только exec (бэклог п.206). Гоняем
+        // ту же регистрацию отложенной задачи, но через настоящий SSH, минуя hub вовсе.
+        if (args.Any(a => a.Equals("--ssh", StringComparison.OrdinalIgnoreCase)))
+        {
+            var target = await client.GetTargetAsync(restartSz);
+            if (target is null)
+            {
+                AnsiConsole.MarkupLineInterpolated($"[red]СЗ {restartSz} не найдена[/] среди активных.");
+                return 1;
+            }
+            var key = TargetSsh.FindKey(options.SshKeyPath, AppContext.BaseDirectory);
+            var sshArgs = SshRunner.BuildArgs(target.User, target.Ip, key, AgentRestart.BuildScript(restartSz));
+            var sshResult = await SshRunner.RunAsync(sshArgs, 60);
+            if (!string.IsNullOrEmpty(sshResult.StdOut)) Console.WriteLine(sshResult.StdOut.TrimEnd());
+            if (sshResult.TimedOut || sshResult.ExitCode != 0)
+            {
+                AnsiConsole.MarkupLineInterpolated(
+                    $"[red]Перезапуск по SSH не поставлен (exit {sshResult.ExitCode}):[/] {sshResult.StdErr.TrimEnd()}");
+                return 1;
+            }
+            AnsiConsole.MarkupLineInterpolated(
+                $"[green]СЗ {restartSz}: перезапуск поставлен по SSH[/] (в обход hub/exec-канала). Через минуту СЗ должна вернуться в [green]online[/].");
+            break;
+        }
+
+        // Путь по умолчанию — отдельный от exec (бэклог п.202/п.215): раньше команда сама ходила
+        // через exec и была бесполезна ровно тогда, когда нужна — канал забит той же нагрузкой,
+        // из-за которой агента и требовалось перезапустить.
         var sent = await client.RestartAgentAsync(restartSz);
         if (!sent)
         {
@@ -182,6 +217,12 @@ switch (command)
     // exec --detach задачи, задачи планировщика, драйверы (бэклог п.126/183).
     case "stress" when args.Length >= 2:
         return await StressCommand.RunAsync(client, args);
+
+    // app run|restart: GUI-приложение клиента elevated в его интерактивной сессии — агент
+    // под SYSTEM живёт в session 0, откуда Start-Process не создаёт окна (бэклог, пункт
+    // без номера — SignalRGB/OCCT/TM5 повторяли одну и ту же ad-hoc задачу трижды).
+    case "app" when args.Length >= 2:
+        return await AppCommand.RunAsync(client, args[1..]);
 
     // agent set <СЗ> Ключ=значение: правка конфига агента с хоста. WatchdogHours применяется
     // сразу (перевзвод задачи), остальное — при следующем открытии доступа (бэклог п.86).
@@ -565,6 +606,35 @@ switch (command)
         return 0;
     }
 
+    // exec --in-session: прогнать скрипт в ИНТЕРАКТИВНОЙ сессии пользователя, а не в session 0
+    // агента — GUI-запуски (explorer, notepad, лаунчеры) там либо не создают окна, либо
+    // ломаются молча (бэклог п.220). Пример из живой заявки 111111: «открой диск в
+    // проводнике» через обычный exec стартовал explorer.exe в session 0 — окна не видел никто.
+    case "exec" when args.Length >= 4 && args[2].Equals("--in-session", StringComparison.OrdinalIgnoreCase):
+    {
+        var inSessionSz = args[1];
+        var innerScript = args[3];
+        var inSessionTimeout = ArgValue(args, "--timeout") is { } tv && int.TryParse(tv, out var tvv) ? tvv : 60;
+
+        var wrapped = InteractiveSessionExec.BuildScript(inSessionSz, innerScript, inSessionTimeout);
+        var inSessionRes = await client.ExecAsync(inSessionSz, wrapped, inSessionTimeout + 30);
+        if (inSessionRes is null)
+        {
+            AnsiConsole.MarkupLineInterpolated($"[red]СЗ {inSessionSz} не найдена[/] среди активных.");
+            return 1;
+        }
+        if (!string.IsNullOrEmpty(inSessionRes.StdOut)) Console.WriteLine(CliXml.Decode(inSessionRes.StdOut).TrimEnd());
+        if (!string.IsNullOrEmpty(inSessionRes.StdErr))
+            AnsiConsole.MarkupLineInterpolated($"[yellow]stderr:[/] {CliXml.Decode(inSessionRes.StdErr).TrimEnd()}");
+        return inSessionRes.ExitCode == 0 ? 0 : 1;
+
+        static string? ArgValue(string[] a, string name)
+        {
+            var idx = Array.FindIndex(a, x => x.Equals(name, StringComparison.OrdinalIgnoreCase));
+            return idx >= 0 && a.Length > idx + 1 ? a[idx + 1] : null;
+        }
+    }
+
     // exec: ad-hoc PowerShell на агенте (без SSH). Скрипт строкой или -f <файл>.
     case "exec" when args.Length >= 3:
     {
@@ -583,6 +653,12 @@ switch (command)
             // на отдельные строки (бэклог п.77).
             foreach (var w in ScriptLint.Check(script))
                 AnsiConsole.MarkupLineInterpolated($"[yellow]⚠ {w}[/]");
+
+            // --param Key=Value — параметризация рецепта без правки файла в рабочем дереве
+            // (бэклог п.155): почти каждый рецепт начинается с плейсхолдера `$Sz = '000000'`.
+            // Номер СЗ подставляем сами, раз он и так есть в команде — если не перекрыт явно.
+            var fileParams = ExecParams.WithAutoSz(ExecParams.ParseArgs(args), execSz);
+            script = ExecParams.Apply(script, fileParams);
         }
         else
         {
@@ -697,11 +773,12 @@ static void PrintUsage()
               [yellow]szcli diag status[/] [blue]<СЗ>[/]  идёт ли прогон/упал ли он, плюс путь к свежему отчёту
                 [grey]секции: system cpu memory gpu storage temps drivers events reboots whea livekernel reliability battery[/]
                 [grey]можно через запятую или пробел; all — все; алиасы: hw ram disks video bsod tdr temp[/]
-              [yellow]szcli exec[/] [blue]<СЗ>[/] [grey]"<powershell>" | -f <файл> [[--timeout <сек>]] [[--detach [[--isolated]]]] [[--as-system]][/]
+              [yellow]szcli exec[/] [blue]<СЗ>[/] [grey]"<powershell>" | -f <файл> [[--param Key=Value ...]] [[--timeout <сек>]] [[--detach [[--isolated]]]] [[--as-system]][/]
                 [grey]--isolated — фон переживает падение/закрытие агента (scheduled task под SYSTEM)[/]
                 [grey]--as-system — синхронный запуск под SYSTEM: задачи UpdateOrchestrator и объекты TrustedInstaller недоступны админу[/]
               [yellow]szcli exec[/] [blue]<СЗ>[/] [grey]--result <jobId> [[--tail N]]   состояние фоновой задачи[/]
               [yellow]szcli exec[/] [blue]<СЗ>[/] [grey]--cancel <jobId> | --jobs      снять задачу / список задач[/]
+              [yellow]szcli exec[/] [blue]<СЗ>[/] [grey]--in-session "<powershell>" [[--timeout <сек>]]   в сессии пользователя, не в session 0 агента[/]
                 [grey]выполнить скрипт на агенте и получить вывод (без SSH)[/]
                 [grey]всё сложнее однострочника — через [/][yellow]-f[/][grey]: inline-строку портит твой шелл[/]
                 [grey]exit code: 0 успех · N код скрипта · 3 отказ агента · 4 таймаут[/]
@@ -710,7 +787,9 @@ static void PrintUsage()
               [yellow]szcli pull[/] [blue]<СЗ>[/] [grey]<путь…> [[--max-mb N]] [[-r]][/]
                 [grey]забрать файлы (маска [/]*.dmp[grey], папка или несколько путей) в[/] hub\pulled\<СЗ>\<время>\
                 [grey]-r — с подпапками (LiveKernelReports держит дампы в[/] WATCHDOG*[grey])[/]
-              [yellow]szcli agent restart[/] [blue]<СЗ>[/]  поднять агента заново (задачей под SYSTEM, без похода к машине)
+              [yellow]szcli agent restart[/] [blue]<СЗ>[/] [grey][[--ssh]][/]  поднять агента заново (задачей под SYSTEM); --ssh — в обход exec-канала
+              [yellow]szcli app run[/] [blue]<СЗ>[/] [grey]<exe> [[--args "..."]] [[--elevated]] [[--wait N]][/]   GUI elevated в сессии пользователя
+              [yellow]szcli app restart[/] [blue]<СЗ>[/] [grey]<имя> [[--launcher <exe>]][/]   погасить/поднять службу/перезапустить лаунчер
               [yellow]szcli agent set[/] [blue]<СЗ>[/] [grey]WatchdogHours=12[/]  правка конфига агента с хоста
               [yellow]szcli client[/] [grey]info|cleanup <СЗ>[/]  следы прогонов на клиенте и их уборка
               [yellow]szcli stress stop[/] [blue]<СЗ>[/]  снять ВСЮ нагрузку разом (процессы, lhmmon, фон, драйверы)

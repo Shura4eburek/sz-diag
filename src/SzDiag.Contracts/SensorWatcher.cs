@@ -43,6 +43,11 @@ public static class SensorWatcher
             if (-not (Test-Path $csv)) {
                 'time;cpu_pct;stress_procs;cpu_temp_c;ram_used_pct;gpu_pct;gpu_temp_c;gpu_power_w' | Out-File -FilePath $csv -Encoding utf8
             }
+            # Поднимаем приоритет наблюдателя: под 100% нагрузкой общий пул потоков CIM/WMI
+            # (Get-CimInstance) сам становится узким местом, и cpu_pct/ram_used_pct уходят
+            # пустыми на минуты (бэклог п.206, СЗ 161716). Не решает целиком, но снижает шанс
+            # голодания наблюдателя наравне со стресс-тулом.
+            try { (Get-Process -Id $PID).PriorityClass = 'AboveNormal' } catch {}
             # nvidia-smi лежит в System32 и работает даже из session 0 (проверено на 161312).
             # Без GPU-колонок 30 минут FurMark выглядели как «нагрузка шла 2% времени» — по
             # одному только CPU (бэклог п.80). Нет nvidia-smi (AMD/Intel) - колонки пустые.
@@ -50,28 +55,50 @@ public static class SensorWatcher
             $hasSmi = Test-Path $smi
             # nvidia-smi отдаёт "[N/A]" на картах без телеметрии мощности (RTX 3050, бэклог п.166) —
             # писать это в CSV как значение нельзя, иначе szcli sensors report валится на приведении
-            # к double. Нечисловое (в т.ч. голый "-") превращаем в пустую ячейку.
+            # к double. Нечисловое (в т.ч. голый "-") превращаем в явный маркер n/a — не пустую
+            # строку: пропуск должен быть виден глазами в файле, а не только логике парсера
+            # (бэклог п.206 п.3 — раньше пустая ячейка молча читалась как «данных нет», что
+            # неотличимо от ошибки форматирования).
             function ScrubNum([string]$v) {
-                if (-not $v) { return '' }
+                if (-not $v) { return 'n/a' }
                 $v = $v.Trim()
-                if ($v -eq '' -or $v -eq '-' -or $v -match '(?i)^\[?n/?a\]?$') { '' } else { $v }
+                if ($v -eq '' -or $v -eq '-' -or $v -match '(?i)^\[?n/?a\]?$') { 'n/a' } else { $v }
             }
+            # Счётчик, доступный ниже него в поток stdout — это же и есть «наблюдатель жив»:
+            # ExecJobStatus.LastOutputAt следит за файлом стдаута фоновой задачи тем же
+            # механизмом, что уже проверен под нагрузкой (бэклог п.208), поэтому `sensors status`
+            # может судить о свежести без отдельного похода за CSV по сети.
+            $i = 0
             while ((Get-Date) -lt $deadline) {
+                $i++
                 # Win32_Processor.LoadPercentage - дешёвый счётчик; счётчики производительности
-                # под 100% нагрузкой сами становятся узким местом и рвут ряд наблюдений.
-                $cpu = (Get-CimInstance Win32_Processor).LoadPercentage
-                if ($cpu -is [array]) { $cpu = ($cpu | Measure-Object -Average).Average }
+                # под 100% нагрузкой сами становятся узким местом и рвут ряд наблюдений. Один
+                # ретрай с короткой паузой — счётчик под пиковой нагрузкой иногда отвечает
+                # со второго раза, а не мёртв насовсем.
+                $cpu = $null
+                for ($try = 0; $try -lt 2 -and $null -eq $cpu; $try++) {
+                    try {
+                        $cpu = (Get-CimInstance Win32_Processor -ErrorAction Stop).LoadPercentage
+                        if ($cpu -is [array]) { $cpu = ($cpu | Measure-Object -Average).Average }
+                    } catch { Start-Sleep -Milliseconds 300 }
+                }
+                if ($null -eq $cpu) { $cpu = 'n/a' }
                 $running = 0
                 foreach ($n in $procNames) { $running += @(Get-Process -Name $n -ErrorAction SilentlyContinue).Count }
-                $temp = ''
+                $temp = 'n/a'
                 $tz = Get-CimInstance -Namespace root/wmi -ClassName MSAcpi_ThermalZoneTemperature -ErrorAction SilentlyContinue
                 if ($tz) { $temp = [math]::Round((($tz | Measure-Object -Property CurrentTemperature -Maximum).Maximum / 10) - 273.15, 1) }
-                $os = Get-CimInstance Win32_OperatingSystem
-                $ram = ''
-                if ($os -and $os.TotalVisibleMemorySize) {
-                    $ram = [math]::Round(100 - ($os.FreePhysicalMemory / $os.TotalVisibleMemorySize * 100))
+                $ram = $null
+                for ($try = 0; $try -lt 2 -and $null -eq $ram; $try++) {
+                    try {
+                        $os = Get-CimInstance Win32_OperatingSystem -ErrorAction Stop
+                        if ($os -and $os.TotalVisibleMemorySize) {
+                            $ram = [math]::Round(100 - ($os.FreePhysicalMemory / $os.TotalVisibleMemorySize * 100))
+                        }
+                    } catch { Start-Sleep -Milliseconds 300 }
                 }
-                $gpu = ''; $gpuTemp = ''; $gpuPower = ''
+                if ($null -eq $ram) { $ram = 'n/a' }
+                $gpu = 'n/a'; $gpuTemp = 'n/a'; $gpuPower = 'n/a'
                 if ($hasSmi) {
                     $line = & $smi --query-gpu=utilization.gpu,temperature.gpu,power.draw --format=csv,noheader,nounits 2>$null | Select-Object -First 1
                     if ($line) {
@@ -84,6 +111,9 @@ public static class SensorWatcher
                 ((Get-Date -Format 'yyyy-MM-dd HH:mm:ss') + ';' + $cpu + ';' + $running + ';' + $temp + ';' + $ram +
                  ';' + $gpu + ';' + $gpuTemp + ';' + $gpuPower) |
                     Add-Content -Path $csv -Encoding utf8
+                # Хартбит в stdout фоновой задачи — единственное, что `sensors status` читает
+                # без похода за CSV (см. комментарий выше про LastOutputAt).
+                Write-Output ("tick;{0};{1}" -f $i, (Get-Date -Format 'yyyy-MM-dd HH:mm:ss'))
                 Start-Sleep -Seconds {{intervalSeconds}}
             }
             """;

@@ -29,6 +29,20 @@
 #
 # Вывод PowerShell по SSH приходит с CLIXML-шумом (прогресс-записи) — фильтровать так:
 #   bash ssh-run.sh script.ps1 | grep -v "CLIXML\|<Objs"
+#
+# Третья грабля (бэклог п.173, СЗ 161346): `powershell -Command -` разбирает stdin как
+# ИНТЕРАКТИВНЫЙ ввод — пустая строка внутри блока (`if {`, `foreach {`, ...) завершает
+# конструкцию досрочно, а перенос через backtick ломает выражение. `kp41-where.ps1` печатал
+# шапку и заголовок, а цикл не выполнялся вовсе — БЕЗ единой ошибки, просто пустой вывод.
+# Три захода ушло на «почему не работает», хотя дело было в способе доставки, а не в скрипте:
+# через -EncodedCommand тот же файл отработал сразу. Поэтому теперь:
+#   1. комментарии и пустые строки вырезаются ДО кодирования — это же попутно сжимает скрипт
+#      (kp41-where.ps1 после вырезания влез в лимит -EncodedCommand: 7420 симв. база64 против
+#      10284 без вырезания);
+#   2. -EncodedCommand пробуется первым на ужатом виде, в stdin падаем только при перерасходе
+#      лимита;
+#   3. способ доставки всегда печатается в stderr — пустой вывод должен сразу читаться как
+#      подозрение на обрыв разбора, а не как «скрипт ничего не делает».
 
 set -euo pipefail
 
@@ -36,28 +50,39 @@ SCRIPT="${1:?укажи путь к .ps1}"
 IP="${2:-${SZ_CLIENT_IP:?укажи IP клиента вторым аргументом или в SZ_CLIENT_IP}}"
 KEY="${SZ_SSH_KEY:-secrets/svc_diag_key}"
 USER_NAME="${SZ_SSH_USER:-svc-diag}"
-LIMIT=7000          # длиннее — заливаем файлом, а не одной командой
+LIMIT=7000          # длиннее — заливаем через stdin, а не одной командой
 
 [ -f "$SCRIPT" ] || { echo "нет файла: $SCRIPT" >&2; exit 1; }
 [ -f "$KEY" ] || { echo "нет ключа: $KEY (запусти из корня репо или задай SZ_SSH_KEY)" >&2; exit 1; }
 
 ssh_do() { ssh -i "$KEY" -o StrictHostKeyChecking=no -o ConnectTimeout=15 "$USER_NAME@$IP" "$@"; }
 
-B64=$(python -c "
-import sys, base64
+# Комментарии (строка целиком начинается с #) и пустые строки — вон. Инлайн-комментарии
+# (`код # пояснение`) НЕ трогаем: `#` внутри строкового литерала ('a#b') резать нельзя, а
+# отличить его от реального комментария построчным вырезанием без парсера — нельзя тоже.
+STRIPPED=$(python -c "
+import sys
 src = open(sys.argv[1], 'rb').read().decode('utf-8-sig')
-print(base64.b64encode(src.encode('utf-16-le')).decode())
+lines = [l for l in src.splitlines() if l.strip() and not l.strip().startswith('#')]
+sys.stdout.write('\n'.join(lines))
 " "$SCRIPT")
 
+B64=$(printf '%s' "$STRIPPED" | python -c "
+import sys, base64
+print(base64.b64encode(sys.stdin.buffer.read().decode('utf-8').encode('utf-16-le')).decode())
+")
+
 if [ ${#B64} -le $LIMIT ]; then
+    echo "доставка: -EncodedCommand (${#B64} симв. база64 после вырезания комментариев)" >&2
     ssh_do "powershell -NoProfile -EncodedCommand $B64"
     exit $?
 fi
 
-# Длинный скрипт — потоком в stdin. PowerShell читает stdin в OEM-кодировке консоли (cp866),
-# поэтому UTF-8 в него слать нельзя: кириллица в выводе превращается в мусор. Кодируем в cp866.
-echo "скрипт длинный (${#B64} симв. base64) — гоню через stdin" >&2
-python -c "
+# Длинный скрипт даже после вырезания — потоком в stdin. PowerShell читает stdin в
+# OEM-кодировке консоли (cp866), поэтому UTF-8 в него слать нельзя: кириллица в выводе
+# превращается в мусор. Кодируем в cp866.
+echo "доставка: stdin (${#B64} симв. база64 даже после вырезания комментариев — лимит -EncodedCommand $LIMIT превышен)" >&2
+printf '%s' "$STRIPPED" | python -c "
 import sys
-sys.stdout.buffer.write(open(sys.argv[1],'rb').read().decode('utf-8-sig').encode('cp866','replace'))
-" "$SCRIPT" | ssh_do "powershell -NoProfile -Command -"
+sys.stdout.buffer.write(sys.stdin.buffer.read().decode('utf-8').encode('cp866','replace'))
+" | ssh_do "powershell -NoProfile -Command -"

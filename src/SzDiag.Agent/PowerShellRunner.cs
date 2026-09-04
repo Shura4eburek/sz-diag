@@ -29,19 +29,8 @@ public sealed class PowerShellRunner : IPowerShellRunner
     /// строки). Дефолт определяется средой.</param>
     public PowerShellRunner(bool? utf8 = null) => _utf8 = utf8 ?? !WinPeEnvironment.IsWinPe;
 
-    /// <summary>Порог для файла-фоллбэка: -EncodedCommand — это 2,67 символа аргумента на
-    /// символ скрипта, а лимит командной строки Windows — 32 767. Секция whea (~13 КБ
-    /// исходника) дважды падала на живых заявках с «имя файла слишком длинное» (п.101/196).</summary>
-    private const int MaxEncodedCommandChars = 30_000;
-
     public PsResult Run(string script, bool throwOnError = true, TimeSpan? timeout = null)
     {
-        // Скрипт передаём через -EncodedCommand (base64 UTF-16LE), а НЕ через stdin
-        // `-Command -`: последний в PowerShell 5.1 обрывает многострочные конвейеры
-        // (строка с хвостовым | или , рвётся) — до вывода доходит лишь первая строка,
-        // из-за чего все секции RunDiag на живой машине выходили пустыми. EncodedCommand
-        // исполняет скрипт как единое целое. $ProgressPreference убирает CLIXML-шум
-        // прогресса из stderr.
         // Кодировка вывода задаётся здесь, а не строкой в пользовательском скрипте: при
         // перенаправлённом stdout PowerShell 5.1 кодирует вывод в [Console]::OutputEncoding,
         // а у headless-агента (автостарт-задача под SYSTEM, консоли нет) это OEM-страница
@@ -56,26 +45,27 @@ public sealed class PowerShellRunner : IPowerShellRunner
         // param снова первый, а exit по-прежнему завершает процесс своим кодом.
         var body = StartsWithParamBlock(script) ? "& {\n" + script + "\n}" : script;
         var full = prefix + "$ProgressPreference='SilentlyContinue';\n" + body;
-        var encoded = Convert.ToBase64String(System.Text.Encoding.Unicode.GetBytes(full));
 
-        // Длинный скрипт не влезает в командную строку — уводим во временный .ps1 (-File).
-        // UTF-8 строго с BOM: без него PowerShell 5.1 читает файл в ANSI и жуёт кириллицу.
-        string? tempFile = null;
-        var arguments = $"-NoProfile -NonInteractive -ExecutionPolicy Bypass -EncodedCommand {encoded}";
-        if (encoded.Length > MaxEncodedCommandChars)
-        {
-            tempFile = Path.Combine(Path.GetTempPath(), $"szdiag-ps-{Guid.NewGuid():N}.ps1");
-            File.WriteAllText(tempFile, full, new System.Text.UTF8Encoding(true));
-            arguments = $"-NoProfile -NonInteractive -ExecutionPolicy Bypass -File \"{tempFile}\"";
-        }
+        // Скрипт ВСЕГДА уходит временным .ps1 (-File), а не через -EncodedCommand (бэклог
+        // п.231, СЗ 161538): вне файла $PSScriptRoot — пустая строка, и рецепт, который ищет
+        // соседний инструмент через `Join-Path $PSScriptRoot ...`, получает не ошибку, а
+        // молчаливую подмену цели — `Get-ChildItem -Path $null -Filter '*.exe'` не падает, а
+        // берёт текущий каталог и запускает первый попавшийся `.exe` на наименее доверенной
+        // машине. Раньше на файл уводились только скрипты длиннее лимита командной строки
+        // (-EncodedCommand — 2,67 символа аргумента на символ скрипта, лимит Windows — 32 767,
+        // секция whea падала «имя файла слишком длинное» — п.101/196) — теперь тот же путь для
+        // всех: он уже проверен и на них, и на обычных скриптах. UTF-8 строго с BOM: без него
+        // PowerShell 5.1 читает файл в ANSI и жуёт кириллицу.
+        var tempFile = Path.Combine(Path.GetTempPath(), $"szdiag-ps-{Guid.NewGuid():N}.ps1");
+        File.WriteAllText(tempFile, full, new System.Text.UTF8Encoding(true));
+        var arguments = $"-NoProfile -NonInteractive -ExecutionPolicy Bypass -File \"{tempFile}\"";
         try
         {
             return RunProcess(arguments, script, throwOnError, timeout);
         }
         finally
         {
-            if (tempFile is not null)
-                try { File.Delete(tempFile); } catch { /* занят антивирусом — мусор в %TEMP% не критичен */ }
+            try { File.Delete(tempFile); } catch { /* занят антивирусом — мусор в %TEMP% не критичен */ }
         }
     }
 

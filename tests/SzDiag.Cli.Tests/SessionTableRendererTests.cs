@@ -277,4 +277,34 @@ public class SessionTableRendererTests
 
         Assert.DoesNotContain("заморожен", text);
     }
+
+    // #194/бэклог п.220: агент в session 0 (автостарт под SYSTEM) — GUI-операции ломаются
+    // молча, не гадать об этом заново после каждого ребута.
+    [Fact]
+    public void Render_AgentInSessionZero_ShowsMarker()
+    {
+        var now = DateTimeOffset.Now;
+        var sessions = new List<SessionInfo>
+        {
+            new("123123", "10.0.0.42", "PC-1", SessionStatus.Online, now, now, AgentSessionId: 0),
+        };
+
+        var text = RenderToText(SessionTableRenderer.Render(sessions, now));
+
+        Assert.Contains("session 0", text);
+    }
+
+    [Fact]
+    public void Render_AgentInUserSession_NoMarker()
+    {
+        var now = DateTimeOffset.Now;
+        var sessions = new List<SessionInfo>
+        {
+            new("123123", "10.0.0.42", "PC-1", SessionStatus.Online, now, now, AgentSessionId: 1),
+        };
+
+        var text = RenderToText(SessionTableRenderer.Render(sessions, now));
+
+        Assert.DoesNotContain("session 0", text);
+    }
 }

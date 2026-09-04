@@ -167,4 +167,24 @@ public class ScriptLintTests
             dir = Path.GetDirectoryName(dir);
         return dir ?? throw new InvalidOperationException("не нашёл корень репо (SzDiag.sln)");
     }
+
+    // #190/бэклог п.231: $PSScriptRoot на агенте указывает на %TEMP%, а не на папку рецепта
+    // в репозитории — молчаливая подмена цели на 161538 (CPU-Z снепшот запустил случайный exe).
+    [Fact]
+    public void PSScriptRoot_IsWarnedAbout()
+    {
+        var script = "$toolDir = Join-Path $PSScriptRoot '..\\cpuz'\nGet-ChildItem $toolDir";
+
+        var warnings = ScriptLint.Check(script);
+
+        Assert.Contains(warnings, w => w.Contains("PSScriptRoot"));
+    }
+
+    [Fact]
+    public void PSScriptRoot_CaseInsensitive_IsWarnedAbout()
+        => Assert.Contains(ScriptLint.Check("$x = $psscriptroot"), w => w.Contains("PSScriptRoot"));
+
+    [Fact]
+    public void NoScriptRootUsage_NoWarning()
+        => Assert.Empty(ScriptLint.Check("Write-Output 'hello'"));
 }

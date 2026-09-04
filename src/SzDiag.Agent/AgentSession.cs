@@ -41,7 +41,8 @@ public sealed class AgentSession
         _state = _manager.Open(_spec);
         _link.OnRevert(async _ => await _coordinator.TriggerAsync());
         await _link.ConnectAsync(ct);
-        await _link.RegisterAsync(_spec.Sz, _hostname, _bootTime, _lastShutdown, ct);
+        await _link.RegisterAsync(_spec.Sz, _hostname, _bootTime, _lastShutdown,
+            AgentIdentity.CurrentUser(), AgentIdentity.CurrentSessionId(), ct);
     }
 
     /// <summary>Возобновление после ребута: state загружен с диска, доступ переподнимается
@@ -52,7 +53,8 @@ public sealed class AgentSession
         _manager.Resume(loaded, _spec);
         _link.OnRevert(async _ => await _coordinator.TriggerAsync());
         await _link.ConnectAsync(ct);
-        await _link.RegisterAsync(_spec.Sz, _hostname, _bootTime, _lastShutdown, ct);
+        await _link.RegisterAsync(_spec.Sz, _hostname, _bootTime, _lastShutdown,
+            AgentIdentity.CurrentUser(), AgentIdentity.CurrentSessionId(), ct);
     }
 
     public Task HeartbeatOnceAsync(CancellationToken ct = default) => _link.HeartbeatAsync(_spec.Sz, ct);

@@ -43,7 +43,8 @@ public sealed class SessionRegistry
     /// (<see cref="ShutdownKind"/>). Выключение кнопкой в счётчик отказов не идёт: на 161312
     /// два «аварийных выключения» из пяти были нажатием кнопки (бэклог п.93).</param>
     public RegisterOutcome Register(string sz, string ip, string hostname, string connectionId,
-        DateTimeOffset? bootTime = null, string? lastShutdown = null)
+        DateTimeOffset? bootTime = null, string? lastShutdown = null,
+        string? agentUser = null, int? agentSessionId = null)
     {
         var now = _time.GetUtcNow();
         _bySz.TryGetValue(sz, out var prev);
@@ -65,7 +66,8 @@ public sealed class SessionRegistry
         // должен навсегда висеть как «⚠ откат» в list/watch, раз StatusCell проверяет
         // RevertNote раньше Status == Online.
         var info = new SessionInfo(sz, ip, hostname, SessionStatus.Online, now, now,
-            BootTime: bootTime, LastRebootAt: lastReboot, RebootCount: rebootCount);
+            BootTime: bootTime, LastRebootAt: lastReboot, RebootCount: rebootCount,
+            AgentUser: agentUser, AgentSessionId: agentSessionId);
         _bySz[sz] = new Entry(info, connectionId);
 
         if (!rebooted) return new RegisterOutcome(false);

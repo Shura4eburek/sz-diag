@@ -149,6 +149,37 @@ public class PowerShellRunnerTests
     }
 
     [Fact]
+    public void Run_AnyScript_HasNonEmptyPSScriptRoot()
+    {
+        // Регрессия (бэклог п.231, СЗ 161538): скрипт уходил на агента как -EncodedCommand
+        // (не файлом), поэтому $PSScriptRoot был пустой строкой. Рецепт, ищущий соседний
+        // инструмент через `Join-Path $PSScriptRoot ...`, получал не ошибку, а молчаливую
+        // подмену цели — Get-ChildItem -Path $null не падает, а берёт текущий каталог и
+        // запускает первый попавшийся .exe. Теперь скрипт всегда идёт файлом (-File), и
+        // $PSScriptRoot всегда указывает на реальный (временный) каталог.
+        var runner = new PowerShellRunner(utf8: true);
+
+        var r = runner.Run("\"root=[$PSScriptRoot]\"", timeout: TimeSpan.FromSeconds(15));
+
+        Assert.DoesNotContain("root=[]", r.StdOut);
+        Assert.Contains("root=[", r.StdOut);
+    }
+
+    [Fact]
+    public void Run_ShortScript_StillFallsBackToFile()
+    {
+        // Раньше короткие скрипты шли через -EncodedCommand, файлом уводились только скрипты
+        // длиннее лимита командной строки. Теперь путь один для всех размеров — короткий
+        // скрипт тоже обязан отработать (регрессия по построению, не только по размеру).
+        var runner = new PowerShellRunner(utf8: true);
+
+        var r = runner.Run("'ok'", timeout: TimeSpan.FromSeconds(15));
+
+        Assert.Equal(0, r.ExitCode);
+        Assert.Contains("ok", r.StdOut);
+    }
+
+    [Fact]
     public void Run_MultilinePipeline_ReturnsAllLines()
     {
         // Регрессия: скрипт раньше шёл через stdin `-Command -`, который в PowerShell 5.1

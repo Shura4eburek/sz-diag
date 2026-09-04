@@ -66,17 +66,22 @@ public static class SessionTableRenderer
     /// молчания — штатная картина» (CLAUDE.md).</summary>
     private static string StatusCell(SessionInfo s, DateTimeOffset now)
     {
+        // Агент в session 0 (автостарт-задача под SYSTEM) — GUI-операции там ломаются молча
+        // (Start-Process без задачи-обхода, скриншот), не гадать об этом заново после каждого
+        // ребута (бэклог п.220).
+        var sessionZero = s.AgentInSessionZero ? " [yellow]session 0[/]" : "";
+
         // Без юникод-глифов (●/○) — не в каждом шрифте консоли есть их отрисовка, из-за
         // чего колонка резервирует место под невидимый символ и текст съезжает.
         // Неудачный watchdog/headless-откат (бэклог п.59) обязан выглядеть иначе, чем
         // штатный offline: доступ (sshd, учётка, фаервол) мог остаться на клиенте навсегда.
         if (!string.IsNullOrEmpty(s.RevertNote)) return "[red]⚠ откат[/]";
-        if (s.Status == SessionStatus.Online) return "[green]online[/]";
+        if (s.Status == SessionStatus.Online) return $"[green]online[/]{sessionZero}";
 
         var silentFor = now - s.LastHeartbeat;
         return silentFor >= LikelyFailureThreshold
-            ? $"[yellow]offline (нет связи {FormatElapsed(silentFor)})[/]"
-            : "[grey]offline (лаг?)[/]";
+            ? $"[yellow]offline (нет связи {FormatElapsed(silentFor)})[/]{sessionZero}"
+            : $"[grey]offline (лаг?)[/]{sessionZero}";
     }
 
     /// <summary>Ячейка uptime: сколько машина работает с загрузки ОС. Свежий ребут (менее часа

@@ -176,4 +176,24 @@ public class SensorWatcherScriptTests
         Assert.Contains("ScrubNum", script);
         Assert.DoesNotContain("$gpuPower = $p[2].Trim()", script);
     }
+
+    // #156/бэклог п.206: дыра 18 минут в CSV на 161716, при этом `status` рапортовал «идёт».
+    [Fact]
+    public void Script_EmitsHeartbeatSoStatusCanDetectStaleness()
+    {
+        var script = SensorWatcher.BuildScript(@"C:\x.csv", 10, 0, new[] { "OCCT" });
+
+        Assert.Contains("Write-Output (\"tick;{0};{1}\"", script);
+    }
+
+    [Fact]
+    public void Script_RaisesOwnPriorityAndRetriesCounters()
+    {
+        // Под 100% нагрузкой Get-CimInstance сам голодал и cpu_pct/ram_used_pct уходили
+        // пустыми (бэклог п.206).
+        var script = SensorWatcher.BuildScript(@"C:\x.csv", 10, 0, new[] { "OCCT" });
+
+        Assert.Contains("PriorityClass", script);
+        Assert.Contains("'n/a'", script);
+    }
 }

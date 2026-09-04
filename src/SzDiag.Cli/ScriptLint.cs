@@ -22,6 +22,9 @@ public static class ScriptLint
     private static readonly Regex Concat = new(
         @"(['""]\s*\+)|(\+\s*['""])", RegexOptions.Compiled);
 
+    /// <summary>Использование `$PSScriptRoot` в теле скрипта.</summary>
+    private static readonly Regex ScriptRoot = new(@"\$PSScriptRoot\b", RegexOptions.Compiled | RegexOptions.IgnoreCase);
+
     /// <summary>Содержимое одинарных/двойных строковых литералов — чтобы не путать запятую
     /// или `+`, которые оказались ВНУТРИ строки (напр. `-join ', '` или текст с запятой),
     /// с настоящим разделителем списка/конкатенацией снаружи строк (бэклог п.185, СЗ ловила
@@ -135,6 +138,20 @@ public static class ScriptLint
         }
 
         CheckFunctionReturnPollution(text, warnings);
+
+        // Агент гоняет скрипт временным файлом (бэклог п.231), поэтому $PSScriptRoot больше не
+        // пустая строка и не роняет скрипт — но указывает на %TEMP%, а не на реальную папку
+        // рецепта в репозитории. Обращение к соседним файлам через $PSScriptRoot молча найдёт
+        // не то (или ничего) — нужен абсолютный путь или собственный фоллбэк, как в
+        // cpuz-memory-snapshot.ps1.
+        if (ScriptRoot.IsMatch(text))
+        {
+            warnings.Add(
+                "скрипт использует $PSScriptRoot: на агенте это временная папка (%TEMP%), а НЕ "
+                + "папка рецепта в репозитории — при exec скрипт уезжает файлом, но не на своём "
+                + "исходном месте (бэклог п.231). Обращения к соседним файлам собирай абсолютным "
+                + "путём или с явным фоллбэком, если $PSScriptRoot-путь не нашёлся.");
+        }
 
         return warnings;
     }
