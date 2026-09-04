@@ -188,8 +188,12 @@ Warning и теряются в `events` Level=1,2), `memory` показывае�
 
 Точка входа на клиенте **вместо** прямого запуска агента — `SzDiag.Updater.exe`. Убирает ручной
 цикл раздачи через share: на клиента кладётся один раз `Updater.exe` + `appsettings.json`, всё
-остальное тянется само. `Program.cs` (оркестрация): найти hub (`HubUrl` или `HubDiscovery`,
-**требуем hub**) → `HttpUpdateClient.GetVersionAsync` → сравнить с локальным `version.txt` → при
+остальное тянется само. `Program.cs` (оркестрация): **`CloudInstallGuard.Check(baseDir)`** —
+отказ (exit 4) до всего остального, если сам апдейтер запущен из OneDrive/Dropbox/…
+(`CloudSyncPaths.IsSynced`, общая проверка с `ToolsDirectory` из Agent — бэклог п.41/п.63:
+иначе `state.json`/логи сессии синхронизируются в личное облако клиента) → найти hub (`HubUrl`
+или `HubDiscovery`, **требуем hub**) → `HttpUpdateClient.GetVersionAsync` → сравнить с локальным
+`version.txt` → при
 расхождении `DownloadPackageAsync` + сверка `GetPackageSha256Async` (`Hashing.Sha256File`) →
 `PackageApplier.Apply` (распаковка поверх, **кроме** `appsettings.json`/`tools/`, атомарно через
 staging) → `AgentLauncher.LaunchAndWait` (запуск `agent.exe` в наследованной консоли).
