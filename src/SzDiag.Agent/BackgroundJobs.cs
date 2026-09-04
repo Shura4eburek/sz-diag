@@ -71,18 +71,7 @@ public sealed class BackgroundJobs
             // через & превращает её в перехватываемое исключение обёртки — текст ошибки
             // уезжает в err.txt, а не теряется вместе со stderr процесса (бэклог п.177).
             File.WriteAllText(userPath, request.Script, new UTF8Encoding(true));
-            var wrapped = new StringBuilder()
-                .AppendLine("$ErrorActionPreference='Continue'")
-                .AppendLine("$ProgressPreference='SilentlyContinue'")
-                .AppendLine("try {")
-                .AppendLine("  & '" + userPath.Replace("'", "''") + "' *>&1 | ForEach-Object { $_ | Out-File -FilePath '" + outPath.Replace("'", "''") + "' -Append -Encoding utf8 }")
-                .AppendLine("  exit $LASTEXITCODE")
-                .AppendLine("} catch {")
-                .AppendLine("  $_ | Out-String | Out-File -FilePath '" + errPath.Replace("'", "''") + "' -Encoding utf8")
-                .AppendLine("  exit 199")
-                .AppendLine("}")
-                .ToString();
-            File.WriteAllText(scriptPath, wrapped, new UTF8Encoding(true));
+            File.WriteAllText(scriptPath, BuildWrappedScript(userPath, outPath, errPath), new UTF8Encoding(true));
 
             // Isolated: задача уходит транзиентной scheduled task под SYSTEM (как sshd) —
             // дерево процессов не дочернее агенту, падение/закрытие агента его не утащит
@@ -126,6 +115,24 @@ public sealed class BackgroundJobs
             return new ExecResult(request.RequestId, -1, "", ex.Message);
         }
     }
+
+    /// <summary>Оборачивает пользовательский скрипт (лежит отдельным файлом в <paramref
+    /// name="userPath"/>) так, чтобы вывод писался построчно на диск и parse-ошибка не терялась
+    /// вместе со stderr процесса (бэклог п.177/п.20). Общий и для обычных фоновых задач, и для
+    /// синхронного запуска под SYSTEM (<see cref="SystemExecRunner"/>) — оба живут в одном и том
+    /// же временном каталоге и опрашиваются одинаково.</summary>
+    public static string BuildWrappedScript(string userPath, string outPath, string errPath) =>
+        new StringBuilder()
+            .AppendLine("$ErrorActionPreference='Continue'")
+            .AppendLine("$ProgressPreference='SilentlyContinue'")
+            .AppendLine("try {")
+            .AppendLine("  & '" + userPath.Replace("'", "''") + "' *>&1 | ForEach-Object { $_ | Out-File -FilePath '" + outPath.Replace("'", "''") + "' -Append -Encoding utf8 }")
+            .AppendLine("  exit $LASTEXITCODE")
+            .AppendLine("} catch {")
+            .AppendLine("  $_ | Out-String | Out-File -FilePath '" + errPath.Replace("'", "''") + "' -Encoding utf8")
+            .AppendLine("  exit 199")
+            .AppendLine("}")
+            .ToString();
 
     /// <summary>PowerShell для регистрации+запуска изолированной фоновой задачи транзиентной
     /// scheduled task под SYSTEM. Тот же паттерн, что у sshd (<see cref="PortableSshServer"/>):

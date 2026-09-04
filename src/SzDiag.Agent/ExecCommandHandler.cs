@@ -9,13 +9,15 @@ public sealed class ExecCommandHandler
 {
     private readonly IPowerShellRunner _ps;
     private readonly BackgroundJobs _jobs;
+    private readonly SystemExecRunner _systemExec;
 
-    public ExecCommandHandler(IPowerShellRunner ps, BackgroundJobs? jobs = null)
+    public ExecCommandHandler(IPowerShellRunner ps, BackgroundJobs? jobs = null, SystemExecRunner? systemExec = null)
     {
         _ps = ps;
         // ps прокидываем и в BackgroundJobs: изолированным (scheduled-task) фоновым задачам
         // он нужен, чтобы регистрировать/опрашивать/снимать саму задачу (бэклог п.53).
         _jobs = jobs ?? new BackgroundJobs(ps: ps);
+        _systemExec = systemExec ?? new SystemExecRunner(ps);
     }
 
     /// <summary>Где лежат выводы фоновых задач (для сообщений оператору).</summary>
@@ -87,6 +89,12 @@ public sealed class ExecCommandHandler
         // Detached: под полной нагрузкой это единственный режим, который вообще проходит —
         // агент отвечает сразу, а вывод копится в файле (бэклог п.43/п.46/п.53).
         if (request.Detached) return _jobs.Start(request);
+
+        // AsSystem (без Detached — для фона уже есть Isolated): часть операций упирается в
+        // Access denied даже под админом — задачи UpdateOrchestrator, объекты
+        // SYSTEM/TrustedInstaller (бэклог п.39). Гоняем синхронно транзиентной scheduled task
+        // под SYSTEM и ждём результат тем же путём, что и статус изолированной фоновой задачи.
+        if (request.AsSystem) return _systemExec.Run(request);
 
         var timeout = TimeSpan.FromSeconds(
             request.TimeoutSeconds > 0 ? request.TimeoutSeconds : ExecLimits.DefaultTimeoutSeconds);

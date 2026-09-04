@@ -89,9 +89,10 @@ public static class ManagementApi
             try
             {
                 var result = await exec.RunAsync(sz, body.Script, body.TimeoutSeconds,
-                    detached: body.Detached, isolated: body.Isolated);
+                    detached: body.Detached, isolated: body.Isolated, asSystem: body.AsSystem);
                 if (result is null) return Results.NotFound();
-                var mode = body.Detached ? (body.Isolated ? ", detached+isolated" : ", detached") : "";
+                var mode = body.Detached ? (body.Isolated ? ", detached+isolated" : ", detached")
+                    : (body.AsSystem ? ", as-system" : "");
                 journal.Command(sz, $"`exec` — скрипт виконано ({body.Script.Length} символів{mode})");
                 return Results.Ok(result);
             }

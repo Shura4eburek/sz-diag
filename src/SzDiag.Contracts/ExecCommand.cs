@@ -12,8 +12,13 @@ namespace SzDiag.Contracts;
 /// транзиентную scheduled task под SYSTEM (как sshd), а не в дочерний процесс агента. Дерево
 /// процессов (TM5, OCCT) переживает падение/закрытие агента — на живой заявке TM5 пропал
 /// вместе с упавшим агентом, не досчитав ни одного цикла (бэклог п.53).</param>
+/// <param name="AsSystem">Синхронный запуск под SYSTEM (та же транзиентная scheduled task,
+/// что у sshd/Isolated), а не под учёткой агента: часть операций упирается в Access denied
+/// даже под админом — задачи `UpdateOrchestrator`, часть ключей COMPONENTS, системные ACL
+/// (владелец SYSTEM/TrustedInstaller). Игнорируется вместе с <see cref="Detached"/> — там для
+/// SYSTEM уже есть <see cref="Isolated"/> (бэклог п.39).</param>
 public sealed record ExecRequest(string Sz, string RequestId, string Script, int TimeoutSeconds,
-    bool Detached = false, bool Isolated = false);
+    bool Detached = false, bool Isolated = false, bool AsSystem = false);
 
 /// <summary>Агент → hub: «команду принял, выполняю». Отправляется СРАЗУ по получении, до
 /// запуска скрипта. Без этого «агент не принял команду» и «принял, но не успел ответить»
@@ -63,7 +68,7 @@ public sealed record ExecResult(
 
 /// <summary>Тело HTTP-запроса CLI → hub: что выполнить на агенте.</summary>
 public sealed record ExecCommandRequest(string Script, int? TimeoutSeconds = null,
-    bool Detached = false, bool Isolated = false);
+    bool Detached = false, bool Isolated = false, bool AsSystem = false);
 
 /// <summary>Общие лимиты exec — одинаковые на агенте и hub, чтобы ожидания совпадали.</summary>
 public static class ExecLimits

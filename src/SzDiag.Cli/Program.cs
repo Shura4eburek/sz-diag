@@ -593,13 +593,20 @@ switch (command)
         if (isolated && !detach)
             AnsiConsole.MarkupLine("[yellow]⚠ --isolated без --detach ни на что не влияет[/]");
 
+        // --as-system: синхронный запуск транзиентной scheduled task под SYSTEM (как sshd) —
+        // часть операций (задачи UpdateOrchestrator, объекты TrustedInstaller) недоступна даже
+        // под админом (бэклог п.39). Вместе с --detach уже есть --isolated для той же цели.
+        var asSystem = args.Any(a => a.Equals("--as-system", StringComparison.OrdinalIgnoreCase));
+        if (asSystem && detach)
+            AnsiConsole.MarkupLine("[yellow]⚠ --as-system с --detach ни на что не влияет — используй --isolated[/]");
+
         // До старта, а не после потери данных: синхронный exec копит вывод целиком и отдаёт
         // его только в конце — обрыв хоста/сети на длинном прогоне уносит всё разом (п.220).
         if (ExecLongRunHint.ShouldWarn(execTimeout, detach))
             AnsiConsole.MarkupLineInterpolated(
                 $"[yellow]⚠ таймаут {execTimeout} с без --detach:[/] вывод придёт только по завершении целиком — обрыв по пути хост↔hub↔агент унесёт его весь. Для длинных прогонов — szcli exec <СЗ> ... --detach");
 
-        var execRes = await client.ExecAsync(execSz, script, execTimeout, default, detach, isolated);
+        var execRes = await client.ExecAsync(execSz, script, execTimeout, default, detach, isolated, asSystem);
         if (execRes is null)
         {
             AnsiConsole.MarkupLineInterpolated($"[red]СЗ {execSz} не найдена[/] среди активных.");
@@ -673,8 +680,9 @@ static void PrintUsage()
               [yellow]szcli diag run[/] [blue]<СЗ>[/] [grey][[storage,events|…]][/]  диагностика (снапшот; секции точечно)
                 [grey]секции: system cpu memory gpu storage temps drivers events reboots whea livekernel reliability battery[/]
                 [grey]можно через запятую или пробел; all — все; алиасы: hw ram disks video bsod tdr temp[/]
-              [yellow]szcli exec[/] [blue]<СЗ>[/] [grey]"<powershell>" | -f <файл> [[--timeout <сек>]] [[--detach [[--isolated]]]][/]
+              [yellow]szcli exec[/] [blue]<СЗ>[/] [grey]"<powershell>" | -f <файл> [[--timeout <сек>]] [[--detach [[--isolated]]]] [[--as-system]][/]
                 [grey]--isolated — фон переживает падение/закрытие агента (scheduled task под SYSTEM)[/]
+                [grey]--as-system — синхронный запуск под SYSTEM: задачи UpdateOrchestrator и объекты TrustedInstaller недоступны админу[/]
               [yellow]szcli exec[/] [blue]<СЗ>[/] [grey]--result <jobId> [[--tail N]]   состояние фоновой задачи[/]
               [yellow]szcli exec[/] [blue]<СЗ>[/] [grey]--cancel <jobId> | --jobs      снять задачу / список задач[/]
                 [grey]выполнить скрипт на агенте и получить вывод (без SSH)[/]

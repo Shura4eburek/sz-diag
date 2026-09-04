@@ -45,6 +45,22 @@ public class ExecCoordinatorTests
     }
 
     [Fact]
+    public async Task RunAsync_AsSystem_IsForwardedToAgentRequest()
+    {
+        // Бэклог п.39: `--as-system` обязан доехать до агента флагом в ExecRequest, иначе
+        // задачи UpdateOrchestrator/TrustedInstaller снова упрутся в Access denied под
+        // учёткой агента.
+        var sender = new SpySender();
+        var coordinator = new ExecCoordinator(RegistryWith("160306"), sender);
+
+        var call = coordinator.RunAsync("160306", "Get-Date", asSystem: true);
+        var sent = await WaitForRequest(sender);
+        Assert.True(sent.AsSystem);
+        coordinator.Complete(new ExecResult(sent.RequestId, 0, "", ""));
+        await call;
+    }
+
+    [Fact]
     public async Task RunAsync_AgentAnswers_ReturnsResult()
     {
         var sender = new SpySender();

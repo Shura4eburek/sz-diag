@@ -1580,7 +1580,16 @@ Installed`, свежий `RebootPending`. `wuauserv` при этом стоял 
 пережившая ребут, и есть рабочая); незакрытая заморозка видна в `list` и не даёт закрыть СЗ без
 предупреждения.
 
-### 39. `szcli exec` работает под админом — часть системных операций упирается в Access denied
+### 39. ✅ СДЕЛАНО (2026-09-04) — `szcli exec` работает под админом — часть системных операций упирается в Access denied
+
+**Сделано.** `szcli exec <СЗ> "..." --as-system` (`SystemExecRunner`, `ExecRequest.AsSystem`):
+переиспользует ровно тот же механизм, что и `PortableSshServer`/изолированные фоновые задачи —
+транзиентная scheduled task под SYSTEM (`Register-ScheduledTask -RunLevel Highest -User SYSTEM`),
+только синхронно — ждёт завершения поллингом `Get-ScheduledTaskInfo`, читает stdout/stderr из
+файлов, затем снимает задачу-обёртку **в любом исходе** (успех/таймаут/исключение). `SeTakeOwnership`-
+обход для объектов, которые не поддадутся и под SYSTEM (чистый TrustedInstaller), сознательно не
+делали — сам пункт называет это отдельным решением с ценой «след на машине», а живой проверки
+на TrustedInstaller-задаче в этой волне не было.
 
 **Боль (2026-08-04, СЗ 160636).** При заморозке WU (п.34b) отключение задач планировщика вернуло
 `Access is denied` на всех значимых: `\UpdateOrchestrator\Schedule Scan`, `Schedule Scan Static

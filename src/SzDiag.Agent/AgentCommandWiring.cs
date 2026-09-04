@@ -99,7 +99,7 @@ public static class AgentCommandWiring
             // неотличимы — оба выглядят глухим таймаутом (бэклог п.35/п.43).
             try { await link.SendExecAckAsync(new ExecAck(req.RequestId, DateTimeOffset.UtcNow)); } catch { }
 
-            var mode = req.Detached ? "фоном" : $"таймаут {req.TimeoutSeconds}с";
+            var mode = req.Detached ? "фоном" : req.AsSystem ? $"под SYSTEM, таймаут {req.TimeoutSeconds}с" : $"таймаут {req.TimeoutSeconds}с";
             announce($"Exec на СЗ {req.Sz} ({req.Script.Length} символов, {mode})…", null);
 
             // Фоновая задача стартует мгновенно — её обрабатываем прямо здесь.
