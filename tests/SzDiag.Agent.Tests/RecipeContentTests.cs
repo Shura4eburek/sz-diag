@@ -1,4 +1,4 @@
-using SzDiag.Agent;
+﻿using SzDiag.Agent;
 
 namespace SzDiag.Agent.Tests;
 
@@ -194,6 +194,41 @@ public class RecipeContentTests
             var r = new PowerShellRunner().Run(check, throwOnError: false, timeout: TimeSpan.FromSeconds(60));
             Assert.True(r.ExitCode == 0 && r.StdOut.Contains("all-ok"),
                 $"сгенерированные скрипты SleepCycleScript с ошибками разбора:\n{r.StdOut}\n{r.StdErr}");
+        }
+        finally { try { Directory.Delete(dir, recursive: true); } catch { } }
+    }
+
+    /// <summary>TransientStressScript (#93, бэклог п.154) тоже живёт в SzDiag.Contracts и
+    /// генерируется CLI — тот же PSParser-страж.</summary>
+    [Fact]
+    public void TransientStressScript_GeneratedScripts_ParseAsValidPowerShell()
+    {
+        var dir = Path.Combine(Path.GetTempPath(), $"sztransient-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(dir);
+        try
+        {
+            File.WriteAllText(Path.Combine(dir, "default.ps1"),
+                SzDiag.Contracts.TransientStressScript.BuildScript("160306"),
+                new System.Text.UTF8Encoding(true));
+            File.WriteAllText(Path.Combine(dir, "no-gpu.ps1"),
+                SzDiag.Contracts.TransientStressScript.BuildScript("160306", onSeconds: 30, offSeconds: 20, totalHours: 2, memGb: 4, withGpu: false),
+                new System.Text.UTF8Encoding(true));
+
+            var check = $$"""
+                $bad = @()
+                foreach ($f in Get-ChildItem '{{dir}}' -Filter *.ps1) {
+                    $errors = $null
+                    [void][System.Management.Automation.PSParser]::Tokenize(
+                        (Get-Content $f.FullName -Raw), [ref]$errors)
+                    if ($errors.Count -gt 0) {
+                        $bad += "$($f.Name): $($errors[0].Message) (строка $($errors[0].Token.StartLine))"
+                    }
+                }
+                if ($bad.Count -gt 0) { $bad; exit 1 } else { 'all-ok' }
+                """;
+            var r = new PowerShellRunner().Run(check, throwOnError: false, timeout: TimeSpan.FromSeconds(60));
+            Assert.True(r.ExitCode == 0 && r.StdOut.Contains("all-ok"),
+                $"сгенерированные скрипты TransientStressScript с ошибками разбора:\n{r.StdOut}\n{r.StdErr}");
         }
         finally { try { Directory.Delete(dir, recursive: true); } catch { } }
     }
