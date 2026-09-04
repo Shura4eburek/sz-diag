@@ -65,6 +65,7 @@ builder.Services.AddSingleton<IKbBackup>(sp =>
 });
 builder.Services.AddHostedService<KbBackupService>();
 builder.Services.AddHostedService<OfflineSweeper>();
+builder.Services.AddHostedService<ThreadPoolWatchdog>();
 builder.Services.AddHostedService(sp =>
     new HubDiscoveryResponder(sp.GetRequiredService<IOptions<HubOptions>>()));
 builder.Services.AddSingleton<IAgentCommandSender, SignalRAgentCommandSender>();
@@ -154,6 +155,7 @@ app.Use(async (ctx, next) =>
     await next();
 });
 
+app.MapHealthApi();
 app.MapHub<AgentHub>(HubRoutes.Path);
 app.MapManagementApi();
 app.MapAgentPackageApi();

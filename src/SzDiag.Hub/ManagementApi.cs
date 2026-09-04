@@ -191,7 +191,7 @@ public static class ManagementApi
             if (string.IsNullOrWhiteSpace(body.Path)) return Results.BadRequest("пустой путь");
             try
             {
-                var result = await pull.PullAsync(sz, body.Path, body.MaxBytes, body.Recurse);
+                var result = await pull.PullAsync(sz, body.Path, body.MaxBytes, body.Recurse, body.Label);
                 if (result is null) return Results.NotFound();
                 journal.Command(sz, $"`pull {body.Path}` — забір файлів");
                 return Results.Ok(result);

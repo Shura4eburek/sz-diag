@@ -68,7 +68,9 @@ public sealed class SqliteSessionStore : ISessionStore
 
         // Миграция для баз, заведённых до появления классификации (бэклог п.93): у старых
         // записей kind останется NULL и будет читаться как «неизвестно», а не как «кнопка».
-        foreach (var column in new[] { "kind TEXT NULL", "source TEXT NULL", "bugcheck INTEGER NULL" })
+        // duration_seconds — длительность сна для kind=sleep (бэклог п.140/222).
+        foreach (var column in new[]
+                 { "kind TEXT NULL", "source TEXT NULL", "bugcheck INTEGER NULL", "duration_seconds INTEGER NULL" })
         {
             await using var alter = conn.CreateCommand();
             alter.CommandText = $"ALTER TABLE reboots ADD COLUMN {column};";
@@ -117,8 +119,8 @@ public sealed class SqliteSessionStore : ISessionStore
         await conn.OpenAsync(ct);
         await using var cmd = conn.CreateCommand();
         cmd.CommandText = """
-            INSERT INTO reboots (sz, at, prev_boot, new_boot, uptime_before, activity, kind, source, bugcheck)
-            VALUES ($sz, $at, $prev, $new, $uptime, $activity, $kind, $source, $bugcheck);
+            INSERT INTO reboots (sz, at, prev_boot, new_boot, uptime_before, activity, kind, source, bugcheck, duration_seconds)
+            VALUES ($sz, $at, $prev, $new, $uptime, $activity, $kind, $source, $bugcheck, $duration);
             """;
         cmd.Parameters.AddWithValue("$kind", (object?)evt.Kind ?? DBNull.Value);
         cmd.Parameters.AddWithValue("$bugcheck", (object?)evt.Bugcheck ?? DBNull.Value);
@@ -129,6 +131,7 @@ public sealed class SqliteSessionStore : ISessionStore
         cmd.Parameters.AddWithValue("$new", (object?)evt.NewBootTime?.ToUnixTimeSeconds() ?? DBNull.Value);
         cmd.Parameters.AddWithValue("$uptime", (object?)evt.UptimeBeforeSeconds ?? DBNull.Value);
         cmd.Parameters.AddWithValue("$activity", (object?)evt.ActivityBefore ?? DBNull.Value);
+        cmd.Parameters.AddWithValue("$duration", (object?)evt.DurationSeconds ?? DBNull.Value);
         await cmd.ExecuteNonQueryAsync(ct);
     }
 
@@ -138,7 +141,7 @@ public sealed class SqliteSessionStore : ISessionStore
         await conn.OpenAsync(ct);
         await using var cmd = conn.CreateCommand();
         cmd.CommandText = """
-            SELECT at, prev_boot, new_boot, uptime_before, activity, kind, source, bugcheck
+            SELECT at, prev_boot, new_boot, uptime_before, activity, kind, source, bugcheck, duration_seconds
             FROM reboots WHERE sz = $sz ORDER BY at, id;
             """;
         cmd.Parameters.AddWithValue("$sz", sz);
@@ -159,7 +162,8 @@ public sealed class SqliteSessionStore : ISessionStore
                 reader.IsDBNull(4) ? null : reader.GetString(4),
                 reader.IsDBNull(5) ? null : reader.GetString(5),
                 reader.IsDBNull(6) ? RebootSource.Heartbeat : reader.GetString(6),
-                reader.IsDBNull(7) ? null : reader.GetInt64(7)));
+                reader.IsDBNull(7) ? null : reader.GetInt64(7),
+                reader.IsDBNull(8) ? null : reader.GetInt64(8)));
         }
         await reader.CloseAsync();
 
@@ -264,13 +268,15 @@ public sealed class SqliteSessionStore : ISessionStore
 
     /// <summary>Слияние событий из журнала клиента: hub видит только смены boot-time при живом
     /// heartbeat, поэтому всё, что случилось до подключения агента, приходит отсюда. Дубли
-    /// отсекаем по времени (±5 минут) — одно и то же событие hub мог уже записать сам.</summary>
-    public async Task<int> MergeJournalEventsAsync(PowerEventsReport report, CancellationToken ct = default)
+    /// отсекаем по времени (±5 минут) — одно и то же событие hub мог уже записать сам.
+    /// Возвращает добавленные события (не только их число): AgentHub пишет по ним отдельные
+    /// строки в журнал СЗ для сна (бэклог п.140/222), не задваивая записи при переподключении.</summary>
+    public async Task<IReadOnlyList<PowerEvent>> MergeJournalEventsAsync(PowerEventsReport report, CancellationToken ct = default)
     {
         await using var conn = new SqliteConnection(_connectionString);
         await conn.OpenAsync(ct);
 
-        var added = 0;
+        var added = new List<PowerEvent>();
         foreach (var evt in report.Events)
         {
             var at = evt.At.ToUnixTimeSeconds();
@@ -292,8 +298,8 @@ public sealed class SqliteSessionStore : ISessionStore
 
             await using var insert = conn.CreateCommand();
             insert.CommandText = """
-                INSERT INTO reboots (sz, at, prev_boot, new_boot, uptime_before, activity, kind, source, bugcheck)
-                VALUES ($sz, $at, NULL, NULL, $uptime, NULL, $kind, $source, $bugcheck);
+                INSERT INTO reboots (sz, at, prev_boot, new_boot, uptime_before, activity, kind, source, bugcheck, duration_seconds)
+                VALUES ($sz, $at, NULL, NULL, $uptime, NULL, $kind, $source, $bugcheck, $duration);
                 """;
             insert.Parameters.AddWithValue("$sz", report.Sz);
             insert.Parameters.AddWithValue("$at", at);
@@ -305,8 +311,9 @@ public sealed class SqliteSessionStore : ISessionStore
             // когда агент это время уже знал.
             insert.Parameters.AddWithValue("$uptime",
                 evt.UptimeBeforeSeconds.HasValue ? evt.UptimeBeforeSeconds.Value : DBNull.Value);
+            insert.Parameters.AddWithValue("$duration", (object?)evt.DurationSeconds ?? DBNull.Value);
             await insert.ExecuteNonQueryAsync(ct);
-            added++;
+            added.Add(evt);
         }
         return added;
     }

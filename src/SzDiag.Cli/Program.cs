@@ -53,7 +53,7 @@ if (!CliCommands.IsKnown(command))
 // Мусорный ввод раньше молча уезжал в hub и в базу знаний (бэклог п.57).
 var szArgIndex = command switch
 {
-    "close" or "target" or "exec" or "pull" or "reboots" or "unfreeze" or "note"
+    "close" or "target" or "exec" or "pull" or "reboots" or "unfreeze" or "note" or "alive"
         when args.Length >= 2 => 1,
     // freeze принимает --status в любой позиции (п.175): номер СЗ — первый не-флаг.
     "freeze" when args.Length >= 2 => Array.FindIndex(args, 1, a => !a.StartsWith('-')),
@@ -88,14 +88,48 @@ switch (command)
 
     case "close" when args.Length >= 2:
     {
+        var closeSz = args[1];
+
+        // --force "причина" — обязателен, если наблюдение короче характерного интервала между
+        // отказами по истории этой же СЗ: без него close закрывал заявку молча, хотя все
+        // данные для сравнения уже лежали в SQLite (бэклог п.159, СЗ 160306 — закрыли через
+        // 18 минут при характерном интервале ~53 часа).
+        var forceIdx = Array.FindIndex(args, 2, args.Length - 2,
+            a => a.Equals("--force", StringComparison.OrdinalIgnoreCase));
+        var forced = forceIdx >= 0;
+        var forceReason = forced && forceIdx + 1 < args.Length ? string.Join(' ', args[(forceIdx + 1)..]) : null;
+
         // Статус — ДО закрытия: после него сессия уходит из активных, и не понять,
         // был ли агент жив в момент close (бэклог п.119).
-        var wasOnline = (await client.GetSessionsAsync())
-            .Any(s => s.Sz == args[1] && s.Status == SessionStatus.Online);
+        var sessionsBefore = await client.GetSessionsAsync();
+        var sessionBefore = sessionsBefore.FirstOrDefault(s => s.Sz == closeSz);
+        var wasOnline = sessionBefore?.Status == SessionStatus.Online;
+
+        if (sessionBefore is not null)
+        {
+            var timelineBefore = await client.GetRebootsAsync(closeSz);
+            var observed = DateTimeOffset.UtcNow - sessionBefore.ConnectedAt;
+            var warning = ObservationSufficiency.Warn(observed, timelineBefore?.CharacteristicInterval);
+            if (warning is not null)
+            {
+                AnsiConsole.MarkupLineInterpolated($"[yellow]{Markup.Escape(warning)}[/]");
+                if (!forced)
+                {
+                    AnsiConsole.MarkupLineInterpolated(
+                        $"[grey]Закрити всупереч цьому:[/] szcli close {closeSz} --force \"причина\"");
+                    return 2;
+                }
+                if (string.IsNullOrWhiteSpace(forceReason))
+                    AnsiConsole.MarkupLine("[grey]Закрито з --force (причина не вказана).[/]");
+                else
+                    AnsiConsole.MarkupLineInterpolated($"[grey]Закрито з --force:[/] {Markup.Escape(forceReason)}");
+            }
+        }
+
         // Тоже ДО закрытия: бэкап настроек сетевого адаптера — файл на клиенте, после close
         // канала для проверки не будет (бэклог п.206, СЗ 162367).
-        if (wasOnline) await NetAdapterBackupCheck.WarnIfLeftoverAsync(client, args[1]);
-        var closeOutcome = await client.CloseAsync(args[1]);
+        if (wasOnline) await NetAdapterBackupCheck.WarnIfLeftoverAsync(client, closeSz);
+        var closeOutcome = await client.CloseAsync(closeSz);
         if (closeOutcome.Closed)
         {
             AnsiConsole.MarkupLineInterpolated($"[green]СЗ {args[1]} закрыта[/] (revert отправлен агенту).");
@@ -346,8 +380,16 @@ switch (command)
         rebootTable.AddColumn("Была занята");
         foreach (var e in timeline.Events)
         {
-            var held = e.UptimeBefore is { } u ? SessionTableRenderer.FormatElapsed(u) : "[dim]—[/]";
-            var busy = string.IsNullOrWhiteSpace(e.ActivityBefore) ? "[dim]простой[/]" : Markup.Escape(e.ActivityBefore!);
+            // Сон (Kernel-Power 42 -> 107) — не вырубон и не простой: показываем время
+            // пробуждения вместо «продержалась», иначе строка выглядит пустой (бэклог п.140/222).
+            var held = e.Kind == ShutdownKind.Sleep
+                ? (e.Duration is { } sleepDur
+                    ? $"→ {e.At.ToLocalTime().Add(sleepDur):HH:mm} ({SessionTableRenderer.FormatElapsed(sleepDur)})"
+                    : "[dim]—[/]")
+                : e.UptimeBefore is { } u ? SessionTableRenderer.FormatElapsed(u) : "[dim]—[/]";
+            var busy = e.Kind == ShutdownKind.Sleep
+                ? "[dim]сон[/]"
+                : string.IsNullOrWhiteSpace(e.ActivityBefore) ? "[dim]простой[/]" : Markup.Escape(e.ActivityBefore!);
             // Смена boot-time — ещё не дефект: выключение кнопкой выглядит так же (бэклог п.93).
             var kind = e.IsFailure
                 ? $"[red]{ShutdownKind.Describe(e.Kind)}[/]"
@@ -386,6 +428,11 @@ switch (command)
             AnsiConsole.MarkupLine("[yellow]⚠ Ключ svc_diag_key не найден (SshKeyPath в appsettings.json) — добавь -i <путь к ключу>.[/]");
         break;
     }
+
+    // alive: heartbeat + boot-time + TCP/ICMP/ARP одной командой — вердикт «вырубилась или
+    // висит» без шести ручных прогонов (бэклог п.202, СЗ 161972).
+    case "alive" when args.Length >= 2:
+        return await AliveCommand.RunAsync(client, args[1]);
 
     case "kb" when args.Length >= 2:
         return await KbCommand.RunAsync(args[1..], options.KbRoot);
@@ -564,6 +611,29 @@ switch (command)
         // «завершена (exit 1), вывода 0 б» была неотличима от упавшего агента (п.177).
         if (!string.IsNullOrEmpty(status.Error))
             AnsiConsole.MarkupLineInterpolated($"[red]ошибка скрипта:[/] {status.Error}");
+
+        // --save: вывод detached-задачи живёт только на клиенте и не переживает его потерю —
+        // переустановка/вырубон уносит единственное приборное доказательство (бэклог п.214,
+        // СЗ 161972). Тянем ту же папку задачи тем же каналом, что и `pull`, без отдельного
+        // вызова: `jobs/<jobId>` на хосте, а не метка времени — повторный `--save` ложится рядом.
+        if (args.Any(a => a.Equals("--save", StringComparison.OrdinalIgnoreCase)))
+        {
+            var saveRes = await client.PullAsync(args[1], JobOutputPull.ClientDir(args[3]),
+                maxBytes: null, recurse: false, label: JobOutputPull.HostLabel(args[3]));
+            if (saveRes is null)
+                AnsiConsole.MarkupLine("[yellow]⚠ вывод не сохранён на хосте: СЗ уже не в сети[/]");
+            else if (!string.IsNullOrEmpty(saveRes.Error))
+                AnsiConsole.MarkupLineInterpolated($"[yellow]⚠ вывод не сохранён на хосте:[/] {saveRes.Error}");
+            else
+            {
+                var savedFiles = saveRes.Files.Where(f => !f.Skipped && f.SavedPath is not null).ToList();
+                if (savedFiles.Count == 0)
+                    AnsiConsole.MarkupLine("[grey]сохранять пока нечего — вывода на клиенте ещё нет[/]");
+                else
+                    AnsiConsole.MarkupLineInterpolated(
+                        $"[green]✓ сохранено на хосте:[/] {Path.GetDirectoryName(savedFiles[0].SavedPath)}");
+            }
+        }
         // Код возврата отражает исход задачи — поверх можно строить автоматизацию (п.103).
         return ExecExitCode.FromStatus(status);
     }
@@ -753,9 +823,12 @@ static void PrintUsage()
             Использование:
               [yellow]szcli[/] [grey][[watch]][/]          живой список онлайн-СЗ (по умолчанию)
               [yellow]szcli list[/]             однократный список
-              [yellow]szcli close[/] [blue]<СЗ>[/]         закрыть СЗ (revert на агенте)
+              [yellow]szcli close[/] [blue]<СЗ>[/] [grey][[--force "причина"]][/]  закрыть СЗ (revert на агенте);
+                                            --force — обязателен, если наблюдение короче
+                                            характерного интервала между отказами по истории СЗ
               [yellow]szcli target[/] [blue]<СЗ>[/]        SSH-адрес по номеру СЗ
               [yellow]szcli reboots[/] [blue]<СЗ>[/]       таймлайн вырубонов (по смене boot-time)
+              [yellow]szcli alive[/] [blue]<СЗ>[/]         heartbeat + TCP/ICMP/ARP одной командой — вырубилась или висит?
               [yellow]szcli note[/] [blue]<СЗ>[/] [grey]<текст>[/]  ручной шаг в журнал СЗ (свап железа, BIOS, осмотр)
                 [grey]принимается и когда машина offline или СЗ закрыта[/]
               [yellow]szcli sz fetch[/] [blue]<СЗ>[/] [grey][[--force]][/]  подтянуть заявку из учётной системы в kb
@@ -775,8 +848,9 @@ static void PrintUsage()
                 [grey]можно через запятую или пробел; all — все; алиасы: hw ram disks video bsod tdr temp[/]
               [yellow]szcli exec[/] [blue]<СЗ>[/] [grey]"<powershell>" | -f <файл> [[--param Key=Value ...]] [[--timeout <сек>]] [[--detach [[--isolated]]]] [[--as-system]][/]
                 [grey]--isolated — фон переживает падение/закрытие агента (scheduled task под SYSTEM)[/]
+              [yellow]szcli exec[/] [blue]<СЗ>[/] [grey]--result <jobId> [[--tail N]] [[--save]]   состояние фоновой задачи[/]
+                [grey]--save — забрать вывод задачи (out.txt/err.txt) на хост, чтобы он пережил потерю клиента[/]
                 [grey]--as-system — синхронный запуск под SYSTEM: задачи UpdateOrchestrator и объекты TrustedInstaller недоступны админу[/]
-              [yellow]szcli exec[/] [blue]<СЗ>[/] [grey]--result <jobId> [[--tail N]]   состояние фоновой задачи[/]
               [yellow]szcli exec[/] [blue]<СЗ>[/] [grey]--cancel <jobId> | --jobs      снять задачу / список задач[/]
               [yellow]szcli exec[/] [blue]<СЗ>[/] [grey]--in-session "<powershell>" [[--timeout <сек>]]   в сессии пользователя, не в session 0 агента[/]
                 [grey]выполнить скрипт на агенте и получить вывод (без SSH)[/]
@@ -810,9 +884,15 @@ static void PrintRebootTotals(RebootTimeline timeline)
     // и два выключения кнопкой — и вердикт по заявке менялся вместе с этим (бэклог п.93).
     var failures = timeline.Events.Count(e => e.IsFailure);
     var benign = timeline.Count - failures;
-    var tail = benign > 0 ? $" (плюс {benign} штатных: кнопка/перезагрузка)" : "";
+    var tail = benign > 0 ? $" (плюс {benign} штатных: кнопка/перезагрузка/сон/обесточивание)" : "";
     AnsiConsole.MarkupLineInterpolated(
         $"[yellow]Вырубонов: {failures}[/]{tail}. Максимальный аптайм между ними: {max}.");
+
+    // Наработка «за вычетом сна» — иначе аптайм выдаёт сутки «наблюдения» за сутки работы
+    // (бэклог п.140/222, СЗ 161346: 7 часов реальной работы против заявленных суток).
+    if (timeline.TotalSleep > TimeSpan.Zero)
+        AnsiConsole.MarkupLineInterpolated(
+            $"[grey]Проспала за это время:[/] {SessionTableRenderer.FormatElapsed(timeline.TotalSleep)} — наработку считать за вычетом сна.");
 }
 
 static async Task PrintRebootSummaryAsync(IHubApiClient client, string sz)

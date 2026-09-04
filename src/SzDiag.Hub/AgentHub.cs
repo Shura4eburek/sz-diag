@@ -1,5 +1,6 @@
 ﻿using System.Text;
 using Microsoft.AspNetCore.SignalR;
+using Microsoft.Extensions.Options;
 using SzDiag.Contracts;
 using SzDiag.Kb;
 
@@ -17,11 +18,12 @@ public sealed class AgentHub : Microsoft.AspNetCore.SignalR.Hub
     private readonly PushCoordinator _push;
     private readonly JournalWriter _journal;
     private readonly RevertResultStore _revertResults;
+    private readonly HubOptions _options;
 
     public AgentHub(SessionRegistry registry, ISessionStore store,
         IKnowledgeBaseScaffolder kb, IReportStore reports, ExecCoordinator exec,
         PullCoordinator pull, PushCoordinator push, JournalWriter journal,
-        RevertResultStore revertResults)
+        RevertResultStore revertResults, IOptions<HubOptions> options)
     {
         _registry = registry;
         _store = store;
@@ -32,13 +34,29 @@ public sealed class AgentHub : Microsoft.AspNetCore.SignalR.Hub
         _push = push;
         _journal = journal;
         _revertResults = revertResults;
+        _options = options.Value;
     }
 
     public async Task Register(RegisterRequest request)
     {
         var ip = Context.GetHttpContext()?.Connection.RemoteIpAddress?.ToString() ?? "unknown";
+        var now = DateTimeOffset.UtcNow;
+
+        // Плановое обесточивание сервиса (рубильник на ночь) не должно попадать в счётчик
+        // отказов ⚡ так же, как обрыв питания (бэклог п.130, СЗ 161346): проверяем ДО передачи
+        // в реестр, чтобы RebootCount и запись в SQLite были согласованы с журналом.
+        var effectiveShutdown = request.LastShutdown;
+        if (ShutdownKind.CountsAsFailure(effectiveShutdown))
+        {
+            var massOffline = _registry.WasMassOfflineNear(now, _options.MassOfflineWindow);
+            var start = PlannedOutageClassifier.ParseTimeOfDay(_options.ServiceHoursStart);
+            var end = PlannedOutageClassifier.ParseTimeOfDay(_options.ServiceHoursEnd);
+            if (PlannedOutageClassifier.IsPlanned(TimeOnly.FromDateTime(now.ToLocalTime().DateTime), start, end, massOffline))
+                effectiveShutdown = ShutdownKind.PlannedOutage;
+        }
+
         var outcome = _registry.Register(request.Sz, ip, request.Hostname, Context.ConnectionId,
-            request.BootTime, request.LastShutdown, request.AgentUser, request.AgentSessionId);
+            request.BootTime, effectiveShutdown, request.AgentUser, request.AgentSessionId);
         if (outcome.Rebooted)
         {
             // Пишем в SQLite сразу: in-memory реестр не переживает рестарт hub, а вырубон,
@@ -48,10 +66,10 @@ public sealed class AgentHub : Microsoft.AspNetCore.SignalR.Hub
             var busy = outcome.ActivityBefore is { } a ? $", активность: {a}" : "";
             // Смена boot-time сама по себе вырубоном не является: агент присылает разбор
             // Kernel-Power 41, и выключение кнопкой в счётчик отказов не идёт (бэклог п.93).
-            var failure = ShutdownKind.CountsAsFailure(request.LastShutdown);
+            var failure = ShutdownKind.CountsAsFailure(effectiveShutdown);
             var label = failure ? "ВЫРУБОН" : "перезагрузка";
             Console.WriteLine($"[hub] СЗ {request.Sz}: {label} — клиент перезагрузился " +
-                              $"({ShutdownKind.Describe(request.LastShutdown)}, " +
+                              $"({ShutdownKind.Describe(effectiveShutdown)}, " +
                               $"boot-time {request.BootTime:yyyy-MM-dd HH:mm:ss}){held}{busy}");
             // Журнал СЗ ведётся на украинском (как весь kb), поэтому слова свои, а не из
             // консольной строки hub. События машины обязаны попадать туда сами: команды с
@@ -60,18 +78,27 @@ public sealed class AgentHub : Microsoft.AspNetCore.SignalR.Hub
                 ? $", протрималась {uUa:d\\.hh\\:mm\\:ss}" : "";
             var busyUa = outcome.ActivityBefore is { } aUa
                 ? $", активність: {aUa}" : "";
-            var labelUa = failure
-                ? "вирубон"
-                : "перезавантаження";
+            var labelUa = !failure && effectiveShutdown == ShutdownKind.PlannedOutage
+                ? "планове знеструмлення"
+                : failure ? "вирубон" : "перезавантаження";
             _journal.Machine(request.Sz, $"**{labelUa}**{heldUa}{busyUa}");
             await _store.RecordRebootAsync(new RebootEvent(
-                request.Sz, DateTimeOffset.UtcNow, outcome.PreviousBootTime, request.BootTime,
+                request.Sz, now, outcome.PreviousBootTime, request.BootTime,
                 (long?)outcome.UptimeBefore?.TotalSeconds, outcome.ActivityBefore,
-                request.LastShutdown));
+                effectiveShutdown));
+        }
+        else if (outcome.ReconnectedAfterGap is { } gap)
+        {
+            // Boot-time тот же — машина не ребутилась, просто молчала (сеть/exec задавлены
+            // нагрузкой). Отвал под фоновой задачей иначе связывают с ней только по памяти
+            // инженера, который помнит время старта (бэклог п.202, СЗ 161972).
+            var busyUa = outcome.ActivityBefore is { } a ? $", була зайнята: {a}" : "";
+            _journal.Machine(request.Sz,
+                $"з'єднання відновлено (мовчала {gap:hh\\:mm\\:ss}){busyUa}");
         }
         _kb.EnsureSkeleton(request.Sz);
         await _store.RecordOpenAsync(
-            new SessionRecord(request.Sz, ip, request.Hostname, DateTimeOffset.UtcNow, null));
+            new SessionRecord(request.Sz, ip, request.Hostname, now, null));
     }
 
     /// <summary>Агент принёс события питания из журнала клиента. Hub сливает их со своими:
@@ -81,8 +108,20 @@ public sealed class AgentHub : Microsoft.AspNetCore.SignalR.Hub
     {
         if (report.Events.Count == 0) return;
         var added = await _store.MergeJournalEventsAsync(report);
-        if (added > 0)
-            Console.WriteLine($"[hub] СЗ {report.Sz}: из журнала клиента добавлено событий питания: {added}");
+        if (added.Count > 0)
+            Console.WriteLine($"[hub] СЗ {report.Sz}: из журнала клиента добавлено событий питания: {added.Count}");
+
+        // Сон машины при живой сессии — не вырубон и не дефект, но искажает наработку так же
+        // сильно, как рубильник искажал счётчик ⚡ (бэклог п.140/222, СЗ 161346: сутки
+        // «наблюдения» оказались 7 часами реальной работы). Пишем только НОВЫЕ записи —
+        // MergeJournalEventsAsync уже отсёк те, что hub видел на прошлом подключении.
+        foreach (var sleep in added.Where(e => e.Kind == ShutdownKind.Sleep))
+        {
+            var wake = sleep.DurationSeconds is { } d ? sleep.At.AddSeconds(d) : (DateTimeOffset?)null;
+            var durationText = sleep.DurationSeconds is { } ds ? $" ({TimeSpan.FromSeconds(ds):h\\г\\ mm\\х\\в})" : "";
+            var wakeText = wake is { } w ? $" -> пробудження {w.ToLocalTime():HH:mm}" : "";
+            _journal.Machine(report.Sz, $"сон {sleep.At.ToLocalTime():HH:mm}{wakeText}{durationText}");
+        }
     }
 
     public Task Heartbeat(string sz)

@@ -26,10 +26,13 @@ public static class PowerEventsReader
     public const int DefaultDays = 30;
 
     /// <summary>Скрипт: по строке на событие —
-    /// `<ISO-время>;<BugcheckCode>;<PowerButtonTimestamp>;<UptimeBeforeSeconds>`.
-    /// Время — реальный момент отказа (из парного 6008, если найден; иначе `TimeCreated`
-    /// события 41). Разбор классификации тот же, что у <see cref="ShutdownClassifier"/>:
-    /// hard-off / кнопка / BSOD.</summary>
+    /// `<ISO-время>;<BugcheckCode>;<PowerButtonTimestamp>;<UptimeBeforeSeconds>`
+    /// для Kernel-Power 41 (hard-off/кнопка/BSOD — разбор тот же, что у
+    /// <see cref="ShutdownClassifier"/>; время — реальный момент отказа из парного 6008, если
+    /// найден, иначе `TimeCreated` события 41), либо `SLEEP;<ISO-время-начала-сна>;<секунды>`
+    /// для пары Kernel-Power 42 (уход в сон) -> 107 (пробуждение). Без второго машина уходит
+    /// в S3 при живой сессии, а hub считает её работающей — сутки «наблюдения» оказывались
+    /// 7 часами реальной работы (бэклог п.140/222).</summary>
     public static string BuildScript(int days = DefaultDays) => $$"""
         $since = (Get-Date).AddDays(-{{days}})
         $events = @(Get-WinEvent -FilterHashtable @{ LogName='System'; ProviderName='Microsoft-Windows-Kernel-Power'; Id=41; StartTime=$since } -ErrorAction SilentlyContinue)
@@ -68,6 +71,16 @@ public static class PowerEventsReader
 
             "{0};{1};{2};{3}" -f $at.ToUniversalTime().ToString('o'), $d['BugcheckCode'], $d['PowerButtonTimestamp'], $dur
         }
+        $pw = @(Get-WinEvent -FilterHashtable @{ LogName='System'; ProviderName='Microsoft-Windows-Kernel-Power'; Id=42,107; StartTime=$since } -ErrorAction SilentlyContinue) | Sort-Object TimeCreated
+        $sleepStart = $null
+        foreach ($e in $pw) {
+            if ($e.Id -eq 42) { $sleepStart = $e.TimeCreated }
+            elseif ($e.Id -eq 107 -and $sleepStart) {
+                $dur = [int]($e.TimeCreated - $sleepStart).TotalSeconds
+                "SLEEP;{0};{1}" -f $sleepStart.ToUniversalTime().ToString('o'), $dur
+                $sleepStart = $null
+            }
+        }
         """;
 
     /// <summary>Разбор вывода скрипта. Вынесено ради тестируемости.</summary>
@@ -80,6 +93,17 @@ public static class PowerEventsReader
             if (line.Length == 0) continue;
 
             var parts = line.Split(';');
+
+            if (parts[0] == "SLEEP")
+            {
+                if (parts.Length < 3) continue;
+                if (!DateTimeOffset.TryParse(parts[1], CultureInfo.InvariantCulture,
+                        DateTimeStyles.RoundtripKind, out var sleepAt)) continue;
+                var duration = long.TryParse(parts[2], out var d) ? d : (long?)null;
+                result.Add(new PowerEvent(sleepAt, ShutdownKind.Sleep, 0, DurationSeconds: duration));
+                continue;
+            }
+
             if (parts.Length < 3) continue;
             if (!DateTimeOffset.TryParse(parts[0], CultureInfo.InvariantCulture,
                     DateTimeStyles.RoundtripKind, out var at)) continue;
@@ -96,7 +120,7 @@ public static class PowerEventsReader
 
             // Код едет дальше: «BSOD ×13» без кодов не разделяет один почерк и три разных
             // дефекта (бэклог п.121).
-            result.Add(new PowerEvent(at, kind, bugcheck, uptimeBefore));
+            result.Add(new PowerEvent(at, kind, bugcheck, UptimeBeforeSeconds: uptimeBefore));
         }
         return result;
     }

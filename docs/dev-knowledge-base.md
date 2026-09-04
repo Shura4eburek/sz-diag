@@ -1,4 +1,4 @@
-# Dev knowledge base (карта функционала sz-diag)
+﻿# Dev knowledge base (карта функционала sz-diag)
 
 > Плотный справочник по всему функционалу для быстрой навигации и правок без повторного
 > обхода кодовой базы. Общий замысел — [vision.md](vision.md); архитектура/инварианты для
@@ -69,6 +69,7 @@ CLI-токен — заголовок `X-SzDiag-Mgmt-Token` (`ManagementApi.Toke
 | `GET /api/sessions/{sz}/exec` | `StatusAsync(sz, "*")` | список фоновых задач (сводка в `Tail`) |
 | `DELETE /api/sessions/{sz}/exec/{jobId}` | `StatusAsync(cancel: true)` | отмена задачи; `Cancelled=true` в ответе |
 | `POST /api/sessions/{sz}/agent/restart` | `RestartAgentTrigger.TriggerAsync` | `Ok`/`NotFound`; отдельный от `ExecCoordinator` путь — не заходит в exec-очередь вовсе (бэклог п.202/п.215) |
+| `POST /api/sessions/{sz}/pull` (тело `PullCommandRequest{Path,MaxBytes,Recurse,Label}`) | `PullCoordinator.PullAsync` | `PullResponse`/`NotFound`/`504`; кладёт на хост в `pulled\<sz>\<Label ?? метка_времени>\`. `Label` (например `jobs/<jobId>`) — сюда попадает `szcli exec --result --save`, чтобы вывод detached-задачи не терялся вместе с клиентом (бэклог п.214) |
 
 Exit-коды `szcli exec` (`ExecExitCode`): 0 успех · N — код скрипта как есть · 3 отказ/ошибка
 агента · 4 таймаут. `--result` мапится по исходу задачи (п.103).
@@ -207,8 +208,12 @@ events reboots whea thermal livekernel reliability battery` (без `network`/`s
 
 Точка входа на клиенте **вместо** прямого запуска агента — `SzDiag.Updater.exe`. Убирает ручной
 цикл раздачи через share: на клиента кладётся один раз `Updater.exe` + `appsettings.json`, всё
-остальное тянется само. `Program.cs` (оркестрация): найти hub (`HubUrl` или `HubDiscovery`,
-**требуем hub**) → `HttpUpdateClient.GetVersionAsync` → сравнить с локальным `version.txt` → при
+остальное тянется само. `Program.cs` (оркестрация): **`CloudInstallGuard.Check(baseDir)`** —
+отказ (exit 4) до всего остального, если сам апдейтер запущен из OneDrive/Dropbox/…
+(`CloudSyncPaths.IsSynced`, общая проверка с `ToolsDirectory` из Agent — бэклог п.41/п.63:
+иначе `state.json`/логи сессии синхронизируются в личное облако клиента) → найти hub (`HubUrl`
+или `HubDiscovery`, **требуем hub**) → `HttpUpdateClient.GetVersionAsync` → сравнить с локальным
+`version.txt` → при
 расхождении `DownloadPackageAsync` + сверка `GetPackageSha256Async` (`Hashing.Sha256File`) →
 `PackageApplier.Apply` (распаковка поверх, **кроме** `appsettings.json`/`tools/`, атомарно через
 staging) → `AgentLauncher.LaunchAndWait` (запуск `agent.exe` в наследованной консоли).

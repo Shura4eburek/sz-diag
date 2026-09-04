@@ -1,4 +1,4 @@
-using SzDiag.Agent;
+﻿using SzDiag.Agent;
 using SzDiag.Contracts;
 using Xunit;
 
@@ -88,5 +88,44 @@ public class PowerEventsReaderTests
         var events = PowerEventsReader.Parse(Line("2026-08-05T13:00:58.0000000+00:00", "0", "0"));
 
         Assert.Null(Assert.Single(events).UptimeBeforeSeconds);
+    }
+
+    // Сон при живой сессии (бэклог п.140/222): Kernel-Power 42 -> 107, без него наработка
+    // опиралась на голый аптайм, а сутки «наблюдения» на 161346 оказались 7 часами работы.
+    [Fact]
+    public void Script_ReadsKernelPower42And107ForSleep()
+    {
+        var script = PowerEventsReader.BuildScript(30);
+
+        Assert.Contains("Id=42,107", script);
+        Assert.Contains("SLEEP;", script);
+        Assert.All(script, c => Assert.True(c < 128, "тело скрипта — строго ASCII"));
+    }
+
+    [Fact]
+    public void Parse_SleepLine_ProducesSleepEventWithDuration()
+    {
+        var events = PowerEventsReader.Parse("SLEEP;2026-08-10T19:32:00.0000000+00:00;60300");
+
+        var evt = Assert.Single(events);
+        Assert.Equal(ShutdownKind.Sleep, evt.Kind);
+        Assert.Equal(60300, evt.DurationSeconds);
+        Assert.Equal(new DateTimeOffset(2026, 8, 10, 19, 32, 0, TimeSpan.Zero), evt.At);
+    }
+
+    [Fact]
+    public void Parse_MixesHardOffAndSleepLines()
+    {
+        var stdout = string.Join("\n", new[]
+        {
+            Line("2026-08-05T13:00:58.0000000+00:00", "0", "0"),
+            "SLEEP;2026-08-10T19:32:00.0000000+00:00;60300",
+        });
+
+        var events = PowerEventsReader.Parse(stdout);
+
+        Assert.Equal(2, events.Count);
+        Assert.Equal(ShutdownKind.HardOff, events[0].Kind);
+        Assert.Equal(ShutdownKind.Sleep, events[1].Kind);
     }
 }

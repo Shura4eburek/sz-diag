@@ -2,6 +2,7 @@
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.AspNetCore.SignalR.Client;
 using Microsoft.Data.Sqlite;
+using Microsoft.Extensions.DependencyInjection;
 using SzDiag.Contracts;
 using Xunit;
 
@@ -95,6 +96,68 @@ public class AgentHubJournalTests : IClassFixture<WebApplicationFactory<Program>
         var path = Path.Combine(_kbRoot, "СЗ", "160711", "журнал.md");
         var text = File.Exists(path) ? File.ReadAllText(path) : "";
         Assert.DoesNotContain("вирубон", text);
+    }
+
+    [Fact]
+    public async Task PowerEvents_SleepEvent_WritesJournalEntryWithDuration()
+    {
+        // Бэклог п.140/222 (СЗ 161346): сессия пережила незапланированный сон, а ни hub, ни
+        // агент такого события не фиксировали — разбирать пришлось задним числом по журналу.
+        await using var conn = BuildConnection();
+        await conn.StartAsync();
+        await conn.InvokeAsync(HubRoutes.Register, new RegisterRequest("161346", "PC-4"));
+
+        var sleepStart = new DateTimeOffset(2026, 8, 24, 14, 44, 14, TimeSpan.Zero);
+        await conn.InvokeAsync(HubRoutes.PowerEvents, new PowerEventsReport("161346", new[]
+        {
+            new PowerEvent(sleepStart, ShutdownKind.Sleep, DurationSeconds: 540), // 9 минут
+        }));
+
+        var text = JournalText("161346");
+        Assert.Contains("сон", text);
+    }
+
+    [Fact]
+    public async Task PowerEvents_SleepEventTwice_WritesJournalEntryOnlyOnce()
+    {
+        // Агент присылает журнал при каждом переподключении — уже влитое событие не должно
+        // дублироваться в журнале СЗ.
+        await using var conn = BuildConnection();
+        await conn.StartAsync();
+        await conn.InvokeAsync(HubRoutes.Register, new RegisterRequest("161347", "PC-5"));
+
+        var report = new PowerEventsReport("161347", new[]
+        {
+            new PowerEvent(new DateTimeOffset(2026, 8, 24, 14, 44, 14, TimeSpan.Zero),
+                ShutdownKind.Sleep, DurationSeconds: 540),
+        });
+        await conn.InvokeAsync(HubRoutes.PowerEvents, report);
+        await conn.InvokeAsync(HubRoutes.PowerEvents, report);
+
+        var text = JournalText("161347");
+        var occurrences = text.Split("сон").Length - 1;
+        Assert.Equal(1, occurrences);
+    }
+
+    [Fact]
+    public async Task Register_ReconnectAfterHeartbeatGap_WritesJournalEntry()
+    {
+        // Отвал под фоновой задачей без реального ребута — тоже факт, который иначе всплывает
+        // только по памяти инженера (бэклог п.202, СЗ 161972).
+        var registry = _factory.Services.GetRequiredService<SessionRegistry>();
+        var boot = new DateTimeOffset(2026, 8, 21, 10, 0, 0, TimeSpan.Zero);
+
+        await using var conn = BuildConnection();
+        await conn.StartAsync();
+        await conn.InvokeAsync(HubRoutes.Register, new RegisterRequest("161972", "PC-6", boot));
+        await conn.InvokeAsync(HubRoutes.ReportActivity, "161972", "Disk linear scan", DateTimeOffset.UtcNow);
+
+        registry.MarkStaleOffline(TimeSpan.Zero); // симулируем пропажу heartbeat прямо сейчас
+        await conn.InvokeAsync(HubRoutes.Register, new RegisterRequest("161972", "PC-6", boot)); // тот же boot-time
+
+        var text = JournalText("161972");
+        Assert.Contains("з'єднання відновлено", text);
+        Assert.Contains("Disk linear scan", text);
     }
 
     public void Dispose()

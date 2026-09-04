@@ -26,6 +26,12 @@ public static class ClientTraces
     /// начинается с `R0` — по «очевидному» `lhmmon` уборка промахивалась (п.88).</summary>
     public static readonly string[] ToolServices = { "R0lhmmon", "WinRing0_1_2_0", "R0OCCT" };
 
+    /// <summary>Корень вывода фоновых exec-задач на клиенте (`BackgroundJobs` кладёт сюда
+    /// `<jobId>\out.txt`/`err.txt`) — общая константа, чтобы CLI (`exec --result --save`,
+    /// бэклог п.214) и уборка следов ссылались на один и тот же путь, а не на два его
+    /// текстовых дубля.</summary>
+    public const string JobsRoot = @"C:\ProgramData\szdiag\jobs";
+
     /// <summary>Наши временные каталоги на клиенте: вывод фоновых задач, CSV наблюдателя и
     /// доставленные инструменты (`ToolsDirectory.Resolve` уводит их сюда, когда папка агента
     /// сама оказалась в OneDrive/Dropbox/… — иначе четверть гига OCCT+lhmmon уезжала в личное
@@ -33,7 +39,7 @@ public static class ClientTraces
     /// чистится без вопросов.</summary>
     public static readonly string[] TempDirs =
     {
-        @"C:\ProgramData\szdiag\jobs",
+        JobsRoot,
         @"C:\ProgramData\szdiag\sensors",
         @"C:\ProgramData\szdiag\tools",
     };

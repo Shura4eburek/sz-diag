@@ -1,4 +1,4 @@
-using System.Diagnostics;
+﻿using System.Diagnostics;
 using SzDiag.Agent;
 using Xunit;
 
@@ -97,9 +97,20 @@ public class PowerShellRunnerTests
         var filler = string.Join("\n", Enumerable.Range(1, 600).Select(i =>
             $"# наполнитель {i}: длинная строка комментария, раздувающая скрипт до размеров секции whea"));
 
+        var before = Directory.GetFiles(Path.GetTempPath(), "szdiag-ps-*.ps1").ToHashSet();
+
         runner.Run(filler + "\n'ok'", timeout: TimeSpan.FromSeconds(30));
 
-        var leftovers = Directory.GetFiles(Path.GetTempPath(), "szdiag-ps-*.ps1");
+        // temp общий на машине: соседние тесты держат там свои временные файлы
+        // в тот же момент, поэтому сравниваем снимки, а не проверяем каталог на пустоту.
+        string[] leftovers = Array.Empty<string>();
+        for (var attempt = 0; attempt < 20; attempt++)
+        {
+            leftovers = Directory.GetFiles(Path.GetTempPath(), "szdiag-ps-*.ps1")
+                .Where(f => !before.Contains(f)).ToArray();
+            if (leftovers.Length == 0) break;
+            Thread.Sleep(100);
+        }
         Assert.Empty(leftovers);
     }
 

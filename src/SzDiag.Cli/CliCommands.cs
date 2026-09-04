@@ -13,7 +13,7 @@ public static class CliCommands
     {
         "watch", "list", "close", "target", "exec", "pull", "push", "reboots",
         "freeze", "unfreeze", "note", "sensors", "test", "diag", "kb", "hw",
-        "client", "maintenance", "agent", "sz", "stress", "app",
+        "client", "maintenance", "agent", "sz", "stress", "app", "alive",
     };
 
     public static bool IsKnown(string command)

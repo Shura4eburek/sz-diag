@@ -29,8 +29,10 @@ public interface IHubApiClient
 
     /// <summary>Список фоновых exec-задач на агенте (сводка в Tail).</summary>
     Task<ExecJobStatus?> ExecJobsAsync(string sz, CancellationToken ct = default);
+    /// <param name="label">Подпапка на хосте вместо метки времени по умолчанию — например
+    /// <c>jobs/&lt;jobId&gt;</c> для вывода фоновой задачи (`exec --result --save`, бэклог п.214).</param>
     Task<PullResponse?> PullAsync(string sz, string path, long? maxBytes = null, bool recurse = false,
-        CancellationToken ct = default);
+        string? label = null, CancellationToken ct = default);
     Task<PushResult?> PushAsync(string sz, string tool, CancellationToken ct = default);
     Task<ToolCatalogInfo?> GetToolsAsync(CancellationToken ct = default);
     Task<RebootTimeline?> GetRebootsAsync(string sz, CancellationToken ct = default);

@@ -4,6 +4,16 @@ using SzDiag.Updater;
 
 var baseDir = AppContext.BaseDirectory;
 
+// Точка входа на клиенте не должна жить в облаке (OneDrive/Dropbox/…) — иначе state.json и
+// логи сессии синхронизируются наружу мимо нашего контроля (СЗ 160636, бэклог п.41).
+// Отказываем до всего остального: смысла качать пакет и поднимать агента в такую папку нет.
+var cloudWarning = CloudInstallGuard.Check(baseDir);
+if (cloudWarning is not null)
+{
+    Console.Error.WriteLine(cloudWarning);
+    return 4;
+}
+
 var config = new ConfigurationBuilder()
     .SetBasePath(baseDir)
     .AddJsonFile("appsettings.json", optional: true)

@@ -1,3 +1,5 @@
+using SzDiag.Contracts;
+
 namespace SzDiag.Agent;
 
 /// <summary>Выбор папки для доставляемых инструментов.
@@ -19,27 +21,8 @@ public static class ToolsDirectory
         return (Path.Combine(programData, "szdiag", "tools"), true);
     }
 
-    /// <summary>Похоже ли, что путь внутри синхронизируемого облака. Проверяем и по имени
-    /// каталога (OneDrive/Dropbox/Google Drive/Яндекс.Диск), и по переменным среды OneDrive —
-    /// у клиента папка может называться локализованно (напр. «OneDrive - Личное»).</summary>
-    public static bool IsCloudSynced(string path)
-    {
-        if (string.IsNullOrWhiteSpace(path)) return false;
-        var full = Path.GetFullPath(path);
-
-        string[] markers = { "onedrive", "dropbox", "google drive", "googledrive", "yandexdisk", "яндекс.диск", "icloud" };
-        var segments = full.Split(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
-        if (segments.Any(s => markers.Any(m => s.Contains(m, StringComparison.OrdinalIgnoreCase))))
-            return true;
-
-        foreach (var name in new[] { "OneDrive", "OneDriveCommercial", "OneDriveConsumer" })
-        {
-            var root = Environment.GetEnvironmentVariable(name);
-            if (!string.IsNullOrWhiteSpace(root)
-                && full.StartsWith(Path.GetFullPath(root), StringComparison.OrdinalIgnoreCase))
-                return true;
-        }
-
-        return false;
-    }
+    /// <summary>Похоже ли, что путь внутри синхронизируемого облака. Проверка вынесена в
+    /// <see cref="CloudSyncPaths"/> (Contracts) — той же проверкой пользуется и апдейтер
+    /// для собственного пути установки (бэклог п.41).</summary>
+    public static bool IsCloudSynced(string path) => CloudSyncPaths.IsSynced(path);
 }

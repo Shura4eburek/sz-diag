@@ -208,4 +208,77 @@ public class SessionRegistryTests
         Assert.Null(info.RevertNote);
         Assert.Equal(SessionStatus.Online, info.Status);
     }
+
+    // Плановое обесточивание сервиса (бэклог п.130): пропажа heartbeat у нескольких СЗ разом
+    // не должна засчитываться как дефект одной машины.
+    [Fact]
+    public void WasMassOfflineNear_NoEventYet_ReturnsFalse()
+        => Assert.False(NewRegistry().WasMassOfflineNear(DateTimeOffset.UtcNow, TimeSpan.FromMinutes(30)));
+
+    [Fact]
+    public void WasMassOfflineNear_WithinWindow_ReturnsTrue()
+    {
+        var reg = NewRegistry();
+        var at = new DateTimeOffset(2026, 8, 12, 6, 0, 0, TimeSpan.Zero);
+        reg.RecordMassOfflineEvent(at);
+
+        Assert.True(reg.WasMassOfflineNear(at + TimeSpan.FromMinutes(10), TimeSpan.FromMinutes(30)));
+    }
+
+    [Fact]
+    public void WasMassOfflineNear_OutsideWindow_ReturnsFalse()
+    {
+        var reg = NewRegistry();
+        var at = new DateTimeOffset(2026, 8, 12, 6, 0, 0, TimeSpan.Zero);
+        reg.RecordMassOfflineEvent(at);
+
+        Assert.False(reg.WasMassOfflineNear(at + TimeSpan.FromHours(2), TimeSpan.FromMinutes(30)));
+    }
+
+    // Переподключение после пропажи heartbeat БЕЗ смены boot-time — тоже факт диагностики
+    // (бэклог п.202, СЗ 161972): «вырубился или висит» иначе выясняется только руками.
+    [Fact]
+    public void Register_ReconnectAfterOfflineGap_ReportsGapAndActivity()
+    {
+        var time = new FakeTimeProvider(new DateTimeOffset(2026, 8, 21, 16, 30, 0, TimeSpan.Zero));
+        var reg = new SessionRegistry(time);
+        var boot = new DateTimeOffset(2026, 8, 21, 10, 0, 0, TimeSpan.Zero);
+        reg.Register("161972", "10.0.0.5", "PC-1", "conn-1", boot);
+        reg.SetActivity("161972", "Disk linear scan", DateTimeOffset.UtcNow);
+
+        time.Advance(TimeSpan.FromMinutes(1));
+        reg.MarkStaleOffline(TimeSpan.FromSeconds(1));   // heartbeat пропал
+
+        time.Advance(TimeSpan.FromMinutes(5));
+        var outcome = reg.Register("161972", "10.0.0.5", "PC-1", "conn-2", boot); // тот же boot-time
+
+        Assert.False(outcome.Rebooted);
+        Assert.NotNull(outcome.ReconnectedAfterGap);
+        // Молчание считается от ПОСЛЕДНЕГО heartbeat (16:30), а не от момента offline-пометки:
+        // 1 минута до пометки + 5 минут после = 6.
+        Assert.Equal(TimeSpan.FromMinutes(6), outcome.ReconnectedAfterGap!.Value);
+        Assert.Equal("Disk linear scan", outcome.ActivityBefore);
+    }
+
+    [Fact]
+    public void Register_ReconnectWithoutPriorOfflineMark_NoGapReported()
+    {
+        // Обычное переподключение сразу после разрыва SignalR (не через offline-sweep) —
+        // не должно печатать «мовчала N хв» на пустом месте.
+        var reg = NewRegistry();
+        var boot = new DateTimeOffset(2026, 8, 21, 10, 0, 0, TimeSpan.Zero);
+        reg.Register("161972", "10.0.0.5", "PC-1", "conn-1", boot);
+
+        var outcome = reg.Register("161972", "10.0.0.5", "PC-1", "conn-2", boot);
+
+        Assert.Null(outcome.ReconnectedAfterGap);
+    }
+
+    private sealed class FakeTimeProvider : TimeProvider
+    {
+        private DateTimeOffset _now;
+        public FakeTimeProvider(DateTimeOffset start) => _now = start;
+        public void Advance(TimeSpan by) => _now += by;
+        public override DateTimeOffset GetUtcNow() => _now;
+    }
 }

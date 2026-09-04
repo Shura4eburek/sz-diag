@@ -41,10 +41,21 @@ public static class ShutdownKind
     /// (бэклог п.100). Дефектом не считается.</summary>
     public const string Maintenance = "maintenance";
 
-    /// <summary>Считать ли событие вырубоном для счётчика `⚡N`. Кнопка и штатное выключение —
-    /// не считаются; неизвестное считается (лучше лишний вопрос, чем пропущенный дефект).</summary>
+    /// <summary>Плановое обесточивание сервиса (рубильник на ночь): ребут вне рабочих часов
+    /// либо совпал с массовой одновременной пропажей heartbeat у нескольких СЗ разом
+    /// (бэклог п.130). Дефектом не считается — иначе рубильник искажает счётчик ⚡.</summary>
+    public const string PlannedOutage = "planned-outage";
+
+    /// <summary>Машина уснула (S3) и потом проснулась — Kernel-Power 42 → 107. Не вырубон и не
+    /// перезагрузка (bootTime не меняется), но пропущенный сон искажает наработку: сутки
+    /// «наблюдения» оказывались 7 часами реальной работы (бэклог п.140/222).</summary>
+    public const string Sleep = "sleep";
+
+    /// <summary>Считать ли событие вырубоном для счётчика `⚡N`. Кнопка, штатное выключение,
+    /// плановое обесточивание и сон — не считаются; неизвестное считается (лучше лишний
+    /// вопрос, чем пропущенный дефект).</summary>
     public static bool CountsAsFailure(string? kind)
-        => kind is not (PowerButton or Clean or Maintenance);
+        => kind is not (PowerButton or Clean or Maintenance or PlannedOutage or Sleep);
 
     /// <summary>Человеческая подпись для CLI.</summary>
     public static string Describe(string? kind) => kind switch
@@ -54,6 +65,8 @@ public static class ShutdownKind
         Bsod => "BSOD",
         Clean => "штатно",
         Maintenance => "обслуживание",
+        PlannedOutage => "плановое обесточивание",
+        Sleep => "сон",
         _ => "неизвестно",
     };
 }

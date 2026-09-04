@@ -1,4 +1,4 @@
-using Microsoft.Data.Sqlite;
+﻿using Microsoft.Data.Sqlite;
 using SzDiag.Contracts;
 using SzDiag.Hub;
 using Xunit;
@@ -132,7 +132,7 @@ public class RebootJournalTests : IDisposable
 
         var timeline = await store.GetRebootsAsync("160636");
 
-        Assert.Equal(2, added);
+        Assert.Equal(2, added.Count);
         Assert.Equal(3, timeline.Count);
         Assert.Equal(2, timeline.Events.Count(e => e.Source == RebootSource.Journal));
         Assert.Equal(Boot1, timeline.WatchingSince);   // с какого момента вообще смотрели
@@ -157,7 +157,7 @@ public class RebootJournalTests : IDisposable
             new PowerEvent(Boot1.AddMinutes(6), ShutdownKind.HardOff),
         }));
 
-        Assert.Equal(4, added);
+        Assert.Equal(4, added.Count);
         Assert.Equal(4, (await store.GetRebootsAsync("260306")).Count);
     }
 
@@ -201,6 +201,29 @@ public class RebootJournalTests : IDisposable
     }
 
     [Fact]
+    public async Task Store_MergeSleepEvents_PersistsDurationAndFeedsTotalSleep()
+    {
+        // Бэклог п.140/222 (СЗ 161346): сутки «наблюдения» оказались 7 часами реальной
+        // работы — без длительности сна наработка опиралась на голый аптайм.
+        var store = new SqliteSessionStore(Conn);
+        await store.InitializeAsync();
+
+        var added = await store.MergeJournalEventsAsync(new PowerEventsReport("161346", new[]
+        {
+            new PowerEvent(new DateTimeOffset(2026, 8, 10, 19, 32, 0, TimeSpan.Zero),
+                ShutdownKind.Sleep, DurationSeconds: 59400),   // 16,5 ч
+            new PowerEvent(new DateTimeOffset(2026, 8, 11, 19, 48, 0, TimeSpan.Zero),
+                ShutdownKind.Sleep, DurationSeconds: 61920),   // 17,2 ч
+        }));
+
+        Assert.Equal(2, added.Count);
+
+        var timeline = await store.GetRebootsAsync("161346");
+        Assert.All(timeline.Events, e => Assert.False(e.IsFailure));   // сон не идёт в счётчик ⚡
+        Assert.Equal(TimeSpan.FromSeconds(59400 + 61920), timeline.TotalSleep);
+    }
+
+    [Fact]
     public async Task Store_MergeSameJournalTwice_IsIdempotent()
     {
         var store = new SqliteSessionStore(Conn);
@@ -214,7 +237,7 @@ public class RebootJournalTests : IDisposable
         await store.MergeJournalEventsAsync(report);
         var secondPass = await store.MergeJournalEventsAsync(report);
 
-        Assert.Equal(0, secondPass);
+        Assert.Equal(0, secondPass.Count);
         Assert.Equal(2, (await store.GetRebootsAsync("260306")).Count);
     }
 
