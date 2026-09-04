@@ -57,7 +57,11 @@ if (-not $signature) {
 }
 
 $runDir = ($signature | Sort-Object LastWriteTime -Descending | Select-Object -First 1).DirectoryName
-$finished = [bool]($signature | Where-Object Name -eq 'LastMonitoringValues.json')
+# R-I2 (ревью волны 1): $finished раньше считался по ВСЕМ корням поиска, а $runDir — по самому
+# свежему файлу. Старый LastMonitoringValues.json из прошлого прогона в ДРУГОЙ папке (в
+# пределах $HoursBack) заставлял убитый прогон отрапортовать «штатный выход» — фильтруем
+# строго по папке последнего прогона.
+$finished = [bool]($signature | Where-Object { $_.DirectoryName -eq $runDir -and $_.Name -eq 'LastMonitoringValues.json' })
 "== папка последнего прогона: $runDir"
 
 # Фильтр шума: *LICENSE* (лицензии распакованных движков) и сами движки (GPUUNREAL/CPULINPACK —
