@@ -100,6 +100,18 @@ public class DiagnosticProbesTests
     }
 
     [Fact]
+    public void RebootsProbe_PrintsForeignHardwareHistoryAsItsOwnBlock()
+    {
+        // Регрессия (бэклог п.210, СЗ 161498): события ДО границы молча отбрасывались одной
+        // строкой с count — реальная картина «3 на чужом железе + 26 на этой сборке» терялась,
+        // и сводка выглядела как «29 событий, история с прошлого года».
+        var run = Body("reboots");
+
+        Assert.Contains("NA ETOM ZHELEZE", run);
+        Assert.Contains("DO SBORKI (CHUZHOE ZHELEZO", run);
+    }
+
+    [Fact]
     public void AllProbeBodies_ParseAsValidPowerShell()
     {
         // Страж (п.182/196): синтаксическая ошибка в пробе должна падать на сборке, а не
@@ -227,11 +239,41 @@ public class DiagnosticProbesTests
         var ps = HardwareWindow.PowerShellPrologue();
 
         Assert.All(ps, c => Assert.True(c < 128, $"не-ASCII в прологе окна железа: {c}"));
-        Assert.Contains("DEVPKEY_Device_InstallDate", ps);
+        // Регрессия (бэклог п.210, СЗ 161498): DEVPKEY_Device_InstallDate меняется при
+        // переустановке драйвера, FirstInstallDate — момент, когда ЭТА система впервые
+        // увидела ИМЕННО ЭТОТ экземпляр устройства, и не едет вместе с переустановками.
+        Assert.Contains("DEVPKEY_Device_FirstInstallDate", ps);
         // Без надёжного признака ничего не отсекаем и говорим об этом прямо: выдуманная
         // граница хуже, чем её отсутствие.
         Assert.Contains("return $null", ps);
         Assert.Contains("schitat vsyu istoriyu svoey NELZYA", ps);
+    }
+
+    [Fact]
+    public void HardwareWindow_UsesOnlyKeyNonRemovableDevices_NotAllPciDevices()
+    {
+        // Регрессия (бэклог п.210, СЗ 161498): мода по дню среди ВСЕХ PCI-устройств дала
+        // границу на ГОД раньше реальной. Правильные свидетели — несъёмные ключевые
+        // устройства платформы: сетевые контроллеры/шины, GPU, системный диск.
+        var ps = HardwareWindow.PowerShellPrologue();
+
+        Assert.Contains("'Net'", ps);
+        Assert.Contains("'Display'", ps);
+        Assert.Contains("BusType", ps);   // диск резолвится через шину, чтобы отсеять USB
+        // Съёмное (USB-флешки) не должно попадать в выборку "рождения" железа.
+        Assert.Contains("USB", ps);
+    }
+
+    [Fact]
+    public void HardwareWindow_PrintsBothDatesAndContributingDevices()
+    {
+        // Расхождение "ОС старше железа" обязано быть видно прямо в шапке секции, а не
+        // прятаться в одной строке — иначе его снова легко не заметить.
+        var ps = HardwareWindow.PowerShellPrologue();
+
+        Assert.Contains("SZ_OS_INSTALL", ps);
+        Assert.Contains("SZ_HW_SINCE", ps);
+        Assert.Contains("SZ_HW_DEVICES", ps);
     }
 
     [Fact]

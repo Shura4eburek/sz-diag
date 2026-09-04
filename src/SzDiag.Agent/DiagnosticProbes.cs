@@ -424,10 +424,21 @@ public static class DiagnosticProbes
             # 79 hard-offs and 12 MCE 'on one core' that had nothing to do with the request (p.92).
             $split = Split-ByHwWindow $kpAll
             $kp = @($split.Ours)
+            # Dva otdelnyh bloka, a ne odna stroka s count (backlog p.210, SZ 161498): na
+            # etoy zayavke "29 sobytiy, first 2025-06-11" chital osy kak "hronicheskiy defekt s
+            # proshlogo goda", hotya realno bylo 3 sobytiya NA CHUZHOM zheleze + 26 na etoy
+            # sborke - chuzhaya istoriya molcha vlivalas v odnu svodku.
             if ($split.Foreign.Count -gt 0) {
-                "VNIMANIE: {0} sobytiy 41 otbrosheno kak istoriya DRUGOGO zheleza (do {1:yyyy-MM-dd HH:mm})." -f $split.Foreign.Count, $SZ_HW_SINCE
-                "  Ih daty: " + (($split.Foreign | Select-Object -First 5 | ForEach-Object { "{0:dd.MM.yyyy}" -f $_.TimeCreated }) -join ', ')
+                "=== DO SBORKI (CHUZHOE ZHELEZO, {0} sobytiy do {1:yyyy-MM-dd HH:mm}) ===" -f $split.Foreign.Count, $SZ_HW_SINCE
+                "istoriya DRUGOGO zheleza - v svodku etoy sborki NE vhodit."
+                $ff = @($split.Foreign)
+                "period: {0:dd.MM.yyyy} .. {1:dd.MM.yyyy}" -f `
+                    ($ff | Sort-Object TimeCreated | Select-Object -First 1).TimeCreated, `
+                    ($ff | Sort-Object TimeCreated -Descending | Select-Object -First 1).TimeCreated
+                $ff | Group-Object { $_.TimeCreated.ToString('yyyy-MM-dd') } | Sort-Object Name |
+                    ForEach-Object { "  {0}: {1}" -f $_.Name, $_.Count }
             }
+            "=== NA ETOM ZHELEZE ==="
             if ($kp.Count -gt 0) {
                 $first = $kp[-1].TimeCreated; $last = $kp[0].TimeCreated
                 "TOTAL: {0} events, first {1:yyyy-MM-dd HH:mm:ss}, last {2:yyyy-MM-dd HH:mm:ss}" -f $kp.Count, $first, $last
