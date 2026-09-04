@@ -99,8 +99,20 @@ public sealed class AgentHub : Microsoft.AspNetCore.SignalR.Hub
     {
         if (report.Events.Count == 0) return;
         var added = await _store.MergeJournalEventsAsync(report);
-        if (added > 0)
-            Console.WriteLine($"[hub] СЗ {report.Sz}: из журнала клиента добавлено событий питания: {added}");
+        if (added.Count > 0)
+            Console.WriteLine($"[hub] СЗ {report.Sz}: из журнала клиента добавлено событий питания: {added.Count}");
+
+        // Сон машины при живой сессии — не вырубон и не дефект, но искажает наработку так же
+        // сильно, как рубильник искажал счётчик ⚡ (бэклог п.140/222, СЗ 161346: сутки
+        // «наблюдения» оказались 7 часами реальной работы). Пишем только НОВЫЕ записи —
+        // MergeJournalEventsAsync уже отсёк те, что hub видел на прошлом подключении.
+        foreach (var sleep in added.Where(e => e.Kind == ShutdownKind.Sleep))
+        {
+            var wake = sleep.DurationSeconds is { } d ? sleep.At.AddSeconds(d) : (DateTimeOffset?)null;
+            var durationText = sleep.DurationSeconds is { } ds ? $" ({TimeSpan.FromSeconds(ds):h\\г\\ mm\\х\\в})" : "";
+            var wakeText = wake is { } w ? $" -> пробудження {w.ToLocalTime():HH:mm}" : "";
+            _journal.Machine(report.Sz, $"сон {sleep.At.ToLocalTime():HH:mm}{wakeText}{durationText}");
+        }
     }
 
     public Task Heartbeat(string sz)

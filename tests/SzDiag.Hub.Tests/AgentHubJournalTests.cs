@@ -97,6 +97,47 @@ public class AgentHubJournalTests : IClassFixture<WebApplicationFactory<Program>
         Assert.DoesNotContain("вирубон", text);
     }
 
+    [Fact]
+    public async Task PowerEvents_SleepEvent_WritesJournalEntryWithDuration()
+    {
+        // Бэклог п.140/222 (СЗ 161346): сессия пережила незапланированный сон, а ни hub, ни
+        // агент такого события не фиксировали — разбирать пришлось задним числом по журналу.
+        await using var conn = BuildConnection();
+        await conn.StartAsync();
+        await conn.InvokeAsync(HubRoutes.Register, new RegisterRequest("161346", "PC-4"));
+
+        var sleepStart = new DateTimeOffset(2026, 8, 24, 14, 44, 14, TimeSpan.Zero);
+        await conn.InvokeAsync(HubRoutes.PowerEvents, new PowerEventsReport("161346", new[]
+        {
+            new PowerEvent(sleepStart, ShutdownKind.Sleep, DurationSeconds: 540), // 9 минут
+        }));
+
+        var text = JournalText("161346");
+        Assert.Contains("сон", text);
+    }
+
+    [Fact]
+    public async Task PowerEvents_SleepEventTwice_WritesJournalEntryOnlyOnce()
+    {
+        // Агент присылает журнал при каждом переподключении — уже влитое событие не должно
+        // дублироваться в журнале СЗ.
+        await using var conn = BuildConnection();
+        await conn.StartAsync();
+        await conn.InvokeAsync(HubRoutes.Register, new RegisterRequest("161347", "PC-5"));
+
+        var report = new PowerEventsReport("161347", new[]
+        {
+            new PowerEvent(new DateTimeOffset(2026, 8, 24, 14, 44, 14, TimeSpan.Zero),
+                ShutdownKind.Sleep, DurationSeconds: 540),
+        });
+        await conn.InvokeAsync(HubRoutes.PowerEvents, report);
+        await conn.InvokeAsync(HubRoutes.PowerEvents, report);
+
+        var text = JournalText("161347");
+        var occurrences = text.Split("сон").Length - 1;
+        Assert.Equal(1, occurrences);
+    }
+
     public void Dispose()
     {
         SqliteConnection.ClearAllPools();

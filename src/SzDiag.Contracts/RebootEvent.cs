@@ -27,6 +27,10 @@ namespace SzDiag.Contracts;
 /// <param name="Bugcheck">Стоп-код BSOD из Kernel-Power 41 (decimal, как в событии); null
 /// или 0 — BSOD не было. «13 BSOD» без кодов не разделяет один почерк и три разных дефекта
 /// (бэклог п.121).</param>
+/// <param name="DurationSeconds">Для <see cref="ShutdownKind.Sleep"/> — сколько машина проспала
+/// (интервал Kernel-Power 42 → 107). Null для остальных видов события (бэклог п.140/222):
+/// без этого «машина отработала N часов» опиралось на голый аптайм и расходилось со SMART
+/// Power On Hours почти вдвое.</param>
 public sealed record RebootEvent(
     string Sz,
     DateTimeOffset At,
@@ -36,10 +40,14 @@ public sealed record RebootEvent(
     string? ActivityBefore,
     string? Kind = null,
     string Source = RebootSource.Heartbeat,
-    long? Bugcheck = null)
+    long? Bugcheck = null,
+    long? DurationSeconds = null)
 {
     public TimeSpan? UptimeBefore =>
         UptimeBeforeSeconds is { } s ? TimeSpan.FromSeconds(s) : null;
+
+    public TimeSpan? Duration =>
+        DurationSeconds is { } s ? TimeSpan.FromSeconds(s) : null;
 
     /// <summary>Считается ли этот ребут отказом (для счётчика и сводки).</summary>
     public bool IsFailure => ShutdownKind.CountsAsFailure(Kind);
@@ -77,7 +85,9 @@ public sealed record MaintenanceWindow(
 /// <summary>Событие питания из журнала клиента — то, что агент приносит hub при регистрации.</summary>
 /// <param name="Kind">Классификация по полям события (<see cref="ShutdownKind"/>).</param>
 /// <param name="Bugcheck">Стоп-код BSOD (decimal из события; 0 — BSOD не было).</param>
-public sealed record PowerEvent(DateTimeOffset At, string Kind, long Bugcheck = 0);
+/// <param name="DurationSeconds">Для <see cref="ShutdownKind.Sleep"/> — длительность сна
+/// (Kernel-Power 42 → 107), секунды. Null для остальных видов (бэклог п.140/222).</param>
+public sealed record PowerEvent(DateTimeOffset At, string Kind, long Bugcheck = 0, long? DurationSeconds = null);
 
 /// <summary>Пачка событий из журнала клиента.</summary>
 public sealed record PowerEventsReport(string Sz, IReadOnlyList<PowerEvent> Events);
@@ -98,4 +108,25 @@ public sealed record RebootTimeline(
 
     public TimeSpan? MaxUptime =>
         MaxUptimeSeconds is { } s ? TimeSpan.FromSeconds(s) : null;
+
+    /// <summary>Суммарное время сна за всё наблюдение (бэклог п.140/222): без него «машина
+    /// отработала N часов» опиралось на голый аптайм, а на деле сутки «наблюдения» на 161346
+    /// оказались 7 часами реальной работы — 33,7 часа машина проспала.</summary>
+    public TimeSpan TotalSleep => TimeSpan.FromSeconds(
+        Events.Where(e => e.Kind == ShutdownKind.Sleep).Sum(e => e.DurationSeconds ?? 0));
+
+    /// <summary>Характерный интервал между отказами — среднее время наработки на отказ по
+    /// уже известной истории. Без него `close` не может сказать, доказывает ли короткое
+    /// наблюдение отсутствие дефекта (бэклог п.159, СЗ 160306: закрыли через 18 минут при
+    /// характерном интервале ~53 часа, и `close` промолчал).</summary>
+    public TimeSpan? CharacteristicInterval
+    {
+        get
+        {
+            var samples = Events.Where(e => e.IsFailure && e.UptimeBeforeSeconds is not null)
+                .Select(e => e.UptimeBeforeSeconds!.Value)
+                .ToList();
+            return samples.Count == 0 ? null : TimeSpan.FromSeconds(samples.Average());
+        }
+    }
 }

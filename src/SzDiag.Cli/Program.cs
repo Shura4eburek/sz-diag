@@ -298,8 +298,16 @@ switch (command)
         rebootTable.AddColumn("Была занята");
         foreach (var e in timeline.Events)
         {
-            var held = e.UptimeBefore is { } u ? SessionTableRenderer.FormatElapsed(u) : "[dim]—[/]";
-            var busy = string.IsNullOrWhiteSpace(e.ActivityBefore) ? "[dim]простой[/]" : Markup.Escape(e.ActivityBefore!);
+            // Сон (Kernel-Power 42 -> 107) — не вырубон и не простой: показываем время
+            // пробуждения вместо «продержалась», иначе строка выглядит пустой (бэклог п.140/222).
+            var held = e.Kind == ShutdownKind.Sleep
+                ? (e.Duration is { } sleepDur
+                    ? $"→ {e.At.ToLocalTime().Add(sleepDur):HH:mm} ({SessionTableRenderer.FormatElapsed(sleepDur)})"
+                    : "[dim]—[/]")
+                : e.UptimeBefore is { } u ? SessionTableRenderer.FormatElapsed(u) : "[dim]—[/]";
+            var busy = e.Kind == ShutdownKind.Sleep
+                ? "[dim]сон[/]"
+                : string.IsNullOrWhiteSpace(e.ActivityBefore) ? "[dim]простой[/]" : Markup.Escape(e.ActivityBefore!);
             // Смена boot-time — ещё не дефект: выключение кнопкой выглядит так же (бэклог п.93).
             var kind = e.IsFailure
                 ? $"[red]{ShutdownKind.Describe(e.Kind)}[/]"
@@ -684,9 +692,15 @@ static void PrintRebootTotals(RebootTimeline timeline)
     // и два выключения кнопкой — и вердикт по заявке менялся вместе с этим (бэклог п.93).
     var failures = timeline.Events.Count(e => e.IsFailure);
     var benign = timeline.Count - failures;
-    var tail = benign > 0 ? $" (плюс {benign} штатных: кнопка/перезагрузка)" : "";
+    var tail = benign > 0 ? $" (плюс {benign} штатных: кнопка/перезагрузка/сон/обесточивание)" : "";
     AnsiConsole.MarkupLineInterpolated(
         $"[yellow]Вырубонов: {failures}[/]{tail}. Максимальный аптайм между ними: {max}.");
+
+    // Наработка «за вычетом сна» — иначе аптайм выдаёт сутки «наблюдения» за сутки работы
+    // (бэклог п.140/222, СЗ 161346: 7 часов реальной работы против заявленных суток).
+    if (timeline.TotalSleep > TimeSpan.Zero)
+        AnsiConsole.MarkupLineInterpolated(
+            $"[grey]Проспала за это время:[/] {SessionTableRenderer.FormatElapsed(timeline.TotalSleep)} — наработку считать за вычетом сна.");
 }
 
 static async Task PrintRebootSummaryAsync(IHubApiClient client, string sz)

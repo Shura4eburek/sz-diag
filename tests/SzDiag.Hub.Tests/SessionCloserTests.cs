@@ -43,7 +43,8 @@ public class SessionCloserTests
         public Task AddMaintenanceAsync(MaintenanceWindow window, CancellationToken ct = default) => Task.CompletedTask;
         public Task<IReadOnlyList<MaintenanceWindow>> GetMaintenanceAsync(string sz, CancellationToken ct = default)
             => Task.FromResult<IReadOnlyList<MaintenanceWindow>>(Array.Empty<MaintenanceWindow>());
-        public Task<int> MergeJournalEventsAsync(PowerEventsReport report, CancellationToken ct = default) => Task.FromResult(0);
+        public Task<IReadOnlyList<PowerEvent>> MergeJournalEventsAsync(PowerEventsReport report, CancellationToken ct = default)
+            => Task.FromResult<IReadOnlyList<PowerEvent>>(Array.Empty<PowerEvent>());
         public Task SetLastTestConfigAsync(string sz, string config, CancellationToken ct = default)
             => Task.CompletedTask;
         public Task<string?> GetLastTestConfigAsync(string sz, CancellationToken ct = default)
