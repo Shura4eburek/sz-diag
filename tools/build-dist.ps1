@@ -379,6 +379,10 @@ Set-Content -Path dist\host\szcli.cmd -Value $szcli -Encoding ascii
 # cmd.exe - `&`/`|`/`^` в аргументе доезжают как есть.
 $szcliPs1 = @'
 & (Join-Path $PSScriptRoot 'cli\SzDiag.Cli.exe') @args
+# R-M11 (ревью волны 1): если exe не найден/`&` бросил исключение до первого запуска процесса,
+# $LASTEXITCODE остаётся от ЧЕГО-ТО ДРУГОГО (в т.ч. $null) - "exit $LASTEXITCODE" тогда молча
+# даёт exit 0, маскируя отказ, хотя контракт кодов szcli (0/N/2/3/4) требует ненулевого исхода.
+if ($null -eq $LASTEXITCODE) { exit 1 }
 exit $LASTEXITCODE
 '@
 Set-Content -Path dist\host\szcli.ps1 -Value $szcliPs1 -Encoding utf8

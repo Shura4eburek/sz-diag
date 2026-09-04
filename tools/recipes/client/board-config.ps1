@@ -33,8 +33,10 @@ $m = @(Get-CimInstance Win32_PhysicalMemory)
 # ранговости/платформы — этого пока нет. Печатаем ТОЛЬКО факт (ConfiguredClockSpeed уже выше),
 # вердикт «сток/профиль» намеренно НЕ печатаем: лучше отсутствие ответа, чем уверенный неверный.
 $configured = ($m | ForEach-Object { $_.ConfiguredClockSpeed } | Select-Object -Unique) -join ', '
+# R-M2 (ревью волны 1): сравнивать больше не с чем (JEDEC-таблицы нет, п.207) — текст не
+# должен утверждать «выше», когда база для сравнения не печатается вовсе.
 "ВЫВОД: вердикт «сток/профиль» не печатается — Speed из SMBIOS на этой плате ненадёжен " +
-    "(бэклог п.207). Факт — фактическая частота (ConfiguredClockSpeed) выше: $configured МГц."
+    "(бэклог п.207). Факт — ConfiguredClockSpeed: $configured МГц (сравнить с JEDEC-базой пока нечем)."
 $slots = Get-CimInstance Win32_PhysicalMemoryArray | Select-Object -First 1
 if ($slots) { "Слотов на плате: $($slots.MemoryDevices), занято: $($m.Count)" }
 
