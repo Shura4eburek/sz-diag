@@ -18,4 +18,10 @@ public interface IAgentCommandSender
 
     /// <summary>Доставить инструмент на клиента: агент сам качает его с hub по HTTP.</summary>
     Task SendPushAsync(string connectionId, PushRequest request, CancellationToken ct = default);
+
+    /// <summary>Перезапустить агента — отдельным путём от exec (бэклог п.202/п.215):
+    /// `agent restart` раньше ходил через тот же ack/очередь, что и обычный exec, и потому
+    /// был бесполезен ровно тогда, когда нужен (канал забит). Fire-and-forget, как Revert —
+    /// подтверждения ждать нечем, агент себя не убивает сам (см. NativeAgentRestart).</summary>
+    Task SendRestartAgentAsync(string connectionId, string sz, CancellationToken ct = default);
 }

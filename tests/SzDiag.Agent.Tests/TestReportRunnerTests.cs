@@ -49,6 +49,7 @@ public class TestReportRunnerTests
             return Task.CompletedTask;
         }
         public Task SendRevertResultAsync(SzDiag.Contracts.RevertResult result, CancellationToken ct = default) => Task.CompletedTask;
+        public void OnRestartAgent(Action<string> handler) { }
         public ValueTask DisposeAsync() => ValueTask.CompletedTask;
     }
 

@@ -84,5 +84,8 @@ public sealed class SignalRHubLink : IHubLink
     public Task SendRevertResultAsync(RevertResult result, CancellationToken ct = default)
         => _conn.InvokeAsync(HubRoutes.RevertResult, result, ct);
 
+    public void OnRestartAgent(Action<string> handler)
+        => _conn.On<string>(HubRoutes.RestartAgent, sz => handler(sz));
+
     public ValueTask DisposeAsync() => _conn.DisposeAsync();
 }

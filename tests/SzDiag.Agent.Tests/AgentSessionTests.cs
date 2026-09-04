@@ -69,6 +69,7 @@ public class AgentSessionTests
             RevertResults.Add(result);
             return Task.CompletedTask;
         }
+        public void OnRestartAgent(Action<string> handler) { }
         public ValueTask DisposeAsync() { Disposed = true; return ValueTask.CompletedTask; }
 
         public Task FireRevert(string sz) => _onRevert!(sz);

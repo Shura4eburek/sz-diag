@@ -240,4 +240,11 @@ public sealed class HubApiClient : IHubApiClient
         }
         catch { return null; }   // hub недоступен — --version не должен падать из-за этого
     }
+
+    public async Task<bool> RestartAgentAsync(string sz, CancellationToken ct = default)
+    {
+        using var cts = Short(ct);
+        var resp = await _http.PostAsync($"/api/sessions/{sz}/agent/restart", null, cts.Token);
+        return resp.StatusCode == HttpStatusCode.OK;
+    }
 }

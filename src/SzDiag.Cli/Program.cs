@@ -140,6 +140,9 @@ switch (command)
     // agent restart <СЗ>: поднять агента заново, не подходя к машине. Агент себя НЕ убивает —
     // он ставит отложенную задачу под SYSTEM, и только она гасит процесс и запускает новый
     // (прошлая попытка сделать это скриптом стоила потери машины — бэклог п.83).
+    // Идёт ОТДЕЛЬНЫМ от exec путём (бэклог п.202/п.215): раньше команда сама ходила через
+    // exec-канал и была бесполезна ровно тогда, когда нужна — канал забит тем же зависанием,
+    // которое агента и требовалось перезапустить.
     case "agent" when args.Length >= 3 && args[1].Equals("restart", StringComparison.OrdinalIgnoreCase):
     {
         var restartSz = args[2];
@@ -149,20 +152,14 @@ switch (command)
             return 2;
         }
 
-        var restart = await client.ExecAsync(restartSz, AgentRestart.BuildScript(restartSz), 120);
-        if (restart is null)
+        var sent = await client.RestartAgentAsync(restartSz);
+        if (!sent)
         {
             AnsiConsole.MarkupLineInterpolated($"[red]СЗ {restartSz} не найдена[/] среди активных.");
             return 1;
         }
-        if (!string.IsNullOrEmpty(restart.StdOut)) Console.WriteLine(CliXml.Decode(restart.StdOut).TrimEnd());
-        if (restart.ExitCode != 0)
-        {
-            AnsiConsole.MarkupLineInterpolated($"[red]Перезапуск не поставлен:[/] {CliXml.Decode(restart.StdErr).TrimEnd()}");
-            return 1;
-        }
         AnsiConsole.MarkupLineInterpolated(
-            $"[green]СЗ {restartSz}: перезапуск поставлен.[/] Через минуту СЗ должна вернуться в [green]online[/] — следи в szcli watch.");
+            $"[green]СЗ {restartSz}: перезапуск поставлен[/] (мимо exec-канала). Через минуту СЗ должна вернуться в [green]online[/] — следи в szcli watch.");
         break;
     }
 

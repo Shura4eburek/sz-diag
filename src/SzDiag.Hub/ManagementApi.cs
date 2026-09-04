@@ -81,6 +81,17 @@ public static class ManagementApi
             return Results.Ok();
         });
 
+        // agent/restart: отдельный от exec путь (бэклог п.202/п.215) — раньше `agent restart`
+        // сам ходил через exec-канал и был бесполезен ровно тогда, когда нужен (канал забит).
+        // Fire-and-forget: подтверждения ждать нечем, агент себя не убивает сам.
+        group.MapPost("/sessions/{sz}/agent/restart", async (string sz,
+            RestartAgentTrigger trigger, JournalWriter journal) =>
+        {
+            if (!await trigger.TriggerAsync(sz)) return Results.NotFound();
+            journal.Command(sz, "`agent restart` — перезапуск поставлен (мимо exec-канала)");
+            return Results.Ok();
+        });
+
         // exec: синхронный запуск скрипта на агенте. 404 — СЗ не онлайн, 504 — агент молчит.
         group.MapPost("/sessions/{sz}/exec", async (string sz, ExecCommandRequest body,
             ExecCoordinator exec, JournalWriter journal) =>

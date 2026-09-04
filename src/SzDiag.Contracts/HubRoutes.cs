@@ -74,4 +74,8 @@ public static class HubRoutes
     // Агент -> hub: итог отката ДО отключения канала — иначе полноту отката можно
     // подтвердить только придя к машине руками (бэклог п.119).
     public const string RevertResult = nameof(RevertResult);
+
+    // Hub -> агент: перезапуститься. Отдельный от Exec путь (бэклог п.202/п.215) — иначе
+    // `agent restart` бесполезен ровно тогда, когда нужен (exec-канал/очередь забиты).
+    public const string RestartAgent = nameof(RestartAgent);
 }

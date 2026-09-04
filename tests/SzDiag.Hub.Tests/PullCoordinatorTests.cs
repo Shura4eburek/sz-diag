@@ -22,6 +22,8 @@ public class PullCoordinatorTests : IDisposable
         public Task SendExecStatusAsync(string c, ExecStatusRequest request, CancellationToken ct = default) => Task.CompletedTask;
         public Task SendPushAsync(string c, PushRequest request, CancellationToken ct = default)
             => Task.CompletedTask;
+        public Task SendRestartAgentAsync(string c, string sz, CancellationToken ct = default)
+            => Task.CompletedTask;
         public Task SendPullAsync(string c, PullRequest request, CancellationToken ct = default)
         {
             Sent.Add(request);

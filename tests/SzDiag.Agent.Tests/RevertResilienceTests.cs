@@ -184,6 +184,22 @@ public class CommandChannelWatchdogTests
     }
 
     [Fact]
+    public void BuildNativeHealStartInfo_UsesCmdAndSchtasks_NotPowerShell()
+    {
+        // Регрессия (бэклог п.202/п.215, СЗ 161211/162367): самолечение через
+        // IPowerShellRunner спускало ЕЩЁ ОДИН powershell.exe — а именно новый powershell.exe
+        // сам не успевал стартовать за 30 с под тем же зависанием, которое лечилось. cmd.exe
+        // и schtasks.exe — единственные процессы в цепочке самолечения теперь.
+        var psi = CommandChannelWatchdog.BuildNativeHealStartInfo("szdiag-autostart-160705");
+
+        Assert.Equal("cmd.exe", psi.FileName);
+        Assert.Contains("schtasks /run /tn \"szdiag-autostart-160705\"", psi.Arguments);
+        Assert.Contains("timeout /t 5", psi.Arguments);
+        Assert.DoesNotContain("powershell", psi.Arguments, StringComparison.OrdinalIgnoreCase);
+        Assert.False(psi.UseShellExecute);
+    }
+
+    [Fact]
     public void Probe_LivePowerShell_Succeeds()
     {
         Assert.True(CommandChannelWatchdog.Probe(new PowerShellRunner(), TimeSpan.FromSeconds(30)));

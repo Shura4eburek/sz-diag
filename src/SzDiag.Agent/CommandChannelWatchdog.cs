@@ -1,3 +1,5 @@
+using System.Diagnostics;
+
 namespace SzDiag.Agent;
 
 /// <summary>Следит за тем, что командный канал агента жив, и решает, когда пора
@@ -55,8 +57,32 @@ public sealed class CommandChannelWatchdog
     /// <summary>Команда самолечения: запустить автостарт-задачу через паузу и выйти самим.
     /// Через задачу (а не напрямую) — потому что новый экземпляр не поднимется, пока живёт
     /// старый (мьютекс единственного агента), и потому что это ровно тот способ, которым
-    /// зависшего агента чинили руками.</summary>
+    /// зависшего агента чинили руками.
+    ///
+    /// НЕ используется напрямую самолечением — см. <see cref="Heal"/>: этот текст запускался
+    /// через <c>IPowerShellRunner.Run</c> (спуская ЕЩЁ ОДИН powershell.exe), а на 161211/162367
+    /// именно новый powershell.exe не успевал стартовать за 30 с под тем же зависанием, которое
+    /// самолечение и должно было чинить (бэклог п.202/п.215 — «механизм самовосстановления тоже
+    /// идёт через PowerShell и поэтому не работает»). Метод оставлен ради обратной совместимости
+    /// теста/истории; актуальный путь — <see cref="Heal"/>.</summary>
     public static string BuildSelfHealCommand(string autostartTaskName)
         => $"Start-Process cmd -ArgumentList '/c timeout /t 5 /nobreak >nul & schtasks /run /tn \"{autostartTaskName}\"' " +
            "-WindowStyle Hidden";
+
+    /// <summary>ProcessStartInfo самолечения БЕЗ powershell.exe в цепочке вовсе: только
+    /// cmd.exe и schtasks.exe — лёгкие нативные бинарники, которые стартуют даже когда
+    /// интерпретатор PowerShell не поднимается (см. комментарий у <see cref="BuildSelfHealCommand"/>).
+    /// Вынесено отдельно от <see cref="Heal"/>, чтобы построение команды проверялось тестом без
+    /// реального запуска процесса.</summary>
+    public static ProcessStartInfo BuildNativeHealStartInfo(string autostartTaskName) => new()
+    {
+        FileName = "cmd.exe",
+        Arguments = $"/c timeout /t 5 /nobreak >nul & schtasks /run /tn \"{autostartTaskName}\"",
+        UseShellExecute = false,
+        CreateNoWindow = true,
+    };
+
+    /// <summary>Реальный запуск самолечения — напрямую через <see cref="Process.Start(ProcessStartInfo)"/>,
+    /// в обход <see cref="IPowerShellRunner"/>.</summary>
+    public static void Heal(string autostartTaskName) => Process.Start(BuildNativeHealStartInfo(autostartTaskName));
 }

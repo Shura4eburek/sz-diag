@@ -470,6 +470,7 @@ public class DiagReportRunnerTests
         public Task ReportActivityAsync(string sz, string activity, DateTimeOffset? since, CancellationToken ct = default)
             => Task.CompletedTask;
         public Task SendRevertResultAsync(SzDiag.Contracts.RevertResult result, CancellationToken ct = default) => Task.CompletedTask;
+        public void OnRestartAgent(Action<string> handler) { }
         public ValueTask DisposeAsync() => ValueTask.CompletedTask;
     }
 

@@ -39,6 +39,11 @@ public interface IHubApiClient
 
     /// <summary>Версия/дата сборки hub — null, если hub не ответил (протух молча — бэклог п.165).</summary>
     Task<string?> GetHubVersionAsync(CancellationToken ct = default);
+
+    /// <summary>Перезапустить агента — отдельный от exec путь (бэклог п.202/п.215): раньше
+    /// `agent restart` сам ходил через exec-канал и был бесполезен ровно тогда, когда нужен
+    /// (канал забит). false — СЗ не найдена среди активных.</summary>
+    Task<bool> RestartAgentAsync(string sz, CancellationToken ct = default);
 }
 
 /// <summary>Итог запуска прогона: hub возвращает текст причины, и CLI обязан его показать —

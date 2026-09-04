@@ -204,6 +204,17 @@ public static class AgentCommandWiring
             catch (Exception ex) { announce($"Не смог вернуть итог забора: {ex.Message}", null); }
         });
 
+        // RestartAgent: отдельный от exec путь (бэклог п.202/п.215) — сама подписка на
+        // SignalR-метод не завязана на exec-очередь/ack, поэтому доходит даже когда обычный
+        // exec задавлен. Регистрация задачи-перезапуска — независимый Process.Start, а не
+        // поход через IPowerShellRunner/exec.
+        link.OnRestartAgent(restartSz =>
+        {
+            announce($"Перезапуск СЗ {restartSz} запрошен с хоста (мимо exec-канала)…", null);
+            try { NativeAgentRestart.Run(restartSz); }
+            catch (Exception ex) { announce($"Не удалось поставить задачу перезапуска: {ex.Message}", null); }
+        });
+
         return execHandler;
     }
 
@@ -243,8 +254,11 @@ public static class AgentCommandWiring
                 announce($"Перезапускаюсь через задачу {autostartTaskName}…", null);
                 try
                 {
-                    ps.Run(CommandChannelWatchdog.BuildSelfHealCommand(autostartTaskName),
-                        throwOnError: false, timeout: TimeSpan.FromSeconds(30));
+                    // Напрямую через Process.Start (cmd.exe + schtasks.exe), НЕ через
+                    // IPowerShellRunner: самолечение не должно зависеть от того же
+                    // powershell.exe, чьё зависание оно и чинит (бэклог п.202/п.215 —
+                    // на 161211/162367 новый powershell.exe сам не успевал стартовать за 30 с).
+                    CommandChannelWatchdog.Heal(autostartTaskName);
                     Environment.Exit(2);   // старый экземпляр обязан уйти: мьютекс держит слот
                 }
                 catch (Exception ex)

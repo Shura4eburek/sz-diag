@@ -51,5 +51,10 @@ public interface IHubLink
     /// не может подтвердить полноту отката иначе как походом к машине (бэклог п.119).</summary>
     Task SendRevertResultAsync(SzDiag.Contracts.RevertResult result, CancellationToken ct = default);
 
+    /// <summary>Подписка на команду перезапуска — отдельным путём от Exec (бэклог п.202/п.215):
+    /// сама SignalR-подписка не завязана на exec-очередь/ack, поэтому доходит даже когда
+    /// обычный exec задавлен.</summary>
+    void OnRestartAgent(Action<string> handler);
+
     ValueTask DisposeAsync();
 }

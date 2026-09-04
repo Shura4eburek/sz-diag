@@ -27,6 +27,8 @@ public class ExecCoordinatorTests
             => Task.CompletedTask;
         public Task SendPushAsync(string c, PushRequest request, CancellationToken ct = default)
             => Task.CompletedTask;
+        public Task SendRestartAgentAsync(string c, string sz, CancellationToken ct = default)
+            => Task.CompletedTask;
     }
 
     private static SessionRegistry RegistryWith(string sz)
