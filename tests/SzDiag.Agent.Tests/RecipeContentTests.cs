@@ -105,4 +105,22 @@ public class RecipeContentTests
 
     [Fact]
     public void DiskStressWrite_ParsesAsValidPowerShell() => AssertAllParse("disk-stress-write.ps1");
+
+    [Fact]
+    public void ProcessIoTop_MeasuresIoWithoutPerfCounters()
+    {
+        // #151 / б.201 (СЗ 161972): Get-Counter и Win32_PerfRawData_* дают "Invalid class"
+        // (HRESULT 0x80041010) на клиенте со сломанными perf-счётчиками, а рецепт при этом
+        // молча отчитывался успехом с пустой таблицей. GetProcessIoCounters — прямой Win32 API,
+        // не завязан на perflib/lodctr вообще.
+        var text = Recipe("process-io-top.ps1");
+
+        Assert.Contains("GetProcessIoCounters", text);
+        Assert.Contains("НЕДОСТУПЕН", text);           // явная строка отказа, не пустая таблица
+        Assert.Contains("Find-ProcessByTaskName", text);
+        Assert.Contains("Actions.Execute", text);   // PID по образу задачи, а не по времени старта
+    }
+
+    [Fact]
+    public void ProcessIoTop_ParsesAsValidPowerShell() => AssertAllParse("process-io-top.ps1");
 }

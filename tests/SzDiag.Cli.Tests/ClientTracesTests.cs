@@ -160,4 +160,33 @@ public class ClientTracesTests
         Assert.Empty(report.CurrentSession);
         Assert.Single(report.Leftovers);
     }
+
+    [Fact]
+    public void Inventory_ChecksPerfCountersHealth()
+    {
+        // Бэклог п.201 (СЗ 161972): Win32_PerfRawData_* давал "Invalid class" (0x80041010) на
+        // клиенте со сломанными счётчиками — проверка должна попадать в инвентарь, а не
+        // выясняться постфактум посреди прогона.
+        var script = ClientTraces.BuildInventoryScript();
+
+        Assert.Contains("Win32_PerfFormattedData_PerfProc_Process", script);
+        Assert.Contains("'perf:ok'", script);
+        Assert.Contains("'perf:broken='", script);
+    }
+
+    [Fact]
+    public void PerfCountersBroken_ParsesErrorLine()
+    {
+        var stdout = "perf:broken=Invalid class\nservice:R0lhmmon=none";
+
+        Assert.Equal("Invalid class", ClientTraces.PerfCountersBroken(stdout));
+    }
+
+    [Fact]
+    public void PerfCountersBroken_Ok_IsNull()
+        => Assert.Null(ClientTraces.PerfCountersBroken("perf:ok\nservice:R0lhmmon=none"));
+
+    [Fact]
+    public void PerfCountersBroken_NoLine_IsNull()
+        => Assert.Null(ClientTraces.PerfCountersBroken("service:R0lhmmon=none"));
 }

@@ -74,6 +74,16 @@ public static class ClientTraces
             if ($agent -and (Split-Path $agent -Leaf) -eq 'agent.exe') {
                 'log:' + (Join-Path (Split-Path $agent) 'logs\agent.log')
             }
+            # Живы ли perf-счётчики (бэклог п.201): "загрузка диска 100%" в диспетчере задач и
+            # рецепты (Get-Counter, Win32_PerfRawData_*) опираются на этот же источник. На 161972
+            # он был разрушен целиком - Invalid class (0x80041010) - а рецепт при этом молча
+            # рапортовал успехом с пустой таблицей. Проверяем именно ту WMI-ветку, которая ломается.
+            try {
+                $null = Get-CimInstance Win32_PerfFormattedData_PerfProc_Process -ErrorAction Stop | Select-Object -First 1
+                'perf:ok'
+            } catch {
+                'perf:broken=' + $_.Exception.Message
+            }
             """;
     }
 
@@ -124,6 +134,22 @@ public static class ClientTraces
             .Where(l => l.StartsWith("log:", StringComparison.OrdinalIgnoreCase))
             .Select(l => l["log:".Length..].Trim())
             .FirstOrDefault(p => p.Length > 0);
+
+    /// <summary>Состояние perf-счётчиков клиента из строки `perf:` вывода инвентаря. Null —
+    /// счётчики живы (или строки нет вовсе — старый агент); непустая строка — сообщение об
+    /// ошибке (`Invalid class` и т.п.), которое ловится этой пробой (бэклог п.201): рецепты
+    /// на такой машине молча отчитывались успехом с пустой таблицей вместо явного отказа.</summary>
+    public static string? PerfCountersBroken(string inventoryStdout)
+    {
+        var line = (inventoryStdout ?? "").Split('\n')
+            .Select(l => l.Trim())
+            .FirstOrDefault(l => l.StartsWith("perf:", StringComparison.OrdinalIgnoreCase));
+        if (line is null) return null;
+        var value = line["perf:".Length..].Trim();
+        return value.StartsWith("broken=", StringComparison.OrdinalIgnoreCase)
+            ? value["broken=".Length..].Trim()
+            : null;
+    }
 
     /// <summary>Задачи рабочего доступа текущей сессии по её номеру СЗ.</summary>
     public static string[] SessionTasks(string sz)
