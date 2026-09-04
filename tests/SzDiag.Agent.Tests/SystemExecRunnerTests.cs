@@ -108,6 +108,55 @@ public class SystemExecRunnerTests : IDisposable
         Assert.Contains(ps.Scripts, s => s.Contains("Stop-ScheduledTask") || s.Contains("Unregister-ScheduledTask"));
     }
 
+    // review W2 C-2: раньше результат регистрации не проверялся (throwOnError:false, без
+    // таймаута) — при неудаче (нет прав, залипший планировщик) первый Poll видел "absent" и
+    // наружу уходил пустой ExecResult без единого слова о причине.
+    [Fact]
+    public void Run_RegistrationFails_ReturnsDescriptiveError()
+    {
+        var ps = new RecordingPs
+        {
+            Handler = script => script.Contains("Register-ScheduledTask")
+                ? new PsResult(1, "", "Access is denied")
+                : new PsResult(0, "absent", "")
+        };
+        var runner = new SystemExecRunner(ps, _root);
+
+        var result = runner.Run(Req());
+
+        Assert.Equal(-1, result.ExitCode);
+        Assert.Contains("регистрация", result.StdErr, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("Access is denied", result.StdErr);
+    }
+
+    // review W2 C-2: только что запущенная задача в состоянии "absent"/не-Running неотличима
+    // от уже завершившейся — короткий скрипт мог бы отдать пустой вывод на быстрой машине
+    // просто потому, что первый опрос пришёлся раньше самого старта задачи.
+    [Fact]
+    public void Run_AbsentRightAfterStart_IsRetried_NotTreatedAsFinished()
+    {
+        var pollCount = 0;
+        var ps = new RecordingPs
+        {
+            Handler = script =>
+            {
+                if (script.Contains("Register-ScheduledTask")) return new PsResult(0, "", "");
+                if (script.Contains("Get-ScheduledTask"))
+                {
+                    pollCount++;
+                    return pollCount <= 2 ? new PsResult(0, "absent", "") : new PsResult(0, "Ready|0", "");
+                }
+                return new PsResult(0, "", "");
+            }
+        };
+        var runner = new SystemExecRunner(ps, _root);
+
+        var result = runner.Run(Req(timeout: 5));
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.True(pollCount > 2, "должен был переопросить после первых 'absent', а не сдаться сразу");
+    }
+
     [Fact]
     public void Run_TaskDirectoryIsCleanedUpAfterward()
     {

@@ -48,11 +48,18 @@ public static class InteractiveSessionExec
 
             $task = '{{task}}'
             Unregister-ScheduledTask -TaskName $task -Confirm:$false -ErrorAction SilentlyContinue
-            $inner = 'powershell -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "{{script}}" *> "{{outFile}}"'
+            # '*>' — синтаксис PowerShell, а исполняет строку cmd.exe: '>' там перенаправляет
+            # только stdout, '*' уезжает лишним аргументом, stderr и текст завершающей ошибки
+            # пропадали бесследно (review W2 C-3). '2>&1' в cmd-синтаксисе сливает оба потока.
+            $inner = 'powershell -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "{{script}}" > "{{outFile}}" 2>&1'
             $act = New-ScheduledTaskAction -Execute 'cmd.exe' -Argument "/c $inner"
             $pr  = New-ScheduledTaskPrincipal -UserId $userName -LogonType Interactive -RunLevel Limited
             Register-ScheduledTask -TaskName $task -Action $act -Principal $pr -Force | Out-Null
             Start-ScheduledTask -TaskName $task
+            # Свежезапущенная задача в 'Ready' неотличима от «уже отработала» — короткий скрипт
+            # мог финишировать раньше первой проверки. Даём буфер до первого опроса, иначе
+            # первая же итерация снимает задачу до её реального старта (review W2 C-3).
+            Start-Sleep -Milliseconds 500
 
             $deadline = (Get-Date).AddSeconds({{waitSeconds}})
             while ((Get-Date) -lt $deadline) {

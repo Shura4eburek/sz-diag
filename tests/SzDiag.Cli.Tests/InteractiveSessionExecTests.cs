@@ -1,4 +1,5 @@
-﻿using System.Text;
+﻿using System.Linq;
+using System.Text;
 using SzDiag.Contracts;
 using Xunit;
 
@@ -61,5 +62,35 @@ public class InteractiveSessionExecTests
 
         Assert.Contains("Get-Content", wrapped);
         Assert.Contains("-Raw", wrapped);
+    }
+
+    // review W2 C-3: '*>' — синтаксис PowerShell, а исполняет строку cmd.exe, у которого он
+    // не значит ничего осмысленного: '*' уезжает лишним токеном, а '>' перенаправляет только
+    // stdout — stderr терялся бесследно.
+    [Fact]
+    public void BuildScript_UsesCmdRedirectionForBothStreams_NotPowerShellStar()
+    {
+        var wrapped = InteractiveSessionExec.BuildScript("156864", "'ok'");
+
+        var innerLine = wrapped.Split('\n').Single(l => l.Contains("$inner ="));
+        Assert.DoesNotContain("*>", innerLine);
+        Assert.Contains("> \"", innerLine);
+        Assert.Contains("2>&1", innerLine);
+    }
+
+    // review W2 C-3: свежезарегистрированная и запущенная задача в состоянии 'Ready' была
+    // неотличима от «уже отработала» — первая же проверка сразу после Start-ScheduledTask могла
+    // снять задачу до её реального старта. Буфер перед первым опросом даёт задаче время
+    // перейти в 'Running'.
+    [Fact]
+    public void BuildScript_WaitsBeforeFirstPollAfterStart()
+    {
+        var wrapped = InteractiveSessionExec.BuildScript("156864", "'ok'");
+
+        var startIdx = wrapped.IndexOf("Start-ScheduledTask", StringComparison.Ordinal);
+        var sleepIdx = wrapped.IndexOf("Start-Sleep", StringComparison.Ordinal);
+        var loopIdx = wrapped.IndexOf("while ((Get-Date)", StringComparison.Ordinal);
+        Assert.True(startIdx >= 0 && sleepIdx > startIdx && sleepIdx < loopIdx,
+            "между Start-ScheduledTask и циклом опроса должен быть Start-Sleep");
     }
 }

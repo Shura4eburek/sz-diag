@@ -51,13 +51,34 @@ public sealed class SystemExecRunner
             File.WriteAllText(scriptPath, BackgroundJobs.BuildWrappedScript(userPath, outPath, errPath),
                 new UTF8Encoding(true));
 
-            _ps.Run(BackgroundJobs.BuildRegisterIsolatedJobCommand(taskName, scriptPath, dir), throwOnError: false);
+            // throwOnError:false + явный таймаут регистрации (тот же дефект, что ревью волны 1
+            // уже чинило в BackgroundJobs — Important-6 — здесь воспроизведён заново, review W2
+            // C-2): без прав на Register-ScheduledTask или при залипшем планировщике первый же
+            // Poll вернёт "absent" -> пустой ExecResult без единого слова о причине.
+            var reg = _ps.Run(BackgroundJobs.BuildRegisterIsolatedJobCommand(taskName, scriptPath, dir),
+                throwOnError: false, timeout: TimeSpan.FromSeconds(60));
+            if (reg.ExitCode != 0)
+            {
+                var regError = $"код {reg.ExitCode}" + (string.IsNullOrWhiteSpace(reg.StdErr) ? "" : $": {reg.StdErr.Trim()}");
+                return new ExecResult(request.RequestId, -1, "",
+                    $"регистрация задачи под SYSTEM не удалась ({regError})");
+            }
 
             var timeoutSeconds = request.TimeoutSeconds > 0 ? request.TimeoutSeconds : ExecLimits.DefaultTimeoutSeconds;
             var deadline = DateTime.UtcNow.AddSeconds(timeoutSeconds);
+            // Свежезарегистрированная и только что запущенная задача в состоянии, отличном от
+            // Running, неотличима от «уже отработала» — короткий скрипт мог бы отдать пустой
+            // вывод на быстрой машине просто потому, что мы опросили её раньше, чем она вообще
+            // стартовала (review W2 C-2). Считаем "absent"/"не Running" в первые секунды после
+            // старта ещё не финалом, пока не увидим хотя бы одно "Running" или не истечёт грейс.
+            var startGraceUntil = DateTime.UtcNow.AddSeconds(Math.Min(2, timeoutSeconds));
+            var sawRunning = false;
             var (running, exitCode) = Poll(taskName);
-            while (running && DateTime.UtcNow < deadline)
+            while (DateTime.UtcNow < deadline)
             {
+                if (running) sawRunning = true;
+                var stillStarting = !running && !sawRunning && DateTime.UtcNow < startGraceUntil;
+                if (!running && !stillStarting) break;
                 Thread.Sleep(PollInterval);
                 (running, exitCode) = Poll(taskName);
             }

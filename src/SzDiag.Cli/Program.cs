@@ -128,7 +128,22 @@ switch (command)
 
         // Тоже ДО закрытия: бэкап настроек сетевого адаптера — файл на клиенте, после close
         // канала для проверки не будет (бэклог п.206, СЗ 162367).
-        if (wasOnline) await NetAdapterBackupCheck.WarnIfLeftoverAsync(client, closeSz);
+        // Под нагрузкой (OCCT/Combined) синхронный exec штатно не отвечает (CLAUDE.md) — а
+        // именно тогда СЗ и закрывают. Проверка остатков не должна уметь отменить сам откат
+        // (review W2 C-1, СЗ с зависшим exec на close): любое исключение здесь — предупреждение,
+        // а не причина не дойти до CloseAsync.
+        if (wasOnline)
+        {
+            try
+            {
+                await NetAdapterBackupCheck.WarnIfLeftoverAsync(client, closeSz);
+            }
+            catch (Exception ex) when (CliErrors.IsExpected(ex))
+            {
+                AnsiConsole.MarkupLineInterpolated(
+                    $"[yellow]Проверить бэкап сетевого адаптера не удалось:[/] {Markup.Escape(ex.Message)}");
+            }
+        }
 
         // Не закрывать МОЛЧА, пока на клиенте остаются файлы, доставленные push'ом (тулы,
         // рабочие папки рецептов) — раньше close только советовал "проверить остатки", и
@@ -136,7 +151,16 @@ switch (command)
         // --force пропускает проверку явным решением оператора (тот же флаг, что и выше).
         if (wasOnline && !forced)
         {
-            var inv = await client.ExecAsync(closeSz, ClientTraces.BuildInventoryScript(), 60);
+            ExecResult? inv = null;
+            try
+            {
+                inv = await client.ExecAsync(closeSz, ClientTraces.BuildInventoryScript(), 60);
+            }
+            catch (Exception ex) when (CliErrors.IsExpected(ex))
+            {
+                AnsiConsole.MarkupLineInterpolated(
+                    $"[yellow]Проверить остатки на клиенте не удалось (агент задавлен нагрузкой?):[/] {Markup.Escape(ex.Message)}");
+            }
             if (inv is not null)
             {
                 var report = ClientTraces.FindLeftoversDetailed(CliXml.Decode(inv.StdOut), closeSz);
