@@ -31,12 +31,24 @@ public static class ClientTraces
     /// сама оказалась в OneDrive/Dropbox/… — иначе четверть гига OCCT+lhmmon уезжала в личное
     /// облако клиента и оставалась там навсегда, бэклог п.63). Всё это заведомо наше —
     /// чистится без вопросов.</summary>
+    /// <summary>`tools` сюда сознательно не входит: он раскладывается по инструментам
+    /// отдельным блоком (`tool:` в инвентаре) — иначе клиент видел бы одну цифру суммы
+    /// вместо «prime95 34 МБ, lhmmon 67 МБ» (бэклог п.158).</summary>
     public static readonly string[] TempDirs =
     {
         @"C:\ProgramData\szdiag\jobs",
         @"C:\ProgramData\szdiag\sensors",
-        @"C:\ProgramData\szdiag\tools",
     };
+
+    /// <summary>Оба возможных места, куда `push`/`ToolsDirectory.Resolve` кладёт инструменты:
+    /// рядом с агентом (обычный случай) и в ProgramData (агент внутри OneDrive/Dropbox — п.63).
+    /// Убираются целиком по имени папки инструмента, а не одной суммой байт.</summary>
+    public const string CloudFallbackToolsDir = @"C:\ProgramData\szdiag\tools";
+
+    /// <summary>Рабочие папки, куда рецепты пишут логи/CSV мимо `ProgramData\szdiag` и мимо
+    /// `tools\` (бэклог п.158, СЗ 160306): после «уборки» на клиенте оставалось 101 МБ наших
+    /// бинарей и рабочая папка OCCT — `client info` их даже не показывал.</summary>
+    public static readonly string[] RecipeWorkDirs = { @"C:\OCCT" };
 
     /// <summary>Что осталось на машине: задачи с нашим префиксом (в том числе безымянные, без
     /// номера СЗ), загруженные драйверы инструментов, размеры наших каталогов и крупные файлы
@@ -45,6 +57,7 @@ public static class ClientTraces
     {
         var services = string.Join(",", ToolServices.Select(s => $"'{s}'"));
         var dirs = string.Join(",", TempDirs.Select(d => $"'{d}'"));
+        var recipeDirs = string.Join(",", RecipeWorkDirs.Select(d => $"'{d}'"));
         return $$"""
             $ErrorActionPreference = 'SilentlyContinue'
             Get-ScheduledTask | Where-Object { $_.TaskName -like '{{TaskPrefix}}*' } |
@@ -62,6 +75,13 @@ public static class ClientTraces
                     'dir:' + $dir + '=' + [math]::Round(($size / 1MB), 1)
                 } else { 'dir:' + $dir + '=none' }
             }
+            foreach ($dir in @({{recipeDirs}})) {
+                if (Test-Path $dir) {
+                    $size = (Get-ChildItem $dir -Recurse -File -ErrorAction SilentlyContinue |
+                        Measure-Object -Property Length -Sum).Sum
+                    'dir:' + $dir + '=' + [math]::Round(($size / 1MB), 1)
+                }
+            }
             # Крупные артефакты прогонов (iotest.bin на 12 ГБ и подобное) — только показываем:
             # удалять чужие файлы по маске нельзя, решение за оператором.
             Get-ChildItem 'C:\ProgramData\szdiag' -Recurse -File -ErrorAction SilentlyContinue |
@@ -73,6 +93,29 @@ public static class ClientTraces
             $agent = (Get-Process -Id $pp -ErrorAction SilentlyContinue).Path
             if ($agent -and (Split-Path $agent -Leaf) -eq 'agent.exe') {
                 'log:' + (Join-Path (Split-Path $agent) 'logs\agent.log')
+            }
+            # tools\ рядом с агентом (обычный, НЕ облачный случай) — раньше уборка знала только
+            # про ProgramData\szdiag\tools (фоллбэк для OneDrive), и prime95/lhmmon оставались
+            # на диске навсегда, а client info про них молчал (бэклог п.158, СЗ 160306).
+            if ($agent) {
+                $agentToolsDir = Join-Path (Split-Path $agent) 'tools'
+                'agenttoolsdir:' + $agentToolsDir
+                if (Test-Path $agentToolsDir) {
+                    Get-ChildItem $agentToolsDir -Directory -ErrorAction SilentlyContinue | ForEach-Object {
+                        $tsize = (Get-ChildItem $_.FullName -Recurse -File -ErrorAction SilentlyContinue |
+                            Measure-Object -Property Length -Sum).Sum
+                        'tool:' + $_.Name + '=' + [math]::Round(($tsize / 1MB), 1)
+                    }
+                }
+            }
+            # То же самое для C:\ProgramData\szdiag\tools (облачный фоллбэк) — по инструментам,
+            # а не одной цифрой суммы, чтобы info называл их по именам ('доставлені тули: …').
+            if (Test-Path 'C:\ProgramData\szdiag\tools') {
+                Get-ChildItem 'C:\ProgramData\szdiag\tools' -Directory -ErrorAction SilentlyContinue | ForEach-Object {
+                    $tsize = (Get-ChildItem $_.FullName -Recurse -File -ErrorAction SilentlyContinue |
+                        Measure-Object -Property Length -Sum).Sum
+                    'tool:' + $_.Name + '=' + [math]::Round(($tsize / 1MB), 1)
+                }
             }
             """;
     }
@@ -86,6 +129,7 @@ public static class ClientTraces
         var keep = string.Join(",", (keepTasks ?? Array.Empty<string>()).Select(t => $"'{t}'"));
         var services = string.Join(",", ToolServices.Select(s => $"'{s}'"));
         var dirs = string.Join(",", TempDirs.Select(d => $"'{d}'"));
+        var recipeDirs = string.Join(",", RecipeWorkDirs.Select(d => $"'{d}'"));
         return $$"""
             $ErrorActionPreference = 'SilentlyContinue'
             $keep = @({{keep}})
@@ -107,6 +151,27 @@ public static class ClientTraces
                     'вычищено: ' + $dir
                 }
             }
+            foreach ($dir in @({{recipeDirs}})) {
+                if (Test-Path $dir) {
+                    Remove-Item $dir -Recurse -Force -ErrorAction SilentlyContinue
+                    'вычищено: ' + $dir
+                }
+            }
+            if (Test-Path '{{CloudFallbackToolsDir}}') {
+                Remove-Item '{{CloudFallbackToolsDir}}' -Recurse -Force -ErrorAction SilentlyContinue
+                'вычищено: {{CloudFallbackToolsDir}}'
+            }
+            # tools\ рядом с агентом (обычный случай) — раньше уборка про него не знала
+            # вовсе, и prime95/lhmmon (101 МБ) оставались на клиенте навсегда (бэклог п.158).
+            $pp = (Get-CimInstance Win32_Process -Filter "ProcessId=$PID" -ErrorAction SilentlyContinue).ParentProcessId
+            $agent = (Get-Process -Id $pp -ErrorAction SilentlyContinue).Path
+            if ($agent -and (Split-Path $agent -Leaf) -eq 'agent.exe') {
+                $agentToolsDir = Join-Path (Split-Path $agent) 'tools'
+                if (Test-Path $agentToolsDir) {
+                    Remove-Item $agentToolsDir -Recurse -Force -ErrorAction SilentlyContinue
+                    'вычищено: ' + $agentToolsDir
+                }
+            }
             'cleanup-done'
             """;
     }
@@ -123,6 +188,16 @@ public static class ClientTraces
             .Select(l => l.Trim())
             .Where(l => l.StartsWith("log:", StringComparison.OrdinalIgnoreCase))
             .Select(l => l["log:".Length..].Trim())
+            .FirstOrDefault(p => p.Length > 0);
+
+    /// <summary>Фактический каталог тулов рядом с агентом (строка `agenttoolsdir:`) — раньше
+    /// его можно было узнать только по `appsettings.json`/`ToolsDirectory.Resolve` на хосте
+    /// вслепую (бэклог п.151): облачный агент (OneDrive) молча уводил раздачу в ProgramData.</summary>
+    public static string? ToolsDirFromInventory(string inventoryStdout)
+        => (inventoryStdout ?? "").Split('\n')
+            .Select(l => l.Trim())
+            .Where(l => l.StartsWith("agenttoolsdir:", StringComparison.OrdinalIgnoreCase))
+            .Select(l => l["agenttoolsdir:".Length..].Trim())
             .FirstOrDefault(p => p.Length > 0);
 
     /// <summary>Задачи рабочего доступа текущей сессии по её номеру СЗ.</summary>
@@ -165,6 +240,17 @@ public static class ClientTraces
             else if (key.StartsWith("big:", StringComparison.OrdinalIgnoreCase))
             {
                 leftovers.Add($"крупный файл {key["big:".Length..]}: {value} ГБ");
+            }
+            else if (key.StartsWith("dir:", StringComparison.OrdinalIgnoreCase)
+                     && !value.Equals("none", StringComparison.OrdinalIgnoreCase))
+            {
+                // Раньше эти строки печатались скриптом, но парсер их не читал вовсе —
+                // client info молчал именно там, где остатки реально лежали (бэклог п.158).
+                leftovers.Add($"каталог {key["dir:".Length..]}: {value} МБ");
+            }
+            else if (key.StartsWith("tool:", StringComparison.OrdinalIgnoreCase))
+            {
+                leftovers.Add($"доставленный инструмент {key["tool:".Length..]}: {value} МБ");
             }
         }
         return new TraceReport(current, leftovers);

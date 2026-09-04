@@ -90,6 +90,30 @@ switch (command)
         // был ли агент жив в момент close (бэклог п.119).
         var wasOnline = (await client.GetSessionsAsync())
             .Any(s => s.Sz == args[1] && s.Status == SessionStatus.Online);
+
+        // Не закрывать МОЛЧА, пока на клиенте остаются файлы, доставленные push'ом (тулы,
+        // рабочие папки рецептов) — раньше close только советовал "проверить остатки", и
+        // 101 МБ prime95/lhmmon + C:\OCCT переживали закрытие СЗ (бэклог п.158, СЗ 160306).
+        // --force пропускает проверку явным решением оператора.
+        var forceClose = args.Any(a => a.Equals("--force", StringComparison.OrdinalIgnoreCase));
+        if (wasOnline && !forceClose)
+        {
+            var inv = await client.ExecAsync(args[1], ClientTraces.BuildInventoryScript(), 60);
+            if (inv is not null)
+            {
+                var report = ClientTraces.FindLeftoversDetailed(CliXml.Decode(inv.StdOut), args[1]);
+                if (CloseLeftoverGuard.HasDeliveredFiles(report.Leftovers))
+                {
+                    AnsiConsole.MarkupLineInterpolated(
+                        $"[red]СЗ {args[1]} не закрыта:[/] на клиенте остались наши файлы:");
+                    foreach (var item in report.Leftovers) AnsiConsole.MarkupLineInterpolated($"  [yellow]•[/] {item}");
+                    AnsiConsole.MarkupLineInterpolated($"[grey]Убрать:[/] szcli client cleanup {args[1]}");
+                    AnsiConsole.MarkupLineInterpolated($"[grey]Или закрыть без проверки:[/] szcli close {args[1]} --force");
+                    return 6;
+                }
+            }
+        }
+
         var closeOutcome = await client.CloseAsync(args[1]);
         if (closeOutcome.Closed)
         {
