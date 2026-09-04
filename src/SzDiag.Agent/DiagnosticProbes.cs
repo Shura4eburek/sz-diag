@@ -644,6 +644,87 @@ public static class DiagnosticProbes
             }
             """),
 
+        // THERMTRIP (аппаратный термозащитный сброс) НЕ ЛОГИРУЕТСЯ В ПРИНЦИПЕ: питание
+        // снимается в железе, ОС не получает ни прерывания, ни шанса на запись. На выходе
+        // Kernel-Power 41 + BugcheckCode=0 + пустые дампы — ровно то же, что от просадки БП
+        // или КЗ по +5В. На 160636 фильтр тротлинга без явного ProviderName поймал ЧУЖОЕ
+        // событие с тем же Id (Microsoft-Windows-Time-Service) и дал ложный вывод «тротлинга
+        // нет»; вдобавок 4.5ч OCCT на открытом стенде в прохладном сервисе не воспроизвели
+        // дефект, который у клиента проявлялся за 1-15ч в закрытом корпусе (бэклог п.36b).
+        Probe("thermal", "Тепловой профиль (тротлинг + распределение вырубонов по времени суток)",
+            TimeZoneNote.PowerShellPrologue() + EventWindow.PowerShellPrologue() + HardwareWindow.PowerShellPrologue() + """
+            Write-TzNote
+            Write-JournalDepthNote
+            "=== Okno etogo zheleza ==="
+            Write-HwWindow
+
+            "!!! THERMTRIP NE LOGIRUETSYA V PRINTSIPE: apparatnyy termozashchitnyy sbros snimaet"
+            "pitanie v zheleze, OS ne poluchaet ni preryvaniya, ni shansa na zapis. Otsutstvie"
+            "sobytiy nizhe NE ISKLYUCHAET teplovoy stsenariy - eto otvet 'net dannyh o trotlinge',"
+            "a ne 'peregrev isklyuchen'."
+
+            "=== Kernel-Processor-Power Id 37/86 (trotling, YAVNYY ProviderName) ==="
+            # Filtr BEZ ProviderName lovit CHUZHIE sobytiya s tem zhe Id: na 160636 Id=37 bez
+            # ProviderName dal Microsoft-Windows-Time-Service, i vyvod byl "trotlinga net" -
+            # eto byla oshibka, a ne fakt (backlog p.36b, smezhno s p.31).
+            $thr = @()
+            try {
+                $thr = @(Get-WinEvent -FilterHashtable @{ LogName='System'; ProviderName='Microsoft-Windows-Kernel-Processor-Power'; Id=37,86 } -ErrorAction Stop)
+            } catch { }
+            $thrSplit = Split-ByHwWindow $thr
+            $thr = @($thrSplit.Ours)
+            if ($thrSplit.Foreign.Count -gt 0) {
+                "VNIMANIE: {0} sobytiy trotlinga otbrosheno kak istoriya DRUGOGO zheleza." -f $thrSplit.Foreign.Count
+            }
+            if ($thr.Count -gt 0) {
+                "TOTAL: {0}, first {1:yyyy-MM-dd HH:mm:ss}, last {2:yyyy-MM-dd HH:mm:ss}" -f `
+                    $thr.Count, $thr[-1].TimeCreated, $thr[0].TimeCreated
+                $thr | Group-Object Id | ForEach-Object { "Id {0}: {1}" -f $_.Name, $_.Count }
+            } else {
+                "Kernel-Processor-Power 37/86: 0 (eto NE dokazatelstvo otsutstviya peregreva - sm. VNIMANIE pro THERMTRIP vyshe)"
+            }
+
+            "=== Raspredelenie hard-off (Kernel-Power 41) po vremeni sutok ==="
+            # Kosvennyy priznak teplovogo stsenariya: vyrubony vecherom/nochyu posle chasov
+            # raboty v zharkoy komnate chashche ukazyvayut na nakoplenie tepla v korpuse, chem
+            # ravnomernoe raspredelenie po sutkam.
+            $kp = @()
+            try { $kp = @(Get-WinEvent -FilterHashtable @{ LogName='System'; ProviderName='Microsoft-Windows-Kernel-Power'; Id=41 } -ErrorAction Stop) } catch { }
+            $kpSplit = Split-ByHwWindow $kp
+            $kp = @($kpSplit.Ours)
+            if ($kp.Count -gt 0) {
+                $buckets = $kp | Group-Object {
+                    $h = $_.TimeCreated.Hour
+                    if ($h -ge 6 -and $h -lt 12) { 'utro (06-12)' }
+                    elseif ($h -ge 12 -and $h -lt 18) { 'den (12-18)' }
+                    elseif ($h -ge 18 -and $h -lt 24) { 'vecher (18-24)' }
+                    else { 'noch (00-06)' }
+                }
+                $buckets | Sort-Object Count -Descending | ForEach-Object { "{0}: {1}" -f $_.Name, $_.Count }
+                $eveningOrNight = @($kp | Where-Object { $_.TimeCreated.Hour -ge 18 -or $_.TimeCreated.Hour -lt 6 }).Count
+                if (($eveningOrNight / $kp.Count) -ge 0.66) {
+                    "!!! Bolshinstvo hard-off prihoditsya na vecher/noch ({0} iz {1}) - kosvennyy priznak" -f $eveningOrNight, $kp.Count
+                    "priznak teplovogo stsenariya (nakoplenie tepla v zakrytom korpuse za den ekspluatatsii)."
+                }
+            } else {
+                "Kernel-Power 41: 0 sobytiy - raspredelyat po vremeni sutok nechego."
+            }
+
+            "=== Delta hotspot-core ==="
+            "Ne vychislyaetsya etoy probay: nuzhen pryamoy dostup k sensoram (LibreHardwareMonitor/"
+            "lhmmon), kotorogo net cherez WMI/Get-WinEvent. Gonyat otdelnym zahodom lhmmon pod"
+            "nagruzkoy (sm. tools/recipes) - eto ne 'net dannyh, znachit vsyo OK'."
+
+            "=== Metodika teplovogo stsenariya ==="
+            "Proveryat v SOBRANNOM korpuse, ne na otkrytom stende: na otkrytom stende greyutsya"
+            "kristally, no ne vozduh vokrug korpusa - progon v prohladnom servise mozhet NE"
+            "vosproizvesti defekt, kotoryy u klienta proyavlyaetsya za chasy raboty v zakrytom obieme."
+            "Logirovat temperaturu vhodyashchego vozduha (datchik platy 'Temperature #1' cherez"
+            "lhmmon) i sravnivat so stendom."
+            "V voprosnik po zayavke - punkt 'gde stoit sistemnik' (nisha, shkaf,"
+            "vplotnuyu k stene, batareya) - eto polovina diagnoza pri hard-off bez sledov."
+            """),
+
         // TDR и прочие живые дампы ядра BSOD не вызывают — машина продолжает работать, и в
         // Minidump ничего не ложится. На 160521 из-за этого отчёт по заявке «вылетает игра»
         // показал «всё чисто», хотя рядом лежали 14 WATCHDOG-дампов и LiveKernelEvent 0x141

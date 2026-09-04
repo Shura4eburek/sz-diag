@@ -12,7 +12,7 @@ public class DiagnosticProbesTests
         var expected = new[]
         {
             "system", "cpu", "memory", "gpu", "storage",
-            "temps", "drivers", "events", "reboots", "whea", "livekernel", "reliability", "battery"
+            "temps", "drivers", "events", "reboots", "whea", "thermal", "livekernel", "reliability", "battery"
         };
         Assert.Equal(expected, DiagnosticProbes.Sections);
         // Каталог проб и словарь для валидации в CLI обязаны совпадать: иначе szcli либо
@@ -130,6 +130,53 @@ public class DiagnosticProbesTests
         Assert.Contains("realnaya rabota", run);
         Assert.Contains("HiberbootEnabled", run);   // fast startup виден сразу
         Assert.Contains("PowerOnHours", run);       // отсылка к наработке, а не календарю
+    }
+
+    [Fact]
+    public void ThermalProbe_ExplicitlyWarnsThermtripIsNotLogged()
+    {
+        // Регрессия (бэклог п.36b, СЗ 160636): THERMTRIP (аппаратный термозащитный сброс) не
+        // логируется в принципе — питание снимается в железе, ОС не получает шанса на запись.
+        // Отсутствие событий тротлинга легко (и неверно) читается как "перегрев исключён".
+        var run = Body("thermal");
+
+        Assert.Contains("THERMTRIP", run);
+        Assert.Contains("NE LOGIRUETSYA", run);
+        Assert.Contains("NE ISKLYUCHAET teplovoy stsenariy", run);
+    }
+
+    [Fact]
+    public void ThermalProbe_FiltersThrottlingByExplicitProviderName()
+    {
+        // Регрессия (бэклог п.36b, СЗ 160636): фильтр Id=37 без ProviderName поймал ЧУЖОЕ
+        // событие (Microsoft-Windows-Time-Service) и дал ложный вывод "тротлинга нет".
+        var run = Body("thermal");
+
+        Assert.Contains("ProviderName='Microsoft-Windows-Kernel-Processor-Power'; Id=37,86", run);
+        Assert.Contains("YAVNYY ProviderName", run);
+    }
+
+    [Fact]
+    public void ThermalProbe_BucketsHardOffByTimeOfDay()
+    {
+        // Распределение вырубонов по времени суток — косвенный признак теплового сценария
+        // (вечер/жара после часов работы в закрытом корпусе).
+        var run = Body("thermal");
+
+        Assert.Contains("Kernel-Power", run);
+        Assert.Contains("vecher (18-24)", run);
+        Assert.Contains("po vremeni sutok", run);
+    }
+
+    [Fact]
+    public void ThermalProbe_SeparatesFromOtherHardwareHistory()
+    {
+        var run = Body("thermal");
+
+        Assert.Contains("Write-HwWindow", run);
+        Assert.Contains("Split-ByHwWindow", run);
+        Assert.Contains("Write-TzNote", run);
+        Assert.Contains("Write-JournalDepthNote", run);
     }
 
     [Fact]

@@ -166,11 +166,18 @@ discovery не запускается.
 
 `DiagnosticProbes` — встроенный каталог секций (`command`-пробы, Id=секция), не требует
 `testsuite.json`, канал всегда доступен. Секции: `system cpu memory gpu storage temps drivers
-events reboots whea reliability battery` (без `network`/`security`). Заточены под спонтанные
-ребуты: `reboots` (Kernel-Power 41 со свойствами `BugcheckCode`/`PowerButtonTs`/`SleepInProgress`
-+ dirty shutdown 6008 + BugCheck 1001), `whea` (WHEA-Logger **все уровни** — corrected идут
-Warning и теряются в `events` Level=1,2), `memory` показывает `ConfiguredClockSpeed` vs паспортный
-`Speed` (детект XMP/EXPO). `DiagReportRunner.RunAndUploadAsync(sz, sections?)` фильтрует секции
+events reboots whea thermal livekernel reliability battery` (без `network`/`security`). Заточены
+под спонтанные ребуты: `reboots` (Kernel-Power 41 со свойствами
+`BugcheckCode`/`PowerButtonTs`/`SleepInProgress` + dirty shutdown 6008 + BugCheck 1001), `whea`
+(WHEA-Logger **все уровни** — corrected идут Warning и теряются в `events` Level=1,2), `thermal`
+(`Kernel-Processor-Power` Id 37/86 с явным `ProviderName` + распределение hard-off по времени
+суток + явная строка «THERMTRIP не логируется» — его отсутствие не исключает перегрев, бэклог
+п.36b), `memory` показывает `ConfiguredClockSpeed` vs паспортный `Speed` (детект XMP/EXPO).
+Единый словарь имён секций для CLI/агента — `DiagSections` (Contracts). Единое окно поиска по
+журналу (30 дней) + печать глубины журнала — `EventWindow` (п.123); историческая нумерация
+`\Device\HarddiskN`/`RaidPortN` на момент события (не «на сейчас») — `DiskNumberHistory`,
+источник `Partition/Diagnostic` 1006 (п.133). `DiagReportRunner.RunAndUploadAsync(sz, sections?)`
+фильтрует секции
 (`TestReportRunner.FilterSteps`), гоняет через тот же `TestRunner`, строит `diag.md`
 (`DiagReportBuilder`, Kb), заливает одним `UploadReportPart`. Секции запускаются **точечно**
 (`szcli diag run <СЗ> reboots,whea`), не всё пачкой — снапшот вместо россыпи ssh. gpu-проба даёт
