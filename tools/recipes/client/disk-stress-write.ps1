@@ -50,7 +50,93 @@ function Say([string]$m) {
     if ($sw) { $sw.WriteLine($line) }
 }
 
+# NVMe SMART (Health Log page 02h) - бюджет записи опирается на предохранители по месту
+# (п.135), а приёмка по логу без независимого источника ничего не доказывает (СЗ 161346,
+# бэклог п.141): 8 ГБ обратного чтения ушло из page cache, DataUnitsRead по SMART не
+# вырос вовсе, "расхождений 0" не значило ничего. Get-StorageReliabilityCounter не отдаёт
+# DataUnitsRead/Written на NVMe - читаем лог напрямую через IOCTL_STORAGE_QUERY_PROPERTY
+# (тот же приём, что и в агенте, NvmeSmart.cs, - независимая копия: рецепт не может
+# ссылаться на C#, agent.exe - self-contained single-file без DLL рядом).
+function Get-NvmeUnits([int]$DriveNumber) {
+    try {
+        if (-not ([System.Management.Automation.PSTypeName]'SzDiagNvmeUnits').Type) {
+            Add-Type -ErrorAction Stop -TypeDefinition @'
+using System;
+using System.Runtime.InteropServices;
+public static class SzDiagNvmeUnits {
+    [DllImport("kernel32.dll", SetLastError = true, CharSet = CharSet.Unicode)]
+    static extern IntPtr CreateFileW(string name, uint access, uint share, IntPtr sec, uint disp, uint flags, IntPtr tmpl);
+    [DllImport("kernel32.dll", SetLastError = true)]
+    static extern bool DeviceIoControl(IntPtr h, uint code, byte[] inBuf, int inSize, byte[] outBuf, int outSize, out int returned, IntPtr ov);
+    [DllImport("kernel32.dll", SetLastError = true)]
+    static extern bool CloseHandle(IntPtr h);
+    const uint IOCTL = 0x2D1400;
+    const int HeaderSize = 8, SpecificSize = 40, LogSize = 512;
+    public static byte[] Read(int driveNumber) {
+        IntPtr h = CreateFileW(@"\\.\PhysicalDrive" + driveNumber, 0, 3, IntPtr.Zero, 3, 0, IntPtr.Zero);
+        if (h == new IntPtr(-1)) throw new Exception("CreateFile PhysicalDrive" + driveNumber + " failed, win32=" + Marshal.GetLastWin32Error());
+        try {
+            int total = HeaderSize + SpecificSize + LogSize;
+            byte[] buf = new byte[total];
+            BitConverter.GetBytes(50).CopyTo(buf, 0);
+            BitConverter.GetBytes(0).CopyTo(buf, 4);
+            BitConverter.GetBytes(3).CopyTo(buf, 8);
+            BitConverter.GetBytes(2).CopyTo(buf, 12);
+            BitConverter.GetBytes(2).CopyTo(buf, 16);
+            BitConverter.GetBytes(0).CopyTo(buf, 20);
+            BitConverter.GetBytes(SpecificSize).CopyTo(buf, 24);
+            BitConverter.GetBytes(LogSize).CopyTo(buf, 28);
+            byte[] outBuf = new byte[total];
+            int ret;
+            if (!DeviceIoControl(h, IOCTL, buf, total, outBuf, total, out ret, IntPtr.Zero))
+                throw new Exception("DeviceIoControl failed, win32=" + Marshal.GetLastWin32Error());
+            byte[] log = new byte[LogSize];
+            Array.Copy(outBuf, HeaderSize + SpecificSize, log, 0, LogSize);
+            return log;
+        } finally { CloseHandle(h); }
+    }
+}
+'@
+        }
+        $log = [SzDiagNvmeUnits]::Read($DriveNumber)
+        function ToU128([byte[]]$l, [int]$o) {
+            $b = New-Object byte[] 17
+            [Array]::Copy($l, $o, $b, 0, 16)
+            [System.Numerics.BigInteger]::new($b)
+        }
+        [pscustomobject]@{
+            PercentageUsed     = [int]$log[5]
+            DataUnitsReadTB    = [double](ToU128 $log 32) * 512000 / 1TB
+            DataUnitsWrittenTB = [double](ToU128 $log 48) * 512000 / 1TB
+        }
+    } catch { $null }
+}
+function Get-DiskNumberForDriveLetter([string]$DriveLetter) {
+    try { (Get-Partition -DriveLetter $DriveLetter.TrimEnd(':') -ErrorAction Stop | Select-Object -First 1).DiskNumber }
+    catch { $null }
+}
+
 Say "СТАРТ записи. Диски: $($Drives -join ', '); файл $FileGB ГБ; блок $BlockMB МБ; лимит $Minutes мин"
+
+# Приёмка целится в ПЕРВЫЙ диск из списка - именно на нём идёт основная нагрузка записи.
+$smartDiskNum = Get-DiskNumberForDriveLetter $Drives[0]
+$smartBefore = $null
+if ($null -ne $smartDiskNum) {
+    $isNvme = (Get-PhysicalDisk -ErrorAction SilentlyContinue | Where-Object DeviceId -eq $smartDiskNum).BusType -eq 'NVMe'
+    if ($isNvme) {
+        $smartBefore = Get-NvmeUnits $smartDiskNum
+        if ($smartBefore) {
+            Say ("SMART до старта: PercentageUsed={0}%, DataUnitsRead={1:N2} ТБ, DataUnitsWritten={2:N2} ТБ" -f `
+                $smartBefore.PercentageUsed, $smartBefore.DataUnitsReadTB, $smartBefore.DataUnitsWrittenTB)
+            # Не знаем паспортный TBW модели без внешней базы - но PercentageUsed уже близкий
+            # к 100 сам по себе повод не грузить диск ещё бюджетом записи без крайней нужды.
+            if ($smartBefore.PercentageUsed -ge 90) {
+                Say ("!!! ВНИМАНИЕ: PercentageUsed={0}% - ресурс записи диска почти исчерпан. Бюджет {1} ГБ добавит нагрузку на диск, у которого и так мало осталось - подумай, нужен ли этот прогон именно на нём." -f `
+                    $smartBefore.PercentageUsed, $WriteCapGB)
+            }
+        } else { Say "SMART до старта: NVMe диск найден, но лог 02h не прочитался - приёмка по SMART после прогона будет недоступна." }
+    } else { Say "SMART до старта: диск $($Drives[0]) не NVMe (или BusType не определён) - приёмка по SMART доступна только для NVMe." }
+} else { Say "SMART до старта: не удалось определить физический диск для $($Drives[0]) - приёмка по SMART недоступна." }
 
 # Порог проверяем ДО старта цикла, а не внутри него (бэклог п.171): на 161346 порог не совпал
 # ни с одним диском, а цикл вместо немедленного выхода крутился вхолостую все отведённые минуты
@@ -225,6 +311,32 @@ finally {
         if (Test-Path $dir) { Remove-Item $dir -Recurse -Force -ErrorAction SilentlyContinue }
     }
     Say "ИТОГ: проходов $pass, записано $([math]::Round($totalWritten/1GB,1)) ГБ, прочитано $([math]::Round($totalRead/1GB,1)) ГБ, ошибок $errors"
+
+    # Приёмка по SMART, а не по логу (бэклог п.141): на 161346 "расхождений 0" в логе не
+    # значило ничего, потому что чтение шло из page cache и DataUnitsRead не рос вовсе.
+    # Расхождение прироста SMART с тем, что тест отчитался, - явный сигнал "мерили не то".
+    if ($smartBefore) {
+        $smartAfter = Get-NvmeUnits $smartDiskNum
+        if ($smartAfter) {
+            $deltaReadGB = ($smartAfter.DataUnitsReadTB - $smartBefore.DataUnitsReadTB) * 1024
+            $deltaWrittenGB = ($smartAfter.DataUnitsWrittenTB - $smartBefore.DataUnitsWrittenTB) * 1024
+            $reportedReadGB = $totalRead / 1GB
+            $reportedWrittenGB = $totalWritten / 1GB
+            Say ("SMART после: PercentageUsed={0}% (было {1}%), прирост DataUnitsRead={2:N1} ГБ, DataUnitsWritten={3:N1} ГБ" -f `
+                $smartAfter.PercentageUsed, $smartBefore.PercentageUsed, $deltaReadGB, $deltaWrittenGB)
+            Say ("Тест отчитался: прочитано {0:N1} ГБ, записано {1:N1} ГБ" -f $reportedReadGB, $reportedWrittenGB)
+            # ±10% - допуск на фоновую активность ОС на этом же диске за время прогона.
+            $readOk = ($reportedReadGB -le 0) -or ($deltaReadGB -ge $reportedReadGB * 0.9)
+            $writtenOk = ($reportedWrittenGB -le 0) -or ($deltaWrittenGB -ge $reportedWrittenGB * 0.9)
+            if ($readOk -and $writtenOk) {
+                Say "ПРИЁМКА: OK - прирост SMART согласуется с тем, что тест отчитался (±10%)."
+            } else {
+                Say ("!!! ПРИЁМКА: ПРОГОН НЕВАЛИДЕН - прирост SMART СУЩЕСТВЕННО МЕНЬШЕ отчёта теста " +
+                     "(чтение мимо кэша не сработало, или тест мерил не тот диск). Выводам из лога доверять нельзя.")
+            }
+        } else { Say "SMART после: лог 02h не прочитался повторно - приёмка по SMART недоступна." }
+    }
+
     Say "Лог: $Log"
     if ($sw) { $sw.Dispose() }
 }

@@ -84,4 +84,25 @@ public class RecipeContentTests
 
     [Fact]
     public void PeOfflineTriage_ParsesAsValidPowerShell() => AssertAllParse("pe-offline-triage.ps1");
+
+    [Fact]
+    public void DiskStressWrite_ChecksSmartBeforeAndAfter()
+    {
+        // #72 / б.135 и #84 / б.141 (СЗ 161346): бюджет записи уже был в рецепте, но приёмка
+        // шла по логу ("расхождений 0"), хотя обратное чтение шло из page cache и SMART
+        // DataUnitsRead не рос вовсе. Проверяем PercentageUsed до старта и прирост
+        // DataUnitsRead/Written после - именно этого раньше не было.
+        var text = Recipe("disk-stress-write.ps1");
+
+        Assert.Contains("PercentageUsed", text);
+        Assert.Contains("DataUnitsRead", text);
+        Assert.Contains("DataUnitsWritten", text);
+        Assert.Contains("IOCTL_STORAGE_QUERY_PROPERTY", text);
+        Assert.Contains("ПРОГОН НЕВАЛИДЕН", text);
+        Assert.Contains("ПРИЁМКА: OK", text);
+        Assert.Contains("WriteCapGB", text);
+    }
+
+    [Fact]
+    public void DiskStressWrite_ParsesAsValidPowerShell() => AssertAllParse("disk-stress-write.ps1");
 }
