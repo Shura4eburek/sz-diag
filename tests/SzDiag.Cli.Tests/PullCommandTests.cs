@@ -66,4 +66,73 @@ public class PullCommandTests
         // выглядеть как провал команды (бэклог п.105).
         Assert.Equal(0, PullCommand.ExitCodeFor(Array.Empty<PullSavedFile>(), anyError: false));
     }
+
+    // Бэклог п.173 (#115): правка параметров прогона (disk-stress-write.ps1) осталась на
+    // клиенте, 10 минут теста ушли вхолостую — восстанавливать вчерашние параметры пришлось
+    // раскопками, читая шапку лога руками на клиенте. `pull --head` должен показывать шапку
+    // ПОСЛЕДНЕГО (по имени — файлы именованы с меткой времени) забранного лога сразу после
+    // забора, без отдельного ручного чтения.
+    [Fact]
+    public void Parse_Head_DefaultsToOneLine()
+    {
+        var parsed = PullCommand.Parse(new[] { "pull", "161346", @"C:\ProgramData\szdiag\disk-write-stress-*.log", "--head" });
+
+        Assert.True(parsed.Head);
+        Assert.Equal(1, parsed.HeadLines);
+    }
+
+    [Fact]
+    public void Parse_Head_WithExplicitLineCount()
+    {
+        var parsed = PullCommand.Parse(new[] { "pull", "161346", @"C:\x\*.log", "--head", "3" });
+
+        Assert.True(parsed.Head);
+        Assert.Equal(3, parsed.HeadLines);
+    }
+
+    [Fact]
+    public void Parse_WithoutHeadFlag_HeadIsFalse()
+    {
+        var parsed = PullCommand.Parse(new[] { "pull", "161346", @"C:\x\*.log" });
+
+        Assert.False(parsed.Head);
+    }
+
+    [Fact]
+    public void SelectLatestLog_PicksLexicographicallyLastName_AmongSavedFiles()
+    {
+        // Имена несут метку времени (disk-write-stress-20260817-142529.log), поэтому
+        // лексикографический максимум = самый свежий прогон.
+        var files = new[]
+        {
+            Ok("disk-write-stress-20260817-135402.log"),
+            Ok("disk-write-stress-20260818-165230.log"),
+            Ok("disk-write-stress-20260817-142529.log"),
+        };
+
+        var latest = PullCommand.SelectLatestLog(files);
+
+        Assert.NotNull(latest);
+        Assert.Equal("disk-write-stress-20260818-165230.log", latest!.Name);
+    }
+
+    [Fact]
+    public void SelectLatestLog_IgnoresSkippedFiles()
+    {
+        var files = new[]
+        {
+            Ok("disk-write-stress-20260817-135402.log"),
+            OverLimit("disk-write-stress-20260818-999999.log"),
+        };
+
+        var latest = PullCommand.SelectLatestLog(files);
+
+        Assert.Equal("disk-write-stress-20260817-135402.log", latest!.Name);
+    }
+
+    [Fact]
+    public void SelectLatestLog_NoSavedFiles_ReturnsNull()
+    {
+        Assert.Null(PullCommand.SelectLatestLog(Array.Empty<PullSavedFile>()));
+    }
 }

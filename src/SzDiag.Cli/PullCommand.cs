@@ -12,9 +12,12 @@ namespace SzDiag.Cli;
 /// читается как провал.</summary>
 public static class PullCommand
 {
-    public sealed record Args(string Sz, IReadOnlyList<string> Paths, long? MaxBytes, bool Recurse);
+    public sealed record Args(string Sz, IReadOnlyList<string> Paths, long? MaxBytes, bool Recurse,
+        bool Head = false, int HeadLines = 1);
 
-    /// <summary>Разбор аргументов: несколько путей за один вызов, `--max-mb N`, `-r`/`--recurse`.
+    /// <summary>Разбор аргументов: несколько путей за один вызов, `--max-mb N`, `-r`/`--recurse`,
+    /// `--head [N]` (бэклог п.173, #115) — показать первые N строк (по умолчанию 1) самого
+    /// свежего забранного лога, чтобы не читать шапку прогона на клиенте руками.
     /// Пути — всё, что не флаг и не значение флага.</summary>
     public static Args Parse(string[] args)
     {
@@ -22,6 +25,8 @@ public static class PullCommand
         var paths = new List<string>();
         long? maxBytes = null;
         var recurse = false;
+        var head = false;
+        var headLines = 1;
 
         for (var i = 2; i < args.Length; i++)
         {
@@ -38,12 +43,30 @@ public static class PullCommand
                 recurse = true;
                 continue;
             }
+            if (a.Equals("--head", StringComparison.OrdinalIgnoreCase))
+            {
+                head = true;
+                if (i + 1 < args.Length && int.TryParse(args[i + 1], out var n) && n > 0)
+                {
+                    headLines = n;
+                    i++;
+                }
+                continue;
+            }
             if (a.StartsWith('-')) continue;
             paths.Add(a);
         }
 
-        return new Args(sz, paths, maxBytes, recurse);
+        return new Args(sz, paths, maxBytes, recurse, head, headLines);
     }
+
+    /// <summary>Самый свежий из реально забранных логов — по имени файла, а не по метке
+    /// времени забора: рецепты (`disk-stress-write.ps1` и подобные) именуют лог меткой времени
+    /// СТАРТА прогона, поэтому лексикографический максимум = самый недавний прогон.</summary>
+    public static PullSavedFile? SelectLatestLog(IReadOnlyList<PullSavedFile> files)
+        => files.Where(f => !f.Skipped && f.SavedPath is not null)
+            .OrderByDescending(f => f.Name, StringComparer.Ordinal)
+            .FirstOrDefault();
 
     /// <summary>Код возврата по итогу забора. Забрали хоть что-то — 0. Не забрали ничего, но
     /// всё отсеял лимит — тоже 0: именно этого от лимита и хотели. Пустой путь без ошибок —
@@ -109,6 +132,25 @@ public static class PullCommand
         if (!parsed.Recurse && ok == 0 && all.Count == 0)
             AnsiConsole.MarkupLine("[grey]Подпапки не обходились — добавь[/] -r[grey], если файлы лежат глубже.[/]");
 
+        if (parsed.Head)
+            PrintHead(all, parsed.HeadLines);
+
         return ExitCodeFor(all, anyError);
+    }
+
+    /// <summary>Печатает первые <paramref name="lines"/> строк самого свежего забранного лога —
+    /// «повторить как вчера» не требует читать логи на клиенте руками (бэклог п.173, #115).</summary>
+    private static void PrintHead(IReadOnlyList<PullSavedFile> files, int lines)
+    {
+        var latest = SelectLatestLog(files);
+        if (latest?.SavedPath is null || !File.Exists(latest.SavedPath))
+        {
+            AnsiConsole.MarkupLine("[grey]--head: нечего показать — ни один лог не забран.[/]");
+            return;
+        }
+
+        AnsiConsole.MarkupLineInterpolated($"[grey]Шапка последнего лога ({latest.Name}):[/]");
+        foreach (var line in File.ReadLines(latest.SavedPath).Take(lines))
+            AnsiConsole.WriteLine(line);
     }
 }

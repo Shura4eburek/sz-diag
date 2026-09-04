@@ -158,6 +158,42 @@ if (-not (Test-Path $hubCfgPath)) {
     }
 }
 
+# 2b. Лицензия OCCT (бэклог п.152, #91): на 161716 «тест не запустился» полчаса оказался
+# протухшей лицензией `.oke` (истекла ровно в день заявки) плюс файлом-дублем браузера
+# `license (2).oke`, который OCCT вообще не подхватывает. Ловим обе граблины до выезда,
+# а не по факту мёртвого прогона на клиенте.
+function Test-OcctLicense([string]$ToolsRoot) {
+    $occtDir = Join-Path $ToolsRoot "occt"
+    if (-not (Test-Path $occtDir)) { return }
+    $okeFiles = @(Get-ChildItem $occtDir -Filter '*.oke' -File -ErrorAction SilentlyContinue)
+    if ($okeFiles.Count -eq 0) {
+        Bad "лицензии OCCT нет в $occtDir (*.oke) — тест молча не запустится"
+        return
+    }
+    foreach ($f in $okeFiles) {
+        if ($f.Name -notmatch '^[\w.-]+\.oke$') {
+            Bad "лицензия OCCT '$($f.Name)' — имя со скобками/пробелом, OCCT такой файл не видит"
+            continue
+        }
+        try {
+            $head = (Get-Content $f.FullName -Raw).Split('|')[0]
+            $txt = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String($head))
+            $till = [datetime]::ParseExact($txt.Split(';')[2], 'yyyy/MM/dd', $null)
+            $days = ($till.Date - (Get-Date).Date).Days
+            if ($days -lt 0) {
+                Bad ("лицензия OCCT '{0}' ПРОТУХЛА {1:dd.MM.yyyy} ({2} дн. назад)" -f $f.Name, $till, [math]::Abs($days))
+            } elseif ($days -le 14) {
+                Bad ("лицензия OCCT '{0}' истекает {1:dd.MM.yyyy} (через {2} дн.)" -f $f.Name, $till, $days)
+            } else {
+                Ok ("лицензия OCCT '{0}' действует до {1:dd.MM.yyyy} (ещё {2} дн.)" -f $f.Name, $till, $days)
+            }
+        } catch {
+            Bad "лицензия OCCT '$($f.Name)' — не удалось разобрать срок действия"
+        }
+    }
+}
+if ($toolsRoot -and (Test-Path $toolsRoot)) { Test-OcctLicense $toolsRoot }
+
 # 3. Ключ сервиса: без него доступ не поднять
 $key = Join-Path $Root "secrets\svc_diag_key"
 if (Test-Path $key) { Ok "ключ сервиса на месте" } else { Bad "нет ключа $key — его генерит build-dist" }

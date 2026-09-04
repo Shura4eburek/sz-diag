@@ -100,4 +100,24 @@ if ($p.Count -and $ws -lt 1024 -and $cpu -lt 5) {
     '  Закрыть окна можно только РУКАМИ на машине. Никого рядом нет — гони start-ycruncher.ps1'
     '  или OCCT Memtest (бэклог п.182).'
 }
-if (Test-Path $log) { '--- Log.txt ---'; Get-Content $log -Tail 10 }
+
+# Профиль обязан попадать в протокол прогона (бэклог п.54, #33): выше мы печатаем НАМЕРЕНИЕ
+# (что записали в Cfg.link) ДО старта, но TM5 молча берёт другой конфиг (Cfg.link на
+# недоступный сетевой путь, дефолт-фоллбэк) — и без сверки с тем, что TM5 реально прочитал
+# (строка `Configuration:` в Log.txt), это остаётся необнаруженным. `-Tail 10` тоже не
+# гарантия: строка печатается в первую секунду лога и может не попасть в хвост длинного прогона.
+if (Test-Path $log) {
+    $cfgLine = Select-String -Path $log -Pattern 'Configuration:\s*(.+)$' | Select-Object -First 1
+    if ($cfgLine) {
+        $actual = $cfgLine.Matches.Groups[1].Value.Trim()
+        "фактический профиль по Log.txt: $actual"
+        if ($actual -eq $name) {
+            "профиль подтверждён: TM5 реально читает '$actual' — совпадает с ожидаемым"
+        } else {
+            "⚠ РАСХОЖДЕНИЕ ПРОФИЛЯ: намеревались '$name', а TM5 реально читает '$actual' — доверять результату теста нельзя"
+        }
+    } else {
+        "⚠ строки 'Configuration:' в Log.txt нет — профиль теста НЕ подтверждён"
+    }
+    '--- Log.txt (хвост) ---'; Get-Content $log -Tail 10
+}

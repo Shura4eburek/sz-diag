@@ -272,6 +272,14 @@ if (args.Length >= 2 && args[0] == "--resume")
         R(rOpts.TestSuitePath), (plain, _) => { logFile.WriteLine(plain); logFile.Flush(); },
         rHubUrl, rOpts.AgentToken);
 
+    // Приборный захват (бэклог п.147, #86): переживает управление (агент сам поднимается),
+    // но не переживает сам себя — обычный дочерний процесс гибнет вместе с машиной. Маркер
+    // на диске (пишет `szcli sensors start`) говорит агенту поднять наблюдатель заново, в
+    // НОВЫЙ файл с меткой времени — стык до/после ребута виден по имени файла.
+    var rSensorResume = SensorCaptureGuard.ResumeIfMarked(rExec.Handle);
+    if (rSensorResume is not null) logFile.WriteLine($"[resume] {rSensorResume}");
+    logFile.Flush();
+
     using var rCts = new CancellationTokenSource();
     // Активность по живым процессам — и после ребута тоже: иначе в колонке навсегда
     // останется «готов (после ребута)», под каким бы прогоном машина ни стояла (п.73).
@@ -510,6 +518,13 @@ var spec = new AccessSpec(sz, opts.ServiceAccount, pubKey, opts.SshPort,
 var sshBinDir = ResolvePath(opts.SshBinDir);
 var sshd = new PortableSshServer(sshBinDir, opts.SshWorkDir, ps);
 var manager = new WindowsSystemAccessManager(ps, sshd, opts.StatePath);
+
+// Бэклог п.140 (#77): опечатка в номере СЗ от ручного/бракованного запуска не оставляет
+// state.json — RevertStaleState такой хвост не увидит никогда. Единственный шанс поймать —
+// сканировать szdiag-* объекты ДО открытия доступа своей сессии и предупредить оператора.
+foreach (var foreign in manager.ScanForeignObjects(sz))
+    Announce($"⚠ на клиенте уже есть постороннее: {foreign}",
+        $"[yellow]⚠ на клиенте уже есть постороннее:[/] {Markup.Escape(foreign)}");
 
 var hubUrl = opts.HubUrl;
 if (string.IsNullOrWhiteSpace(hubUrl))

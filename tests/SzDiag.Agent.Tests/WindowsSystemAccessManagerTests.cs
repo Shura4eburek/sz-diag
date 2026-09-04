@@ -12,10 +12,14 @@ public class WindowsSystemAccessManagerTests : IDisposable
     private sealed class FakePs : IPowerShellRunner
     {
         public List<string> Scripts { get; } = new();
+        /// <summary>Что вернуть в StdOut на любой вызов — по умолчанию пусто, как раньше.
+        /// Нужно для <see cref="ScanForeignObjects_FindsTaskFromOtherSzBeforeOpen"/>: реального
+        /// PowerShell в тестах нет, поэтому инвентарь клиента подставляется фейком.</summary>
+        public string StdOut { get; set; } = "";
         public PsResult Run(string script, bool throwOnError = true, TimeSpan? timeout = null)
         {
             Scripts.Add(script);
-            return new PsResult(0, "", "");
+            return new PsResult(0, StdOut, "");
         }
     }
 
@@ -48,6 +52,45 @@ public class WindowsSystemAccessManagerTests : IDisposable
         Make(ps).Revert(state);
 
         Assert.DoesNotContain(ps.Scripts, s => s.Contains("szdiag-sshd-156864"));
+    }
+
+    // #77 / б.140 (СЗ 160705): задача `szdiag-sshd-260705` — опечатка в номере СЗ от ручного
+    // запуска, у неё нет state.json, поэтому RevertStaleState (который знает только про СВОЙ
+    // файл состояния) её никогда не увидит. Единственный шанс поймать такой хвост — сканировать
+    // szdiag-* объекты ДО открытия доступа своей сессии и предупредить оператора.
+    [Fact]
+    public void ScanForeignObjects_FindsTaskFromOtherSzBeforeOpen()
+    {
+        var ps = new FakePs { StdOut = "task:szdiag-sshd-260705=Ready\n" };
+
+        var foreign = Make(ps).ScanForeignObjects("160705");
+
+        Assert.Contains(foreign, f => f.Contains("szdiag-sshd-260705"));
+    }
+
+    [Fact]
+    public void ScanForeignObjects_OwnSessionTasks_AreNotForeign()
+    {
+        // Если на диске уже лежат задачи ЭТОЙ же СЗ (resume-сценарий) — это не чужой хвост.
+        var ps = new FakePs
+        {
+            StdOut = "task:szdiag-sshd-160705=Running\ntask:szdiag-watchdog-160705=Ready\n" +
+                     "task:szdiag-autostart-160705=Ready\n",
+        };
+
+        var foreign = Make(ps).ScanForeignObjects("160705");
+
+        Assert.Empty(foreign);
+    }
+
+    [Fact]
+    public void ScanForeignObjects_CleanMachine_ReturnsEmpty()
+    {
+        var ps = new FakePs { StdOut = "service:R0lhmmon=none\n" };
+
+        var foreign = Make(ps).ScanForeignObjects("160705");
+
+        Assert.Empty(foreign);
     }
 
     [Fact]

@@ -25,6 +25,19 @@ public sealed class WindowsSystemAccessManager : ISystemAccessManager
         _statePath = statePath;
     }
 
+    /// <summary>Постороннее <c>szdiag-*</c> на клиенте ДО открытия доступа своей сессии
+    /// (бэклог п.140, #77, СЗ 160705): опечатка в номере СЗ (`szdiag-sshd-260705` вместо
+    /// 160705) от ручного/бракованного запуска не оставляет `state.json`, поэтому
+    /// <see cref="RevertStaleState"/> (который знает только про СВОЙ файл состояния) её
+    /// никогда не найдёт и не снимет — машину отдадут клиенту с чужой задачей навсегда.
+    /// Инвентарь тот же, что у <c>szcli client info</c>, разбор — тот же классификатор
+    /// (свои задачи текущей СЗ не в счёт).</summary>
+    public IReadOnlyList<string> ScanForeignObjects(string sz)
+    {
+        var inventory = _ps.Run(ClientTraces.BuildInventoryScript(), throwOnError: false).StdOut;
+        return ClientTraces.FindLeftoversDetailed(inventory, sz).Leftovers;
+    }
+
     public RevertState Open(AccessSpec spec)
     {
         // Остаток от ДРУГОЙ незакрытой СЗ → откатить, иначе её задачи/автостарт повиснут.

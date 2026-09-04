@@ -124,6 +124,25 @@ public class RecipeContentTests
     [Fact]
     public void ProcessIoTop_ParsesAsValidPowerShell() => AssertAllParse("process-io-top.ps1");
 
+    [Fact]
+    public void StartTm5_VerifiesActualProfileAgainstLog()
+    {
+        // #33 / б.54: TM5.exe молча берёт дефолтный профиль (`bin\Cfg.link` на сетевой путь,
+        // недоступный с клиента), и в отчёте это никак не видно — «гоняли TM5» без имени
+        // профиля бесполезно. Рецепт печатал НАМЕРЕННЫЙ профиль ДО старта, но не проверял,
+        // какой профиль TM5 фактически прочитал (строка `Configuration:` в Log.txt) — теперь
+        // сверяет и явно кричит при расхождении, а не полагается на "хвост" лога, где строка
+        // могла и не поместиться.
+        var text = Recipe("start-tm5.ps1");
+
+        Assert.Contains("Configuration:", text);
+        Assert.Contains("РАСХОЖДЕНИЕ ПРОФИЛЯ", text);
+        Assert.Contains("подтверждён", text);
+    }
+
+    [Fact]
+    public void StartTm5_ParsesAsValidPowerShell() => AssertAllParse("start-tm5.ps1");
+
     /// <summary>DiskZoneMap живёт в SzDiag.Contracts (генерируется CLI, а не читается с диска
     /// как рецепт), но синтаксис сгенерированного PowerShell проверяем тем же способом.</summary>
     [Fact]
