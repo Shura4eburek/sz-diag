@@ -34,6 +34,14 @@ public sealed class SessionRegistry
     public bool WasMassOfflineNear(DateTimeOffset at, TimeSpan window)
         => _lastMassOfflineAt is { } t && (at - t).Duration() <= window;
 
+    /// <summary>Последний известный heartbeat СЗ ДО текущей регистрации — момент, когда машина
+    /// реально замолчала (а не когда она переподключилась). Плановое обесточивание нужно
+    /// классифицировать по моменту ОТКАЗА, а не по моменту возврата (review W2 C-4): иначе
+    /// дневной hard-off, найденный агентом только вечером после рабочих часов, ложно метится
+    /// плановым, а ночной рубильник, вернувшийся утром внутри рабочих часов, — нет.</summary>
+    public DateTimeOffset? PeekLastHeartbeat(string sz)
+        => _bySz.TryGetValue(sz, out var e) ? e.Info.LastHeartbeat : (DateTimeOffset?)null;
+
     /// <summary>Что произошло при регистрации агента.</summary>
     /// <param name="Rebooted">Boot-time сменился — машина реально перезагрузилась.</param>
     /// <param name="PreviousBootTime">Прежний boot-time (для записи события).</param>

@@ -48,10 +48,16 @@ public sealed class AgentHub : Microsoft.AspNetCore.SignalR.Hub
         var effectiveShutdown = request.LastShutdown;
         if (ShutdownKind.CountsAsFailure(effectiveShutdown))
         {
-            var massOffline = _registry.WasMassOfflineNear(now, _options.MassOfflineWindow);
+            // Классифицируем по моменту ОТКАЗА (последний heartbeat до тишины), а не по моменту
+            // РЕГИСТРАЦИИ/возврата (review W2 C-4): реальный дневной hard-off, если агент
+            // переподключился уже вечером после рабочих часов, раньше ложно метился плановым;
+            // а настоящий ночной рубильник, вернувшийся утром внутри рабочих часов, — наоборот,
+            // плановым не считался. Момент отказа уже известен по прежней записи в реестре.
+            var failureAt = _registry.PeekLastHeartbeat(request.Sz) ?? now;
+            var massOffline = _registry.WasMassOfflineNear(failureAt, _options.MassOfflineWindow);
             var start = PlannedOutageClassifier.ParseTimeOfDay(_options.ServiceHoursStart);
             var end = PlannedOutageClassifier.ParseTimeOfDay(_options.ServiceHoursEnd);
-            if (PlannedOutageClassifier.IsPlanned(TimeOnly.FromDateTime(now.ToLocalTime().DateTime), start, end, massOffline))
+            if (PlannedOutageClassifier.IsPlanned(TimeOnly.FromDateTime(failureAt.ToLocalTime().DateTime), start, end, massOffline))
                 effectiveShutdown = ShutdownKind.PlannedOutage;
         }
 
