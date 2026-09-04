@@ -501,4 +501,69 @@ public static class SensorReport
 
         return string.Join("\n", lines);
     }
+
+    /// <summary>Тот же отчёт, но на украинском — для журнала СЗ (kb). CLAUDE.md: kb на
+    /// украинском, консольный вывод CLI — на русском (<see cref="Format"/>). Раньше в
+    /// `AddNoteAsync` уезжал русский текст `Format` без перевода (review W2 I-6).</summary>
+    public static string FormatForJournal(SensorSummary s)
+    {
+        if (s.Format == SensorCsvFormat.Unknown)
+            return "Формат CSV не розпізнано: очікувався лог `szcli sensors` (шапка time;cpu_pct;…) "
+                   + "або широкий лог lhmmon (кома, імена датчиків через |). "
+                   + "Стверджувати щось про прогін за цим файлом не можна.";
+
+        if (s.Samples == 0) return "Спостережень немає: CSV порожній — прогін нічим не підтверджено.";
+
+        var lines = new List<string>
+        {
+            $"Спостережень: {s.Samples}, період {s.FirstSample:HH:mm:ss}–{s.LastSample:HH:mm:ss} ({s.SpanMinutes:N1} хв)",
+            $"Під навантаженням (CPU ≥ {LoadThreshold:N0}%): {s.LoadedMinutes:N1} хв — {s.LoadedShare * 100:N0}% часу",
+            $"CPU max {s.MaxCpu:N0}%, середній під навантаженням {(s.AvgCpuUnderLoad is { } avg ? $"{avg:N0}%" : "— не було")}; процесів тесту максимум {s.MaxStressProcesses}",
+        };
+
+        if (s.MaxGpu is not null)
+        {
+            lines.Add($"Під навантаженням (GPU ≥ {LoadThreshold:N0}%): {s.GpuLoadedMinutes:N1} хв — {s.GpuLoadedShare * 100:N0}% часу");
+            var gpuTail = s.MaxGpuTempC is not null ? $", температура max {s.MaxGpuTempC:N1} °C" : "";
+            var gpuPower = s.MaxGpuPowerW is not null ? $", потужність max {s.MaxGpuPowerW:N0} Вт" : "";
+            lines.Add($"GPU max {s.MaxGpu:N0}%{gpuTail}{gpuPower}");
+        }
+
+        var constants = s.ConstantSensors ?? Array.Empty<ConstantSensor>();
+        var constantTemp = constants.FirstOrDefault(c => c.Name.Contains("температура CPU"));
+        if (constantTemp is not null)
+            lines.Add($"⚠ Температура CPU: датчик не відповідає (константа {constantTemp.Value:N1} °C на всіх "
+                      + $"{constantTemp.Samples} замірах) — перегрів за цими даними ні підтвердити, ні виключити не можна.");
+        else if (s.MaxTempC is not null)
+            lines.Add($"Температура max {s.MaxTempC:N1} °C");
+        else if (s.Format == SensorCsvFormat.Watcher)
+            lines.Add("⚠ Температура CPU недоступна: колонка cpu_temp_c порожня на всіх замірах "
+                      + "(датчика ACPI на цій машині немає) — питання «перегрів чи ні» цей CSV не закриває, "
+                      + "підніми lhmmon (tools/recipes/client/start-sensors.ps1).");
+
+        if (s.MaxCpuPowerW is not null) lines.Add($"Потужність CPU max {s.MaxCpuPowerW:N0} Вт");
+        if (s.MaxCpuClockMhz is not null) lines.Add($"Частота CPU max {s.MaxCpuClockMhz:F0} МГц");
+        if (s.MaxRamPercent is not null) lines.Add($"Пам'ять max {s.MaxRamPercent:N0}%");
+
+        foreach (var rail in s.Rails ?? Array.Empty<RailStats>())
+        {
+            var rejected = rail.Rejected > 0
+                ? $" ({rail.Rejected} вимір(ів) поза фізичним діапазоном відкинуто)"
+                : "";
+            lines.Add($"{rail.Name}: {rail.Min:N3}…{rail.Max:N3} В, 1–99 перцентиль {rail.P1:N3}…{rail.P99:N3} В{rejected}");
+        }
+
+        if (s.GapSeconds > 30)
+            lines.Add($"⚠ Найдовший розрив у ряду: {s.GapSeconds:N0} с — спостерігач гальмував (або машина стояла)");
+
+        if (s.MaxStressProcesses == 0 && s.Format == SensorCsvFormat.Watcher)
+            lines.Add("⚠ Процесів стрес-тесту не бачили ЖОДНОГО разу — прогін, найімовірніше, не стартував.");
+        else if (s.AnyLoadedShare < 0.5)
+            lines.Add($"⚠ Навантаження йшло лише {s.AnyLoadedShare * 100:N0}% часу — «машина витримала N хвилин» тут незастосовно " +
+                      "(так на 160306 40 хвилин виявилися 4.2 хвилинами навантаження).");
+        else
+            lines.Add("Навантаження підтверджено приладово.");
+
+        return string.Join("\n", lines);
+    }
 }

@@ -218,11 +218,15 @@ public static class SensorsCommand
             }
 
             var parsed = SensorReport.ParseAny(await File.ReadAllTextAsync(saved));
-            var summary = SensorReport.Format(SensorReport.Summarize(parsed.Samples, format: parsed.Format));
+            var parsedSummary = SensorReport.Summarize(parsed.Samples, format: parsed.Format);
+            var summary = SensorReport.Format(parsedSummary);
             AnsiConsole.MarkupLineInterpolated($"[grey]CSV забран:[/] {saved}");
             Console.WriteLine(summary);
 
-            await client.AddNoteAsync(sz, BuildJournalNote(Path.GetFileName(csvPath), summary));
+            // Журнал СЗ — на украинском (kb, CLAUDE.md); консольный Format выше остаётся
+            // русским — это два разных читателя одного и того же SensorSummary (review W2 I-6).
+            var summaryUa = SensorReport.FormatForJournal(parsedSummary);
+            await client.AddNoteAsync(sz, BuildJournalNote(Path.GetFileName(csvPath), summaryUa));
             AnsiConsole.MarkupLine("[grey]Сводка добавлена в журнал СЗ.[/]");
         }
         catch (Exception ex)
@@ -232,9 +236,12 @@ public static class SensorsCommand
         }
     }
 
-    /// <summary>Текст записи в журнал СЗ по итогам прогона сенсоров — чистая функция ради тестов.</summary>
+    /// <summary>Текст записи в журнал СЗ по итогам прогона сенсоров — чистая функция ради тестов.
+    /// Журнал СЗ на украинском (kb, CLAUDE.md) — обёртка и сам текст сводки (`summaryText`
+    /// ожидается уже переведённым, см. <see cref="SensorReport.FormatForJournal"/>): раньше сюда
+    /// уезжал русский текст без перевода (review W2 I-6).</summary>
     public static string BuildJournalNote(string csvFileName, string summaryText)
-        => $"Сводка сенсоров ({csvFileName}):\n{summaryText}";
+        => $"Зведення сенсорів ({csvFileName}):\n{summaryText}";
 
     /// <summary>Разбор забранного CSV — считает, сколько времени нагрузка реально держалась.</summary>
     private static int Report(string csvPath)

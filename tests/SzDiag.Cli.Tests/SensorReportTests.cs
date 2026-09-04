@@ -185,6 +185,31 @@ public class SensorReportTests
         Assert.Contains("датчик не отвечает", text);
         Assert.Matches(@"27[.,]9", text);
     }
+
+    // review W2 I-6/T-5: журнал СЗ (kb) — на украинском, а не на русском, как консольный
+    // Format. Раньше в AddNoteAsync уезжал русский текст Format без перевода.
+    [Fact]
+    public void FormatForJournal_UsesUkrainianText_NotRussian()
+    {
+        var csv = Csv(
+            "2026-08-04 17:00:00;100;1;70;55",
+            "2026-08-04 17:01:00;100;1;72;56",
+            "2026-08-04 17:02:00;100;1;71;56",
+            "2026-08-04 17:04:00;3;0;40;30",
+            "2026-08-04 17:10:00;2;0;39;30");
+
+        var text = SensorReport.FormatForJournal(SensorReport.Summarize(SensorReport.Parse(csv)));
+
+        Assert.Contains("Спостережень:", text);
+        Assert.Contains("Під навантаженням", text);
+        Assert.DoesNotContain("Наблюдений:", text);
+        Assert.DoesNotContain("Под нагрузкой", text);
+    }
+
+    [Fact]
+    public void FormatForJournal_EmptyCsv_UkrainianMessage()
+        => Assert.Contains("нічим не підтверджено",
+            SensorReport.FormatForJournal(SensorReport.Summarize(SensorReport.Parse(""))));
 }
 
 public class SensorWatcherScriptTests
@@ -268,4 +293,5 @@ public class SensorWatcherScriptTests
         Assert.Contains("PriorityClass", script);
         Assert.Contains("'n/a'", script);
     }
+
 }

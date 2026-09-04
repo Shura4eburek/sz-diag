@@ -26,14 +26,25 @@ public class SensorsCommandTests
 
     // Бэклог п.7: автозабор CSV в журнал СЗ по завершении прогона — «была ли нагрузка
     // настоящей» без отдельного ритуала «забрать → написать разбор → вставить в заметку».
+    // Журнал СЗ — на украинском (kb, CLAUDE.md): review W2 I-6/T-5 — раньше сюда уезжал
+    // русский текст (обёртка и сводка) без перевода.
     [Fact]
     public void BuildJournalNote_IncludesFileNameAndSummary()
     {
         var note = SensorsCommand.BuildJournalNote("160306-20260904-100000.csv",
-            "Под нагрузкой: 4.2 мин — 18% времени");
+            "Під навантаженням: 4.2 хв — 18% часу");
 
         Assert.Contains("160306-20260904-100000.csv", note);
-        Assert.Contains("Под нагрузкой: 4.2 мин", note);
+        Assert.Contains("Під навантаженням: 4.2 хв", note);
+    }
+
+    [Fact]
+    public void BuildJournalNote_WrapperIsUkrainian_NotRussian()
+    {
+        var note = SensorsCommand.BuildJournalNote("160306-20260904-100000.csv", "будь-який текст");
+
+        Assert.Contains("Зведення сенсорів", note);
+        Assert.DoesNotContain("Сводка сенсоров", note);
     }
 
     // #156/бэклог п.206: под нагрузкой процесс наблюдателя жив, а CSV не растёт 18 минут —
