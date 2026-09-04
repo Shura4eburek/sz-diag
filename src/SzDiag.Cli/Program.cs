@@ -176,6 +176,11 @@ switch (command)
     case "client" when args.Length >= 2:
         return await ClientCommand.RunAsync(client, args);
 
+    // stress stop: снять ВСЮ нагрузку одной командой — процессы, lhmmon, фоновые
+    // exec --detach задачи, задачи планировщика, драйверы (бэклог п.126/183).
+    case "stress" when args.Length >= 2:
+        return await StressCommand.RunAsync(client, args);
+
     // agent set <СЗ> Ключ=значение: правка конфига агента с хоста. WatchdogHours применяется
     // сразу (перевзвод задачи), остальное — при следующем открытии доступа (бэклог п.86).
     case "agent" when args.Length >= 4 && args[1].Equals("set", StringComparison.OrdinalIgnoreCase):
@@ -667,6 +672,7 @@ static void PrintUsage()
               [yellow]szcli agent restart[/] [blue]<СЗ>[/]  поднять агента заново (задачей под SYSTEM, без похода к машине)
               [yellow]szcli agent set[/] [blue]<СЗ>[/] [grey]WatchdogHours=12[/]  правка конфига агента с хоста
               [yellow]szcli client[/] [grey]info|cleanup <СЗ>[/]  следы прогонов на клиенте и их уборка
+              [yellow]szcli stress stop[/] [blue]<СЗ>[/]  снять ВСЮ нагрузку разом (процессы, lhmmon, фон, драйверы)
               [yellow]szcli maintenance[/] [blue]<СЗ>[/] [grey]"причина" [[--from 18:30]] [[--until 19:15]] | --list[/]
                 [grey]метка «работали руками»: события питания в окне — не вырубон[/]
               [yellow]szcli kb[/] …               работа с базой знаний ([grey]record/summary/search/rm[/])

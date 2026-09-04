@@ -7,10 +7,27 @@
 # даже не показывает. То есть после «уборки» клиент уезжает с сотней мегабайт наших бинарей,
 # что прямо противоречит инварианту «весь доступ откатывается без следов».
 #
-# Гонять ПЕРЕД `szcli close`, вместе с `client cleanup` (тот снимает драйвер и задачи).
+# Гонять ПЕРЕД `szcli close`, вместе с `client cleanup` (тот снимает драйвер и задачи) и
+# ПОСЛЕ `szcli stress stop <СЗ>` (снимает процессы/lhmmon/задачи/драйверы, которые как раз
+# и держат эти папки — без него это первый заход из двух, бэклог п.183, СЗ 161346).
 # Агент и его `appsettings.json` НЕ трогаем — он сносит себя сам при revert.
 #   szcli exec <СЗ> -f tools\recipes\client\wipe-tools.ps1
 $ErrorActionPreference = 'SilentlyContinue'
+
+# Бэклог п.183: «файл занят?» ничего не говорит, КЕМ. Проверяем известные держатели папок
+# инструментов — те же процессы, что снимает stress stop, плюс explorer (открытая папка).
+function Show-Holders {
+    param($Dir)
+    $names = 'OCCTCmd', 'OCCT', 'furmark', 'TM5', '3DMarkCmd', 'prime95', 'y-cruncher', 'Kagari',
+             'lhmmon', 'explorer'
+    $alive = Get-Process $names -ErrorAction SilentlyContinue |
+        Where-Object { $_.Path -and $_.Path.StartsWith($Dir, [StringComparison]::OrdinalIgnoreCase) }
+    if ($alive) {
+        '  держит: ' + (($alive | ForEach-Object { "$($_.ProcessName) pid=$($_.Id)" }) -join ', ')
+    } else {
+        '  держит: не по пути (проверь sc query R0lhmmon и szcli stress stop — вдруг не гонялся)'
+    }
+}
 
 $proc = Get-CimInstance Win32_Process -Filter "Name='SzDiag.Agent.exe'" | Select-Object -First 1
 if (-not $proc) { 'агент не найден — путь к tools\ не резолвится, снеси вручную'; return }
@@ -30,7 +47,7 @@ foreach ($d in $targets) {
     if (-not (Test-Path $d)) { continue }
     $mb = [math]::Round((Get-ChildItem $d -Recurse -File | Measure-Object Length -Sum).Sum / 1MB, 1)
     Remove-Item $d -Recurse -Force
-    if (Test-Path $d) { "⚠ НЕ снято (файл занят?): $d" }
+    if (Test-Path $d) { "⚠ НЕ снято (файл занят): $d"; Show-Holders $d }
     else { "снято: $d ($mb МБ)"; $freed += $mb }
 }
 if ($freed -eq 0) { 'чисто — сносить нечего' } else { "освобождено: $freed МБ" }

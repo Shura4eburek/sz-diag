@@ -149,6 +149,17 @@ public class ScriptLintTests
             "ложное предупреждение про запятую+конкатенацию на: " + string.Join(", ", offenders));
     }
 
+    // Бэклог п.183 (СЗ 161346): «файл занят?» ничего не говорило, КЕМ — уборка шла в два
+    // захода наугад. wipe-tools обязан хотя бы попытаться назвать держателя.
+    [Fact]
+    public void WipeTools_ReportsWhoHoldsLockedFolder()
+    {
+        var text = File.ReadAllText(Path.Combine(RepoRoot(), "tools", "recipes", "client", "wipe-tools.ps1"));
+
+        Assert.Contains("Show-Holders", text);
+        Assert.Contains("держит:", text);
+    }
+
     private static string RepoRoot()
     {
         var dir = AppContext.BaseDirectory;
