@@ -86,9 +86,22 @@ public static class ClientTraces
         var keep = string.Join(",", (keepTasks ?? Array.Empty<string>()).Select(t => $"'{t}'"));
         var services = string.Join(",", ToolServices.Select(s => $"'{s}'"));
         var dirs = string.Join(",", TempDirs.Select(d => $"'{d}'"));
+        var jobsDir = TempDirs[0].Replace("'", "''");
         return $$"""
             $ErrorActionPreference = 'SilentlyContinue'
             $keep = @({{keep}})
+            # Изолированная (scheduled-task) фоновая задача переживает падение агента специально
+            # (бэклог п.53), но снятие самой задачи ниже НЕ убивает дерево процессов —
+            # без этого шага OCCT/TM5 под SYSTEM оставался живым после close (Critical-4,
+            # ревью волны 1: "весь доступ на клиенте временный и откатывается без следов").
+            # Бьём по рабочему каталогу задач целиком, а не по конкретному jobId — за сессию
+            # изолированных задач могло быть несколько.
+            Get-CimInstance Win32_Process -Filter "Name like '%powershell%'" -ErrorAction SilentlyContinue |
+                Where-Object { $_.CommandLine -like '*{{jobsDir}}*' } |
+                ForEach-Object {
+                    taskkill /PID $_.ProcessId /T /F | Out-Null
+                    'убит процесс изолированной задачи: ' + $_.ProcessId
+                }
             Get-ScheduledTask | Where-Object { $_.TaskName -like '{{TaskPrefix}}*' -and $keep -notcontains $_.TaskName } |
                 ForEach-Object {
                     Unregister-ScheduledTask -TaskName $_.TaskName -Confirm:$false -ErrorAction SilentlyContinue

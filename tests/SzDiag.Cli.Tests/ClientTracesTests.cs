@@ -97,6 +97,21 @@ public class ClientTracesTests
     }
 
     [Fact]
+    public void Cleanup_KillsIsolatedJobProcessTree_BeforeUnregisteringTask()
+    {
+        // Critical-4 (ревью волны 1): Unregister-ScheduledTask не убивает дерево процессов
+        // изолированной задачи — без явного добивания OCCT/TM5 под SYSTEM оставался живым
+        // после close, нарушая инвариант «доступ откатывается без следов».
+        var script = ClientTraces.BuildCleanupScript();
+
+        Assert.Contains("taskkill", script);
+        Assert.Contains(@"C:\ProgramData\szdiag\jobs", script);
+        Assert.True(script.IndexOf("taskkill", StringComparison.Ordinal)
+            < script.IndexOf("Unregister-ScheduledTask", StringComparison.Ordinal),
+            "процессы нужно добить ДО снятия задачи");
+    }
+
+    [Fact]
     public void TaskName_FollowsSingleConvention()
         => Assert.Equal("szdiag-lhmmon-160636", ClientTraces.TaskName("lhmmon", "160636"));
 
