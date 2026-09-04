@@ -12,7 +12,7 @@ public class DiagnosticProbesTests
         var expected = new[]
         {
             "system", "os", "cpu", "memory", "gpu", "storage",
-            "temps", "drivers", "events", "reboots", "whea", "thermal", "livekernel", "reliability", "battery"
+            "temps", "drivers", "events", "reboots", "whea", "thermal", "livekernel", "reliability", "battery", "rgb"
         };
         Assert.Equal(expected, DiagnosticProbes.Sections);
         // Каталог проб и словарь для валидации в CLI обязаны совпадать: иначе szcli либо
@@ -210,6 +210,31 @@ public class DiagnosticProbesTests
     }
 
     [Fact]
+    public void SystemProbe_PrintsLastJournalRecordBeforeConnecting()
+    {
+        // Регрессия (бэклог п.132, продолжение): дыра в журнале сама по себе показывает,
+        // что машина стояла - на 161346 разрыв в 282 часа между Kernel-Power 42 и следующей
+        // записью и был доказательством сна, а не наработки.
+        var run = Body("system");
+
+        Assert.Contains("Poslednyaya zapis v zhurnale", run);
+        Assert.Contains("Win32_ReliabilityRecords", run);
+        Assert.Contains("razryv do seychas", run);
+    }
+
+    [Fact]
+    public void RebootsProbe_ComputesFailureRatePerHourOfRuntime_NotCalendarDay()
+    {
+        // Регрессия (бэклог п.132): "25 вырубонов за 4 суток" занижает частоту в разы, если
+        // реальная наработка (SMART PowerOnHours) была всего ~26-30 часов внутри этих суток.
+        var run = Body("reboots");
+
+        Assert.Contains("chastota otkazov na chas narabotki", run);
+        Assert.Contains("PowerOnHours", run);
+        Assert.Contains("na kalendarnyy den", run);
+    }
+
+    [Fact]
     public void MemoryProbe_ReadsVoltageForXmpDetection()
     {
         // Регрессия (бэклог п.8): на 160467 Speed=ConfiguredClockSpeed=4800 не давал понять,
@@ -237,6 +262,40 @@ public class DiagnosticProbesTests
         Assert.Contains("ITOGO:", run);
         Assert.Contains("TotalPhysicalMemory", run);
         Assert.Contains("planok", run);
+    }
+
+    [Fact]
+    public void GpuProbe_PrintsPassportForAscApplication()
+    {
+        // Регрессия (бэклог п.146, СЗ 160705): в заявку АСЦ понадобились SUBSYS
+        // (партнёрская плата, не референс) и part number vBIOS ('115-D754BP0-101') -
+        // ни одна секция их не отдавала, снимали отдельным рецептом уже под прогоном.
+        var run = Body("gpu");
+
+        Assert.Contains("SUBSYS_", run);
+        Assert.Contains("BiosString", run);
+        Assert.Contains("Convert-HwBytes", run);          // декодирование REG_BINARY, не простыня чисел
+        Assert.Contains("CurrentLinkSpeed", run);
+        Assert.Contains("CurrentLinkWidth", run);
+        Assert.Contains("MaxLinkSpeed", run);
+        Assert.Contains("TDR", run);
+    }
+
+    [Fact]
+    public void RgbProbe_ReadsProductStringAndCapsNotJustPnpFriendlyName()
+    {
+        // Регрессия (бэклог, СЗ 163013): 'ITE Upgrade Mode(128)' (bootloader) и 'GIGABYTE
+        // Device' (прошито) неотличимы по Class=HIDClass в Get-PnpDevice - нужен VID:PID и
+        // Input/Output report length (caps) с самого устройства, а не только FriendlyName.
+        var run = Body("rgb");
+
+        Assert.Contains("SetupDiGetClassDevs", run);
+        Assert.Contains("HidD_GetProductString", run);
+        Assert.Contains("HidP_GetCaps", run);
+        Assert.Contains("VID_", run);
+        Assert.Contains("Input=", run);
+        Assert.Contains("Output=", run);
+        Assert.Contains("Get-PnpDevice -Class HIDClass", run);
     }
 
     [Fact]

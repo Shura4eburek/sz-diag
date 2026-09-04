@@ -100,6 +100,19 @@ public sealed class PowerShellRunner : IPowerShellRunner
             psi.StandardOutputEncoding = new System.Text.UTF8Encoding(false);
             psi.StandardErrorEncoding = new System.Text.UTF8Encoding(false);
         }
+        else
+        {
+            // PE: [Console]::OutputEncoding в дочернем скрипте не трогаем (вешает powershell.exe
+            // намертво, СЗ 159948) - дочерний процесс пишет в активную OEM-кодовую страницу
+            // консоли (cp437/cp866). Раньше это никак не читалось, и кириллица уезжала
+            // кракозябрами (бэклог п.228, СЗ 161498) - декодируем явно той же кодировкой.
+            var oem = PeConsoleEncoding.DetectOemEncoding();
+            if (oem is not null)
+            {
+                psi.StandardOutputEncoding = oem;
+                psi.StandardErrorEncoding = oem;
+            }
+        }
         return psi;
     }
 

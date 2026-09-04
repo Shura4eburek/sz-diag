@@ -153,6 +153,48 @@ public class ClientTracesTests
     }
 
     [Fact]
+    public void Inventory_ReportsAgentLocalToolsBreakdownAndRecipeWorkDirs()
+    {
+        // Регрессия (бэклог п.158, СЗ 160306): tools\prime95 (34 МБ) и tools\lhmmon (67 МБ)
+        // рядом с агентом (обычный, не-облачный случай) `client info`/`cleanup` не видели
+        // вовсе — знали только про ProgramData\szdiag. Плюс рабочие папки рецептов (C:\OCCT).
+        var script = ClientTraces.BuildInventoryScript();
+
+        Assert.Contains("'tool:'", script);
+        Assert.Contains(@"C:\OCCT", script);
+    }
+
+    [Fact]
+    public void Cleanup_RemovesAgentLocalToolsAndRecipeWorkDirs()
+    {
+        var script = ClientTraces.BuildCleanupScript();
+
+        Assert.Contains(@"C:\OCCT", script);
+        Assert.Contains("agentToolsDir", script);
+    }
+
+    [Fact]
+    public void FindLeftoversDetailed_ToolAndDirEntriesAreLeftovers()
+    {
+        // 'tool:'/'dir:' раньше печатались скриптом, но парсер их не читал вовсе —
+        // client info молчал именно там, где 101 МБ наших бинарей реально лежали на диске.
+        var stdout = string.Join("\n", new[]
+        {
+            "tool:prime95=34",
+            "tool:lhmmon=67",
+            "dir:C:\\OCCT=5.2",
+            "dir:C:\\ProgramData\\szdiag\\jobs=none",
+        });
+
+        var report = ClientTraces.FindLeftoversDetailed(stdout, "160306");
+
+        Assert.Contains(report.Leftovers, p => p.Contains("prime95") && p.Contains("34"));
+        Assert.Contains(report.Leftovers, p => p.Contains("lhmmon") && p.Contains("67"));
+        Assert.Contains(report.Leftovers, p => p.Contains("C:\\OCCT") && p.Contains("5.2") || p.Contains("5,2"));
+        Assert.DoesNotContain(report.Leftovers, p => p.Contains("jobs"));   // none — не проблема
+    }
+
+    [Fact]
     public void TaskName_FollowsSingleConvention()
         => Assert.Equal("szdiag-lhmmon-160636", ClientTraces.TaskName("lhmmon", "160636"));
 

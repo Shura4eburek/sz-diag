@@ -65,6 +65,12 @@ public static class ClientCommand
             AnsiConsole.MarkupLine("[grey]Пока не починено — I/O по процессам через:[/] tools/recipes/client/process-io-top.ps1 (GetProcessIoCounters, не завязан на lodctr)");
         }
 
+        // Фактический каталог тулов — на облачном агенте (OneDrive) push уводит раздачу в
+        // ProgramData, и без этой строки понять, куда реально легли инструменты, можно было
+        // только читая appsettings.json/ToolsDirectory на хосте вслепую (бэклог п.151).
+        if (ClientTraces.ToolsDirFromInventory(stdout) is { } toolsDir)
+            AnsiConsole.MarkupLineInterpolated($"[grey]Каталог тулов:[/] {toolsDir}");
+
         // Задачи текущей сессии — отдельным блоком: раньше рабочий sshd/watchdog печатались
         // как «остатки» с советом cleanup, выполнить который значило снести себе доступ (п.107).
         var report = ClientTraces.FindLeftoversDetailed(stdout, sz);

@@ -18,16 +18,27 @@ public sealed class TestRunner
     private readonly ICommandExecutor _exec;
     private readonly IScreenCapturer _capturer;
     private readonly int _initialGraceSeconds;
+    private readonly string _baseDir;
+    private readonly string _toolsDir;
 
     /// <param name="initialGraceSeconds">
     /// Пауза после старта exe до первой проверки «жив ли процесс» — даёт стресс-тулам
     /// подняться, прежде чем считать ранний выход крэшем. В тестах ставится в 0.
     /// </param>
-    public TestRunner(ICommandExecutor exec, IScreenCapturer capturer, int initialGraceSeconds = 8)
+    /// <param name="toolsDir">Фактический каталог тулов (см. <see cref="ToolsDirectory.Resolve"/>).
+    /// Раньше `exe`/`resultFile`/`artifactFile` из testsuite.json (`tools\occt\...`) резолвились
+    /// от <see cref="AppContext.BaseDirectory"/> напрямую — на агенте в OneDrive-папке `push`
+    /// уводил раздачу в ProgramData, а тест-раннер этого не знал и не находил exe никогда
+    /// (бэклог п.151, СЗ 161716). null → берём <see cref="AppContext.BaseDirectory"/>/tools,
+    /// как было раньше.</param>
+    public TestRunner(ICommandExecutor exec, IScreenCapturer capturer, int initialGraceSeconds = 8,
+        string? toolsDir = null, string? baseDir = null)
     {
         _exec = exec;
         _capturer = capturer;
         _initialGraceSeconds = initialGraceSeconds;
+        _baseDir = baseDir ?? AppContext.BaseDirectory;
+        _toolsDir = toolsDir ?? ToolsDirectory.Resolve(_baseDir).Dir;
     }
 
     public TestRunOutput Run(TestSuite suite, string sz, string hostname, DateTimeOffset now,
@@ -100,7 +111,7 @@ public sealed class TestRunner
         Dictionary<string, byte[]> shots, Dictionary<string, byte[]> artifacts, ref int shotN)
     {
         var exeRel = step.Exe ?? "";
-        var exe = Path.IsPathRooted(exeRel) ? exeRel : Path.Combine(AppContext.BaseDirectory, exeRel);
+        var exe = string.IsNullOrEmpty(exeRel) ? "" : ToolsDirectory.ResolveStepPath(_baseDir, _toolsDir, exeRel);
         var workDir = Path.GetDirectoryName(exe)!;
         // Подстановка {workdir} в аргументах → абсолютный каталог exe (пути к schedule/report).
         var args = (step.Args ?? "").Replace("{workdir}", workDir);
@@ -108,8 +119,10 @@ public sealed class TestRunner
 
         if (string.IsNullOrWhiteSpace(exeRel) || !File.Exists(exe))
         {
+            // Явная причина вместо тихого "не запустился" (бэклог п.151): инструмент либо
+            // не доставлен вовсе, либо push положил его в другой каталог, чем ожидал раннер.
             steps.Add(new TestStepResult(step.Name, TestStepKind.App, Command: cmdLine,
-                Error: $"не найден exe: {exe}"));
+                Error: $"инструмент не доставлен, ожидался в {exe} (каталог тулов: {_toolsDir})"));
             return;
         }
 
@@ -309,12 +322,10 @@ public sealed class TestRunner
         return fn;
     }
 
-    /// <summary>Относительный путь резолвится рядом с exe агента; null → null.</summary>
-    private static string? Resolve(string? p)
-    {
-        if (string.IsNullOrWhiteSpace(p)) return null;
-        return Path.IsPathRooted(p) ? p : Path.Combine(AppContext.BaseDirectory, p);
-    }
+    /// <summary>Относительный путь (`tools\...` — в фактическом каталоге тулов, иначе — рядом
+    /// с exe агента); null → null.</summary>
+    private string? Resolve(string? p)
+        => string.IsNullOrWhiteSpace(p) ? null : ToolsDirectory.ResolveStepPath(_baseDir, _toolsDir, p);
 
     /// <summary>Жив ли хоть один процесс с таким именем (без .exe).</summary>
     private bool IsProcessAlive(string procName)

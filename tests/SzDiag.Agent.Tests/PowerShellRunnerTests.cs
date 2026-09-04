@@ -191,6 +191,36 @@ public class PowerShellRunnerTests
     }
 
     [Fact]
+    public void BuildStartInfo_Utf8False_DecodesWithActualOemCodepage_NotDefault()
+    {
+        // Регрессия (бэклог п.228, СЗ 161498): в PE _utf8=false, StandardOutputEncoding
+        // оставался null, и кириллица из дочернего процесса (реально написанная в OEM-
+        // кодовой странице PE) уезжала кракозябрами в szcli ("=== ?????? szdiag-* ??
+        // ??????-????"). Декодировать нужно ТОЙ ЖЕ кодировкой, что использует консоль.
+        var psi = PowerShellRunner.BuildStartInfo("-NoProfile -Command -", utf8: false);
+
+        var expected = PeConsoleEncoding.DetectOemEncoding();
+        Assert.NotNull(expected);   // на Windows-боксе GetOEMCP всегда что-то отдаёт
+        Assert.Equal(expected!.CodePage, psi.StandardOutputEncoding?.CodePage);
+        Assert.Equal(expected.CodePage, psi.StandardErrorEncoding?.CodePage);
+    }
+
+    [Fact]
+    public void PeConsoleEncoding_Cp866_RoundTripsCyrillic()
+    {
+        // cp866 - основной кириллический OEM-codepage на русскоязычных сборках WinPE
+        // (см. заголовок класса PeConsoleEncoding). Кодировка обязана быть зарегистрирована
+        // и рабочей независимо от того, какой codepage активен на текущем боксе.
+        PeConsoleEncoding.EnsureRegistered();
+        var cp866 = System.Text.Encoding.GetEncoding(866);
+
+        var text = "Привет, мир! szdiag-160306";
+        var bytes = cp866.GetBytes(text);
+
+        Assert.Equal(text, cp866.GetString(bytes));
+    }
+
+    [Fact]
     public void Run_MultilinePipeline_ReturnsAllLines()
     {
         // Регрессия: скрипт раньше шёл через stdin `-Command -`, который в PowerShell 5.1

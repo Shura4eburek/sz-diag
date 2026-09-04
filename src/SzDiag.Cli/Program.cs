@@ -129,6 +129,29 @@ switch (command)
         // Тоже ДО закрытия: бэкап настроек сетевого адаптера — файл на клиенте, после close
         // канала для проверки не будет (бэклог п.206, СЗ 162367).
         if (wasOnline) await NetAdapterBackupCheck.WarnIfLeftoverAsync(client, closeSz);
+
+        // Не закрывать МОЛЧА, пока на клиенте остаются файлы, доставленные push'ом (тулы,
+        // рабочие папки рецептов) — раньше close только советовал "проверить остатки", и
+        // 101 МБ prime95/lhmmon + C:\OCCT переживали закрытие СЗ (бэклог п.158, СЗ 160306).
+        // --force пропускает проверку явным решением оператора (тот же флаг, что и выше).
+        if (wasOnline && !forced)
+        {
+            var inv = await client.ExecAsync(closeSz, ClientTraces.BuildInventoryScript(), 60);
+            if (inv is not null)
+            {
+                var report = ClientTraces.FindLeftoversDetailed(CliXml.Decode(inv.StdOut), closeSz);
+                if (CloseLeftoverGuard.HasDeliveredFiles(report.Leftovers))
+                {
+                    AnsiConsole.MarkupLineInterpolated(
+                        $"[red]СЗ {closeSz} не закрыта:[/] на клиенте остались наши файлы:");
+                    foreach (var item in report.Leftovers) AnsiConsole.MarkupLineInterpolated($"  [yellow]•[/] {item}");
+                    AnsiConsole.MarkupLineInterpolated($"[grey]Убрать:[/] szcli client cleanup {closeSz}");
+                    AnsiConsole.MarkupLineInterpolated($"[grey]Или закрыть без проверки:[/] szcli close {closeSz} --force");
+                    return 6;
+                }
+            }
+        }
+
         var closeOutcome = await client.CloseAsync(closeSz);
         if (closeOutcome.Closed)
         {
@@ -258,6 +281,11 @@ switch (command)
     case "app" when args.Length >= 2:
         return await AppCommand.RunAsync(client, args[1..]);
 
+    // disk snapshot: карта скоростей + SMART + журнал в один файл, с меткой «до/после»
+    // destructive-операции (форматирование, чистая установка, апдейт прошивки) — бэклог п.213.
+    case "disk" when args.Length >= 2 && args[1].Equals("snapshot", StringComparison.OrdinalIgnoreCase):
+        return await DiskSnapshotCommand.RunAsync(client, args[1..], AppContext.BaseDirectory);
+
     // agent set <СЗ> Ключ=значение: правка конфига агента с хоста. WatchdogHours применяется
     // сразу (перевзвод задачи), остальное — при следующем открытии доступа (бэклог п.86).
     case "agent" when args.Length >= 4 && args[1].Equals("set", StringComparison.OrdinalIgnoreCase):
@@ -380,6 +408,38 @@ switch (command)
             break;
         }
 
+        // --plan <минуты>: калькулятор окна прицельного прогона по исторической частоте
+        // отказов — отказ стартовать заведомо короткий прогон вслепую (бэклог п.45, СЗ 160587:
+        // 18 минут per-core прогона при интервале ~11 минут дали мощность ~25 %, а "+0 WHEA"
+        // выглядело как отрицательный результат, хотя им не являлось).
+        var planIdx = Array.FindIndex(args, a => a.Equals("--plan", StringComparison.OrdinalIgnoreCase));
+        if (planIdx >= 0)
+        {
+            if (planIdx + 1 >= args.Length || !double.TryParse(args[planIdx + 1], out var requestedMinutes))
+            {
+                AnsiConsole.MarkupLine("[red]--plan требует число минут:[/] szcli reboots <СЗ> --plan 3");
+                return 2;
+            }
+            var failureTimes = timeline.Events.Where(e => e.IsFailure).Select(e => e.At).ToList();
+            var plan = WindowCalculator.Build(failureTimes, requestedMinutes);
+            if (plan is null)
+            {
+                AnsiConsole.MarkupLine("[yellow]Недостаточно истории отказов для расчёта окна[/] (нужно минимум 2 отказа).");
+                return 1;
+            }
+            AnsiConsole.MarkupLineInterpolated(
+                $"[grey]По истории интервал ~{plan.MeanIntervalMinutes:N0} мин, для 95% нужно ≥{plan.RequiredMinutes:N0} мин.[/]");
+            if (plan.TooShort)
+            {
+                AnsiConsole.MarkupLineInterpolated(
+                    $"[red]Запрошено {plan.RequestedMinutes:N0} мин — мощность {plan.Power * 100:N0}%.[/] «Не воспроизвелось» за такое окно не является отрицательным результатом. Предлагаемая длительность: ≥{plan.RequiredMinutes:N0} мин.");
+                return 5;
+            }
+            AnsiConsole.MarkupLineInterpolated(
+                $"[green]Запрошено {plan.RequestedMinutes:N0} мин — мощность {plan.Power * 100:N0}%.[/] Окно достаточное.");
+            break;
+        }
+
         var rebootTable = new Table().Border(TableBorder.Rounded).BorderColor(Color.Grey);
         rebootTable.AddColumn("Когда");
         rebootTable.AddColumn("Как");
@@ -448,6 +508,31 @@ switch (command)
 
     case "sz" when args.Length >= 2:
         return await ErpCommand.RunAsync(args[1..], options);
+
+    // hw passport: паспорт видеокарты для заявки в АСЦ одной командой (SUBSYS, part number
+    // vBIOS, PCIe, TDR) — вместо ручного рецепта после того, как машина уже ушла под прогон
+    // (бэклог п.146, СЗ 160705).
+    case "hw" when args.Length >= 3 && args[1].Equals("passport", StringComparison.OrdinalIgnoreCase):
+    {
+        var scope = args.Length >= 4 ? args[3] : "gpu";
+        var script = GpuPassport.ScriptFor(scope);
+        if (script is null)
+        {
+            AnsiConsole.MarkupLineInterpolated($"[red]Неизвестная область паспорта:[/] {scope} (пока только gpu)");
+            return 1;
+        }
+        var hwSz = args[2];
+        var passportRes = await client.ExecAsync(hwSz, script, 60);
+        if (passportRes is null)
+        {
+            AnsiConsole.MarkupLineInterpolated($"[red]СЗ {hwSz} не найдена[/] среди активных.");
+            return 1;
+        }
+        if (!string.IsNullOrEmpty(passportRes.StdOut)) Console.WriteLine(CliXml.Decode(passportRes.StdOut).TrimEnd());
+        if (!string.IsNullOrEmpty(passportRes.StdErr))
+            AnsiConsole.MarkupLineInterpolated($"[yellow]stderr:[/] {CliXml.Decode(passportRes.StdErr).TrimEnd()}");
+        return ExecExitCode.From(passportRes);
+    }
 
     case "hw" when args.Length >= 2:
         await HwCommand.RunAsync(args[1..], ResolveLocal(options.GpuDbPath), ResolveLocal(options.PciIdsPath));
@@ -556,6 +641,52 @@ switch (command)
     {
         var pushSz = args[1];
         var tool = args[2];
+
+        // --verify-size/--verify-signer: сверка ДО доставки на клиента (бэклог, СЗ 163013 —
+        // прошивку LED-контроллера сверяли руками, битый/подменённый файл push не ловил).
+        var verifySizeIdx = Array.FindIndex(args, a => a.Equals("--verify-size", StringComparison.OrdinalIgnoreCase));
+        var verifySignerIdx = Array.FindIndex(args, a => a.Equals("--verify-signer", StringComparison.OrdinalIgnoreCase));
+        if (verifySizeIdx >= 0 || verifySignerIdx >= 0)
+        {
+            var catalog = await client.GetToolsAsync();
+            if (verifySizeIdx >= 0)
+            {
+                if (verifySizeIdx + 1 >= args.Length || !long.TryParse(args[verifySizeIdx + 1], out var expectedBytes))
+                {
+                    AnsiConsole.MarkupLine("[red]--verify-size требует число байт.[/]");
+                    return 2;
+                }
+                var sizeCheck = PushVerification.CheckSize(catalog, tool, expectedBytes);
+                if (!sizeCheck.Ok)
+                {
+                    AnsiConsole.MarkupLineInterpolated($"[red]Проверка размера не пройдена:[/] {sizeCheck.Error}");
+                    return 5;
+                }
+            }
+            if (verifySignerIdx >= 0)
+            {
+                if (verifySignerIdx + 1 >= args.Length)
+                {
+                    AnsiConsole.MarkupLine("[red]--verify-signer требует CN издателя.[/]");
+                    return 2;
+                }
+                if (catalog is null)
+                {
+                    AnsiConsole.MarkupLine("[red]Hub не ответил на запрос каталога инструментов.[/]");
+                    return 1;
+                }
+                var expectedCn = args[verifySignerIdx + 1];
+                var toolDir = Path.Combine(catalog.Root, tool);
+                var signerCheck = PushVerification.CheckSigner(toolDir, expectedCn, PushVerification.GetSignerCn);
+                if (!signerCheck.Ok)
+                {
+                    AnsiConsole.MarkupLineInterpolated($"[red]Проверка подписи не пройдена:[/] {signerCheck.Error}");
+                    return 5;
+                }
+            }
+            AnsiConsole.MarkupLine("[green]Проверка пройдена[/] — доставляю…");
+        }
+
         var res = await client.PushAsync(pushSz, tool);
         if (res is null)
         {

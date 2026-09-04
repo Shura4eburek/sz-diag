@@ -70,6 +70,24 @@ public static class DiagnosticProbes
             $hf = Test-Path "$env:SystemDrive\hiberfil.sys"
             "Fast startup: HiberbootEnabled=$hb, hiberfil.sys=$hf" + $(if ("$hb" -eq '1' -and $hf) { " => uptime perezhivaet 'vyklyuchenie'!" } else { "" })
             "VAZHNO: uptime NE dokazyvaet rabotu. Narabotka = SMART PowerOnHours (sektsiya storage); chastotu otkazov schitat na chas narabotki, a ne na kalendarnyy den."
+
+            "=== Poslednyaya zapis v zhurnale DO podklyucheniya ==="
+            # Dyra v zhurnale srazu pokazyvaet, chto mashina stoyala (p.132): na zhivoy mashine
+            # odin tolko Windows Update pishet desyatki strok za nedelyu, i pervaya zapis posle
+            # dolgogo molchaniya - eto WU dogonyaet obnovleniya srazu posle podyoma.
+            try {
+                $lastSys = Get-WinEvent -LogName System -MaxEvents 1 -ErrorAction Stop
+                $gap = (Get-Date) - $lastSys.TimeCreated
+                "System log: poslednyaya zapis {0:yyyy-MM-dd HH:mm:ss} ({1}, Id={2}), razryv do seychas {3:N1} ch" -f `
+                    $lastSys.TimeCreated, $lastSys.ProviderName, $lastSys.Id, $gap.TotalHours
+            } catch { "System log: net dannyh - $($_.Exception.Message)" }
+            try {
+                $lastRel = Get-CimInstance Win32_ReliabilityRecords -ErrorAction Stop |
+                    Sort-Object TimeGenerated -Descending | Select-Object -First 1
+                if ($lastRel) {
+                    "Reliability Records: poslednyaya zapis {0:yyyy-MM-dd HH:mm:ss}" -f $lastRel.TimeGenerated
+                } else { "Reliability Records: pusto" }
+            } catch { "Reliability Records: nedostupny - $($_.Exception.Message)" }
             """),
 
         // Один InstallDate ничего не доказывает: он переживает feature update и едет внутри
@@ -194,12 +212,62 @@ public static class DiagnosticProbes
             "ConfiguredVoltage (mV): ~1100 = JEDEC (stok), ~1350-1400 = EXPO/XMP profil vklyuchen. VSOC (AM5) etoy probay ne snimaetsya - sm. lhmmon otdelnym zahodom DO stressa (HVCI ego blokiruet, backlog p.8)."
             """),
 
-        Probe("gpu", "Видеокарта (PCI ID для резолвера + драйвер)", """
+        // Pasport dlya zayavki v ASC: SUBSYS i part number vBIOS ne otdavala ni odna
+        // sektsiya (backlog p.146, SZ 160705) - snimali otdelnym retseptom uzhe pod progonom.
+        // HardwareInformation.* v reestre - REG_BINARY s ASCII vnutri: bez dekodirovaniya
+        // poluchish prostynyu trehznachnyh chisel vmesto '115-D754BP0-101'.
+        Probe("gpu", "Видеокарта (паспорт: SUBSYS/vBIOS/PCIe для заявки в АСЦ)", """
             Get-CimInstance Win32_VideoController -ErrorAction SilentlyContinue |
                 Select-Object Name, PNPDeviceID, DriverVersion, DriverDate,
                     @{n='VRAM_MB';e={[math]::Round($_.AdapterRAM/1MB)}},
                     @{n='Resolution';e={"$($_.CurrentHorizontalResolution)x$($_.CurrentVerticalResolution)"}} |
                 Format-List | Out-String
+
+            "=== SUBSYS (dlya zayavki v ASC - otlichaet partnerskuyu platu ot referensa) ==="
+            Get-CimInstance Win32_VideoController -ErrorAction SilentlyContinue | ForEach-Object {
+                if ($_.PNPDeviceID -match 'SUBSYS_([0-9A-Fa-f]{8})') {
+                    $s = $matches[1]
+                    "SUBSYS_$s (subvendor=$($s.Substring(4,4)) subdevice=$($s.Substring(0,4)))"
+                } else { "SUBSYS ne nayden v PNPDeviceID: $($_.PNPDeviceID)" }
+            }
+
+            "=== vBIOS / tochnaya plata (registr HardwareInformation.*) ==="
+            function Convert-HwBytes($v) {
+                if ($null -eq $v) { return $null }
+                if ($v -is [string]) { return $v }
+                ((($v | ForEach-Object { [char][int]$_ }) -join '') -replace "`0", '').Trim()
+            }
+            Get-ChildItem 'HKLM:\SYSTEM\CurrentControlSet\Control\Class\{4d36e968-e325-11ce-bfc1-08002be10318}' -ErrorAction SilentlyContinue |
+                Where-Object { $_.PSChildName -match '^\d{4}$' } | ForEach-Object {
+                    $p = Get-ItemProperty $_.PSPath -ErrorAction SilentlyContinue
+                    if ($p.DriverDesc) {
+                        "DriverDesc: $($p.DriverDesc)"
+                        foreach ($k in @('AdapterString','BiosString','ChipType','DacType','MemorySize')) {
+                            $val = Convert-HwBytes $p."HardwareInformation.$k"
+                            if ($val) { "  $k = $val" }
+                        }
+                        if ($p.MatchingDeviceId) { "  MatchingDeviceId = $($p.MatchingDeviceId)" }
+                    }
+                }
+
+            "=== PCIe: shirina i skorost linii (tekushaya / maksimalnaya) ==="
+            Get-PnpDevice -Class Display -ErrorAction SilentlyContinue | ForEach-Object {
+                $d = $_
+                "Device: $($d.FriendlyName) [$($d.Status)]"
+                foreach ($k in @('DEVPKEY_PciDevice_CurrentLinkSpeed','DEVPKEY_PciDevice_CurrentLinkWidth','DEVPKEY_PciDevice_MaxLinkSpeed','DEVPKEY_PciDevice_MaxLinkWidth')) {
+                    $v = (Get-PnpDeviceProperty -InstanceId $d.InstanceId -KeyName $k -ErrorAction SilentlyContinue).Data
+                    if ($null -ne $v) { "  $($k -replace 'DEVPKEY_PciDevice_','') = $v" }
+                }
+            }
+
+            "=== TDR / padeniya videodrayvera (sobytiya 4101, 4098, 14, 13) ==="
+            $tdr = @(Get-WinEvent -FilterHashtable @{ LogName='System'; Id=4101,4098,14,13 } -MaxEvents 200 -ErrorAction SilentlyContinue |
+                Where-Object { $_.ProviderName -match 'Display|amdkmdap|nvlddmkm|amdwddmg' })
+            if ($tdr.Count -eq 0) { "TDR/padenij videodrayvera net" }
+            else {
+                "TOTAL TDR: $($tdr.Count)"
+                $tdr | Select-Object -First 10 TimeCreated, Id, ProviderName | Format-Table -Auto | Out-String
+            }
             """),
 
         // Секция отвечает на вопрос «на каком физическом диске лежит pagefile и здоров ли он».
@@ -599,6 +667,27 @@ public static class DiagnosticProbes
                 if ($btn.Count -gt 0 -and $hard.Count -eq 0) {
                     "VAZHNO: vse sobytiya 41 - vyklyucheniya knopkoy. Schitat ih vyrubonami NELZYA."
                 }
+
+                "--- chastota otkazov na chas narabotki (NE na kalendarnyy den, p.132) ---"
+                # 25 vyrubonov za 4 sutok kalendarya vygladit huzhe, chem 25 za ~26-30 chasov
+                # realnoy narabotki (161346: mashina prospala v S3 pochti vse eto vremya).
+                # Narabotka schitaetsya po SMART PowerOnHours - edinstvennaya velichina, kotoraya
+                # ne rastet vo sne/gibernacii.
+                try {
+                    $poh = @(Get-NvmeSmartRows | Where-Object { -not $_.ReadError } |
+                        ForEach-Object { [double]"$($_.PowerOnHours)" } | Where-Object { $_ -gt 0 })
+                    if ($poh.Count -gt 0) {
+                        $totalHours = ($poh | Measure-Object -Maximum).Maximum
+                        if ($hard.Count -gt 0) {
+                            "hard-off: {0} za {1:N0} ch narabotki (SMART PowerOnHours) = 1 na {2:N1} ch" -f `
+                                $hard.Count, $totalHours, ($totalHours / $hard.Count)
+                        } else {
+                            "hard-off: 0 za {0:N0} ch narabotki (SMART PowerOnHours)" -f $totalHours
+                        }
+                    } else {
+                        "narabotka (SMART PowerOnHours) nedostupna - chastotu na chas schitat ne iz chego."
+                    }
+                } catch { "narabotka (SMART PowerOnHours) nedostupna: $($_.Exception.Message)" }
 
                 "--- last 20 events (details) ---"
                 $parsed | Select-Object -First 20 | ForEach-Object {
@@ -1121,6 +1210,182 @@ public static class DiagnosticProbes
                     } | Format-List | Out-String
                 } catch { "Battery wear data unavailable: $($_.Exception.Message)" }
             }
+            """),
+
+        // RGB/HID kontrollery podsvetki: prinyatie proshivki lyubogo takogo kontrollera
+        // (bootloader -> normalnyy rezhim) trebuet Product string i caps s ustroystva, a ne
+        // tolko FriendlyName iz PnP - u 'ITE Upgrade Mode(128)' i 'GIGABYTE Device' odinakovyy
+        // Class=HIDClass, i tolko VID:PID + Input/Output report length otlichayut bootloader
+        // ot proshitogo kontrollera (backlog, SZ 163013). x64-only P/Invoke: agent - odin
+        // self-contained win-x64 build, x86 SP_DEVICE_INTERFACE_DETAIL_DATA.cbSize ne nuzhen.
+        Probe("rgb", "RGB/HID-контроллеры (Product string + caps для приёмки прошивки)", """
+            $sig = @'
+            using System;
+            using System.Collections.Generic;
+            using System.Runtime.InteropServices;
+            using System.Text;
+
+            public class SzDiagHid {
+                public const int DIGCF_PRESENT = 0x02;
+                public const int DIGCF_DEVICEINTERFACE = 0x10;
+                public const uint FILE_SHARE_READ = 0x01;
+                public const uint FILE_SHARE_WRITE = 0x02;
+                public const uint OPEN_EXISTING = 3;
+                public const int HIDP_STATUS_SUCCESS = 0x00110000;
+
+                [StructLayout(LayoutKind.Sequential)]
+                public struct SP_DEVICE_INTERFACE_DATA {
+                    public int cbSize;
+                    public Guid InterfaceClassGuid;
+                    public int Flags;
+                    public IntPtr Reserved;
+                }
+
+                [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Auto)]
+                public struct SP_DEVICE_INTERFACE_DETAIL_DATA {
+                    public int cbSize;
+                    [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 512)]
+                    public string DevicePath;
+                }
+
+                [DllImport("hid.dll")]
+                public static extern void HidD_GetHidGuid(out Guid hidGuid);
+
+                [DllImport("setupapi.dll", SetLastError = true)]
+                public static extern IntPtr SetupDiGetClassDevs(ref Guid classGuid, IntPtr enumerator, IntPtr hwndParent, int flags);
+
+                [DllImport("setupapi.dll", SetLastError = true)]
+                public static extern bool SetupDiEnumDeviceInterfaces(IntPtr deviceInfoSet, IntPtr deviceInfoData,
+                    ref Guid interfaceClassGuid, uint memberIndex, ref SP_DEVICE_INTERFACE_DATA deviceInterfaceData);
+
+                [DllImport("setupapi.dll", SetLastError = true, CharSet = CharSet.Auto)]
+                public static extern bool SetupDiGetDeviceInterfaceDetail(IntPtr deviceInfoSet,
+                    ref SP_DEVICE_INTERFACE_DATA deviceInterfaceData, ref SP_DEVICE_INTERFACE_DETAIL_DATA deviceInterfaceDetailData,
+                    int deviceInterfaceDetailDataSize, out int requiredSize, IntPtr deviceInfoData);
+
+                [DllImport("setupapi.dll")]
+                public static extern bool SetupDiDestroyDeviceInfoList(IntPtr deviceInfoSet);
+
+                [DllImport("kernel32.dll", SetLastError = true, CharSet = CharSet.Auto)]
+                public static extern IntPtr CreateFile(string fileName, uint desiredAccess, uint shareMode,
+                    IntPtr securityAttributes, uint creationDisposition, uint flags, IntPtr template);
+
+                [DllImport("kernel32.dll")]
+                public static extern bool CloseHandle(IntPtr handle);
+
+                [StructLayout(LayoutKind.Sequential)]
+                public struct HIDD_ATTRIBUTES { public int Size; public ushort VendorID; public ushort ProductID; public ushort VersionNumber; }
+
+                [DllImport("hid.dll")]
+                public static extern bool HidD_GetAttributes(IntPtr hidDeviceObject, ref HIDD_ATTRIBUTES attributes);
+
+                [DllImport("hid.dll")]
+                public static extern bool HidD_GetProductString(IntPtr hidDeviceObject, byte[] buffer, int bufferLength);
+
+                [DllImport("hid.dll")]
+                public static extern bool HidD_GetPreparsedData(IntPtr hidDeviceObject, out IntPtr preparsedData);
+
+                [DllImport("hid.dll")]
+                public static extern bool HidD_FreePreparsedData(IntPtr preparsedData);
+
+                [StructLayout(LayoutKind.Sequential)]
+                public struct HIDP_CAPS {
+                    public ushort Usage;
+                    public ushort UsagePage;
+                    public ushort InputReportByteLength;
+                    public ushort OutputReportByteLength;
+                    public ushort FeatureReportByteLength;
+                    [MarshalAs(UnmanagedType.ByValArray, SizeConst = 17)] public ushort[] Reserved;
+                    public ushort NumberLinkCollectionNodes;
+                    public ushort NumberInputButtonCaps;
+                    public ushort NumberInputValueCaps;
+                    public ushort NumberInputDataIndices;
+                    public ushort NumberOutputButtonCaps;
+                    public ushort NumberOutputValueCaps;
+                    public ushort NumberOutputDataIndices;
+                    public ushort NumberFeatureButtonCaps;
+                    public ushort NumberFeatureValueCaps;
+                    public ushort NumberFeatureDataIndices;
+                }
+
+                [DllImport("hid.dll")]
+                public static extern int HidP_GetCaps(IntPtr preparsedData, out HIDP_CAPS caps);
+
+                public static List<string> EnumerateDevicePaths() {
+                    var result = new List<string>();
+                    Guid hidGuid;
+                    HidD_GetHidGuid(out hidGuid);
+                    IntPtr set = SetupDiGetClassDevs(ref hidGuid, IntPtr.Zero, IntPtr.Zero, DIGCF_PRESENT | DIGCF_DEVICEINTERFACE);
+                    if (set == IntPtr.Zero) return result;
+                    try {
+                        uint index = 0;
+                        while (true) {
+                            var ifData = new SP_DEVICE_INTERFACE_DATA();
+                            ifData.cbSize = Marshal.SizeOf(typeof(SP_DEVICE_INTERFACE_DATA));
+                            if (!SetupDiEnumDeviceInterfaces(set, IntPtr.Zero, ref hidGuid, index, ref ifData)) break;
+                            var detail = new SP_DEVICE_INTERFACE_DETAIL_DATA();
+                            detail.cbSize = 8;   // x64-only: agent - odin self-contained win-x64 build
+                            int required;
+                            if (SetupDiGetDeviceInterfaceDetail(set, ref ifData, ref detail, Marshal.SizeOf(detail), out required, IntPtr.Zero)) {
+                                result.Add(detail.DevicePath);
+                            }
+                            index++;
+                        }
+                    } finally { SetupDiDestroyDeviceInfoList(set); }
+                    return result;
+                }
+
+                public static string Describe(string devicePath) {
+                    IntPtr handle = CreateFile(devicePath, 0, FILE_SHARE_READ | FILE_SHARE_WRITE, IntPtr.Zero, OPEN_EXISTING, 0, IntPtr.Zero);
+                    if (handle == new IntPtr(-1)) return devicePath + " : CreateFile failed";
+                    try {
+                        var attrs = new HIDD_ATTRIBUTES();
+                        attrs.Size = Marshal.SizeOf(attrs);
+                        HidD_GetAttributes(handle, ref attrs);
+
+                        var buf = new byte[256];
+                        string product = "";
+                        if (HidD_GetProductString(handle, buf, buf.Length)) {
+                            product = Encoding.Unicode.GetString(buf);
+                            int z = product.IndexOf('\0');
+                            if (z >= 0) product = product.Substring(0, z);
+                        }
+
+                        string caps = "n/a";
+                        IntPtr preparsed;
+                        if (HidD_GetPreparsedData(handle, out preparsed)) {
+                            try {
+                                HIDP_CAPS c;
+                                if (HidP_GetCaps(preparsed, out c) == HIDP_STATUS_SUCCESS) {
+                                    caps = "UsagePage=" + c.UsagePage + " Usage=" + c.Usage +
+                                           " Input=" + c.InputReportByteLength + " Output=" + c.OutputReportByteLength +
+                                           " Feature=" + c.FeatureReportByteLength;
+                                }
+                            } finally { HidD_FreePreparsedData(preparsed); }
+                        }
+
+                        return "VID_" + attrs.VendorID.ToString("X4") + "&PID_" + attrs.ProductID.ToString("X4") +
+                               " Product='" + product + "' " + caps;
+                    } finally { CloseHandle(handle); }
+                }
+            }
+            '@
+            try {
+                Add-Type -TypeDefinition $sig -ErrorAction Stop
+
+                "=== HID (nizkiy uroven: VID:PID, Product string, caps) ==="
+                $paths = [SzDiagHid]::EnumerateDevicePaths()
+                if ($paths.Count -eq 0) { "HID-ustroystv ne naydeno." }
+                foreach ($p in $paths) {
+                    try { [SzDiagHid]::Describe($p) } catch { $p + " : " + $_.Exception.Message }
+                }
+            } catch {
+                "HID low-level probe unavailable: $($_.Exception.Message)"
+            }
+
+            "=== HID (PnP, dlya sopostavleniya s FriendlyName) ==="
+            Get-PnpDevice -Class HIDClass -ErrorAction SilentlyContinue | Where-Object Status -eq 'OK' |
+                Select-Object FriendlyName, InstanceId | Format-Table -Auto | Out-String
             """),
     };
 }
