@@ -165,4 +165,22 @@ public class SessionRegistryTests
 
         Assert.Equal("Тест OCCT", reg.GetActive().Single().Activity);
     }
+
+    [Fact]
+    public void Register_AfterFailedRevert_ClearsRevertNote()
+    {
+        // Important-8 (ревью волны 1): агент, переподнявшийся после неудачного watchdog-
+        // отката (--resume), должен снова выглядеть просто "online", а не навсегда висеть
+        // как «⚠ откат» — StatusCell проверяет RevertNote раньше Status == Online.
+        var reg = NewRegistry();
+        reg.Register("156864", "10.0.0.42", "PC-1", "conn-1");
+        reg.MarkRevertOutcome("156864", success: false, "sshd не снят: Access denied");
+        Assert.NotNull(reg.GetActive().Single().RevertNote);
+
+        reg.Register("156864", "10.0.0.42", "PC-1", "conn-2");
+
+        var info = reg.GetActive().Single();
+        Assert.Null(info.RevertNote);
+        Assert.Equal(SessionStatus.Online, info.Status);
+    }
 }

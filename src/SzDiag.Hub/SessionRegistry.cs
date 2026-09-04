@@ -60,6 +60,10 @@ public sealed class SessionRegistry
         var lastReboot = rebooted ? now : prev?.Info.LastRebootAt;
         var countsAsFailure = rebooted && ShutdownKind.CountsAsFailure(lastShutdown);
         var rebootCount = (prev?.Info.RebootCount ?? 0) + (countsAsFailure ? 1 : 0);
+        // RevertNote НЕ переносим на новую регистрацию (Important-8, ревью волны 1): агент,
+        // переподнявшийся после неудачного watchdog-отката (`--resume`), заново живой — не
+        // должен навсегда висеть как «⚠ откат» в list/watch, раз StatusCell проверяет
+        // RevertNote раньше Status == Online.
         var info = new SessionInfo(sz, ip, hostname, SessionStatus.Online, now, now,
             BootTime: bootTime, LastRebootAt: lastReboot, RebootCount: rebootCount);
         _bySz[sz] = new Entry(info, connectionId);

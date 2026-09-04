@@ -126,4 +126,61 @@ public class SessionCloserTests
         Assert.NotNull(outcome.Revert);
         Assert.True(outcome.Revert!.AllClean);
     }
+
+    [Fact]
+    public async Task Close_OfflineSz_PicksUpFreshRevertResultReceivedBeforeDisconnect()
+    {
+        // Critical-2 (ревью волны 1): агент откатился сам (клавиша C), успел прислать сводку,
+        // и ТОЛЬКО ПОТОМ канал упал — к моменту close сессия уже offline. Раньше здесь стоял
+        // безусловный Remove(sz) ДО отправки revert, и сводка терялась ровно в этом сценарии
+        // (#55 делался именно ради него).
+        var time = new FakeTimeProvider(new DateTimeOffset(2026, 7, 1, 12, 0, 0, TimeSpan.Zero));
+        var reg = new SessionRegistry(time);
+        reg.Register("156864", "10.0.0.42", "PC-1", "conn-1");
+        var revertResults = new RevertResultStore(time);
+        time.Advance(TimeSpan.FromSeconds(5));   // self-revert случился уже во время сессии
+        revertResults.Set(new RevertResult("156864", new[] { "sshd" },
+            new[] { new RevertResultFailure("firewall", "Access denied") }));
+        reg.MarkOfflineByConnection("conn-1");
+        var sender = new SpyCommandSender();
+        var store = new SpyStore();
+        var closer = new SessionCloser(reg, store, sender, revertResults);
+
+        var outcome = await closer.CloseAsync("156864");
+
+        Assert.True(outcome.Closed);
+        Assert.NotNull(outcome.Revert);
+        Assert.False(outcome.Revert!.AllClean);
+        Assert.Equal("156864", store.Closed.Single());
+    }
+
+    [Fact]
+    public async Task Close_OfflineSz_DiscardsRevertResultFromPreviousSession()
+    {
+        // Сводка от предыдущей (уже закрытой и переоткрытой) сессии этой же СЗ не должна
+        // выдаваться за итог текущего отката.
+        var time = new FakeTimeProvider(new DateTimeOffset(2026, 7, 1, 12, 0, 0, TimeSpan.Zero));
+        var revertResults = new RevertResultStore(time);
+        revertResults.Set(new RevertResult("156864", new[] { "sshd" }, Array.Empty<RevertResultFailure>()));
+        time.Advance(TimeSpan.FromMinutes(10));   // СЗ переоткрылась новой сессией
+        var reg = new SessionRegistry(time);
+        reg.Register("156864", "10.0.0.42", "PC-1", "conn-1");
+        reg.MarkOfflineByConnection("conn-1");
+        var sender = new SpyCommandSender();
+        var store = new SpyStore();
+        var closer = new SessionCloser(reg, store, sender, revertResults);
+
+        var outcome = await closer.CloseAsync("156864");
+
+        Assert.True(outcome.Closed);
+        Assert.Null(outcome.Revert);
+    }
+
+    private sealed class FakeTimeProvider : TimeProvider
+    {
+        private DateTimeOffset _now;
+        public FakeTimeProvider(DateTimeOffset start) => _now = start;
+        public void Advance(TimeSpan by) => _now += by;
+        public override DateTimeOffset GetUtcNow() => _now;
+    }
 }

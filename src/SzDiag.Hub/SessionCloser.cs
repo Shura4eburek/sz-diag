@@ -34,15 +34,23 @@ public sealed class SessionCloser
         var connId = _registry.TryGetConnectionId(sz);
         if (connId is null) return new CloseOutcome(false, null);
 
+        var info = _registry.TryGetInfo(sz);
         // Сессия могла уже быть офлайн (агент откатился ярлыком, канал мёртв) — ждать итог
         // тогда бессмысленно, он никогда не придёт (бэклог п.119).
-        var wasOnline = _registry.GetActive().Any(s => s.Sz == sz && s.Status == SessionStatus.Online);
+        var wasOnline = info?.Status == SessionStatus.Online;
 
-        _revertResults.Remove(sz);   // не подхватить сводку от прошлой сессии этой же СЗ
+        // Агент мог прислать сводку САМ ещё до этого close (self-revert по клавише C, пока
+        // канал был жив) — подхватываем её вместо того, чтобы ждать заново. Отбрасываем
+        // только заведомо устаревшую: от прошлой сессии этой же СЗ (Critical-2, ревью волны 1
+        // — раньше здесь стоял безусловный Remove ДО отправки revert, и единственный сценарий,
+        // ради которого #55 делался — агент уже офлайн к моменту close — гарантированно терял
+        // сводку).
+        var pending = info is not null ? _revertResults.TryGetFresh(sz, info.ConnectedAt) : null;
+
         await _sender.SendRevertAsync(connId, sz, ct);
 
-        RevertResult? revert = null;
-        if (wasOnline)
+        var revert = pending;
+        if (revert is null && wasOnline)
         {
             var deadline = DateTime.UtcNow + _revertWait;
             while (DateTime.UtcNow < deadline)
@@ -55,6 +63,7 @@ public sealed class SessionCloser
 
         await _store.RecordCloseAsync(sz, DateTimeOffset.UtcNow, ct);
         _registry.Remove(sz);
+        _revertResults.Remove(sz);
         return new CloseOutcome(true, revert);
     }
 }

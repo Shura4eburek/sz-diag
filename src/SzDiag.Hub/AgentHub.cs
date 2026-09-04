@@ -151,6 +151,15 @@ public sealed class AgentHub : Microsoft.AspNetCore.SignalR.Hub
             : $"відкат: **ЧАСТКОВО** ({result.Done.Count} ок, {result.Failed.Count} з помилкою: " +
               $"{string.Join(", ", result.Failed.Select(f => f.Step))})";
         _journal.Machine(result.Sz, text);
+        // Сводка отката обязана быть видна в list/watch независимо от того, кто его
+        // инициировал (Critical-1, ревью волны 1): раньше RevertNote выставлял только HTTP-путь
+        // /agent/revert-status (watchdog/headless), а self-revert по клавише C или close с
+        // хоста нигде не пересекался с этим состоянием сессии — неудачный откат по этому пути
+        // был не виден нигде, кроме однократного вывода `close`.
+        var note = result.AllClean
+            ? ""
+            : $"{result.Failed.Count} шаг(ов) с ошибкой: {string.Join(", ", result.Failed.Select(f => f.Step))}";
+        _registry.MarkRevertOutcome(result.Sz, result.AllClean, note);
         return Task.CompletedTask;
     }
 
