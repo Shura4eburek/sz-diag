@@ -66,10 +66,17 @@ public static class ManagementApi
                 return Results.BadRequest($"прогон без метки конфигурации не запускается; {hint}");
             }
 
-            if (!await trigger.TriggerAsync(sz, body.Filter)) return Results.NotFound();
+            // Профиль расписания OCCT валидируется здесь, а не молча уезжает на агента с
+            // незнакомым именем (бэклог п.124/#60) — известные значения см. OcctScheduleProfiles.
+            if (!string.IsNullOrWhiteSpace(body.Schedule) && OcctScheduleProfiles.ResolveFileName(body.Schedule) is null)
+                return Results.BadRequest(
+                    $"неизвестный профиль расписания «{body.Schedule}»; известны: {string.Join(", ", OcctScheduleProfiles.KnownProfiles)}");
+
+            if (!await trigger.TriggerAsync(sz, body.Filter, body.Schedule)) return Results.NotFound();
 
             await store.SetLastTestConfigAsync(sz, config);
-            journal.Command(sz, $"`test run {body.Filter ?? "усе"}` — старт; конфігурація: **{config}**");
+            var scheduleNote = string.IsNullOrWhiteSpace(body.Schedule) ? "" : $"; розклад OCCT: **{body.Schedule}**";
+            journal.Command(sz, $"`test run {body.Filter ?? "усе"}` — старт; конфігурація: **{config}**{scheduleNote}");
             return Results.Ok();
         });
 
@@ -169,6 +176,35 @@ public static class ManagementApi
         // хотя на деле hub смотрит не туда (бэклог п.67).
         group.MapGet("/tools", (ToolCatalog catalog) => Results.Ok(
             new ToolCatalogInfo(catalog.Root, Directory.Exists(catalog.Root), catalog.List())));
+
+        // План расписания OCCT из раздачи, а не из репозитория (бэклог п.124/#60, СЗ 161346):
+        // `deploy/occt/*.json` в репо и `Hub.ToolsRoot/occt/*.json` на боксе молча расходились
+        // (5+5 минут против заявленных 90+90) — печатать план имеет смысл только по тому, что
+        // реально уедет клиенту.
+        group.MapGet("/occt/schedule", (string? profile, ToolCatalog catalog) =>
+        {
+            var fileName = OcctScheduleProfiles.ResolveFileName(profile);
+            if (fileName is null)
+                return Results.BadRequest(
+                    $"неизвестный профиль «{profile}»; известны: {string.Join(", ", OcctScheduleProfiles.KnownProfiles)}");
+            var path = Path.Combine(catalog.Root, "occt", fileName);
+            if (!File.Exists(path)) return Results.NotFound($"файла расписания нет в раздаче: {path}");
+            var periods = OcctSchedule.TryParsePeriods(File.ReadAllText(path));
+            if (periods is null) return Results.UnprocessableEntity($"'{fileName}' не похож на расписание OCCT (нет Periods)");
+            return Results.Ok(OcctSchedulePlan.From(periods));
+        });
+
+        // Разбор occt-report.html последнего прогона (бэклог п.124/#60): errors/wheaErrors/
+        // executedDuration по каждому периоду вместо ручной распаковки gzip из HTML.
+        group.MapGet("/sessions/{sz}/test-result", (string sz, IOptions<HubOptions> hubOpts) =>
+        {
+            var path = TestResultFinder.FindLatestArtifact(sz, "occt-report.html",
+                hubOpts.Value.KnowledgeBaseRoot, hubOpts.Value.PullRoot);
+            if (path is null) return Results.NotFound($"occt-report.html для СЗ {sz} не найден");
+            var summary = OcctReportParser.TryParse(File.ReadAllText(path));
+            if (summary is null) return Results.UnprocessableEntity("occt-report.html не распознан этим парсером");
+            return Results.Ok(summary);
+        });
 
         group.MapPost("/sessions/{sz}/push", async (string sz, PushCommandRequest body,
             PushCoordinator push, JournalWriter journal) =>

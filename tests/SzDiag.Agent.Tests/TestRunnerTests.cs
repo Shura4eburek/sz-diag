@@ -1,4 +1,7 @@
+using System.IO.Compression;
+using System.Text;
 using SzDiag.Agent;
+using SzDiag.Contracts;
 using SzDiag.Kb;
 using Xunit;
 
@@ -531,5 +534,221 @@ public class TestRunnerTests
             Assert.Contains("CpuLinpack", step.Output);
         }
         finally { File.Delete(exe); File.Delete(schedule); }
+    }
+
+    [Fact]
+    public void Run_AppStep_SubstitutesScheduleToken_DefaultWhenNoOverride()
+    {
+        // Бэклог п.124/#60: testsuite.json несёт {schedule} вместо захардкоженного
+        // schedule.json — без --schedule подставляется дефолт.
+        var exe = Path.GetTempFileName();
+        try
+        {
+            var exec = new RecordingExecutor();
+            var runner = new TestRunner(exec, new FakeCapturer(new ScreenCapture(new byte[] { 1 }, null)),
+                initialGraceSeconds: 0);
+            var suite = new TestSuite { Steps = new[]
+            {
+                new TestStep("app", "OCCT", Exe: exe, Args: "test --schedule=\"{workdir}\\{schedule}\"", DurationSeconds: 1),
+            } };
+
+            var output = runner.Run(suite, "156864", "PC-1", At);
+
+            Assert.Contains(OcctScheduleProfiles.Default, output.Report.Steps.Single().Command);
+        }
+        finally { File.Delete(exe); }
+    }
+
+    [Fact]
+    public void Run_AppStep_SubstitutesScheduleToken_ProfileOverride()
+    {
+        var exe = Path.GetTempFileName();
+        try
+        {
+            var exec = new RecordingExecutor();
+            var runner = new TestRunner(exec, new FakeCapturer(new ScreenCapture(new byte[] { 1 }, null)),
+                initialGraceSeconds: 0);
+            var suite = new TestSuite { Steps = new[]
+            {
+                new TestStep("app", "OCCT", Exe: exe, Args: "test --schedule=\"{workdir}\\{schedule}\"", DurationSeconds: 1),
+            } };
+
+            var output = runner.Run(suite, "156864", "PC-1", At, scheduleOverride: "long");
+
+            Assert.Contains("schedule-long.json", output.Report.Steps.Single().Command);
+        }
+        finally { File.Delete(exe); }
+    }
+
+    [Fact]
+    public void Run_AppStep_ExplicitScheduleOverride_ExtendsTimeoutInsteadOfRefusing()
+    {
+        // Бэклог п.124/#60: --schedule long выбран явно — план и есть источник правды длины
+        // прогона, таймаут шага из testsuite.json не должен молча рубить прогон на середине.
+        var exe = Path.GetTempFileName();
+        var workDir = Path.GetDirectoryName(exe)!;
+        var schedule = Path.Combine(workDir, Guid.NewGuid() + "-schedule.json");
+        File.WriteAllText(schedule, """
+            { "Periods": [
+                { "TestType": "Combined", "Duration": "00:01:00", "IsInfinite": false },
+                { "TestType": "PowerSupply", "Duration": "00:01:00", "IsInfinite": false }
+            ] }
+            """);
+        try
+        {
+            var exec = new RecordingExecutor();   // самозавершение — процесс "не жив"
+            var runner = new TestRunner(exec, new FakeCapturer(new ScreenCapture(null, "n/a")), initialGraceSeconds: 0);
+            var suite = new TestSuite { Steps = new[]
+            {
+                // durationSeconds шага короче расписания (30с против 2 мин) — без override
+                // это отказ в старте (см. Run_AppStep_ScheduleLongerThanTimeout_RefusesToStart).
+                new TestStep("app", "OCCT", Exe: exe, Args: $"test --schedule=\"{schedule}\"",
+                    DurationSeconds: 30, KillImage: "occtcmd.exe", RunToCompletion: true),
+            } };
+
+            var output = runner.Run(suite, "156864", "PC-1", At, scheduleOverride: "long");
+
+            var step = output.Report.Steps.Single();
+            Assert.Null(step.Error);
+            Assert.Contains(exec.Commands, c => c.StartsWith("Start-Process"));
+        }
+        finally { File.Delete(exe); File.Delete(schedule); }
+    }
+
+    private static byte[] Gzip(string text)
+    {
+        using var output = new MemoryStream();
+        using (var gzip = new GZipStream(output, CompressionMode.Compress, leaveOpen: true))
+        {
+            var bytes = Encoding.UTF8.GetBytes(text);
+            gzip.Write(bytes, 0, bytes.Length);
+        }
+        return output.ToArray();
+    }
+
+    private static string OcctReportHtml(string json)
+    {
+        var b64 = Convert.ToBase64String(Gzip(json));
+        return $"<script>var scheduleExecutionCompressed = \"{b64}\";</script>";
+    }
+
+    [Fact]
+    public void Run_AppStep_ExecutedMuchLessThanPlanned_WarnsInReport()
+    {
+        // Бэклог п.124/#60, СЗ 161346: расписание на 10 мин, отчёт OCCT показывает 10 мин
+        // фактически выполненных, а schedule.json заявляет намного больше — расхождение
+        // больше минуты обязано попасть в отчёт явным предупреждением.
+        var exe = Path.GetTempFileName();
+        var workDir = Path.GetDirectoryName(exe)!;
+        var schedule = Path.Combine(workDir, Guid.NewGuid() + "-schedule.json");
+        File.WriteAllText(schedule, """
+            { "Periods": [
+                { "TestType": "Combined", "Duration": "01:30:00", "IsInfinite": false },
+                { "TestType": "PowerSupply", "Duration": "01:30:00", "IsInfinite": false }
+            ] }
+            """);
+        var artifact = Path.Combine(workDir, Guid.NewGuid() + "-occt-report.html");
+        File.WriteAllText(artifact, OcctReportHtml("""
+            { "periodExecutions": [
+                { "testType": "Combined", "executedDuration": "00:05:00", "errors": 0, "wheaErrors": 0 },
+                { "testType": "PowerSupply", "executedDuration": "00:05:00", "errors": 0, "wheaErrors": 0 }
+              ], "elapsed": "00:10:20" }
+            """));
+        File.SetLastWriteTime(artifact, DateTime.Now.AddMinutes(1));   // свежее старта шага (п.61)
+        try
+        {
+            var exec = new RecordingExecutor();   // самозавершение — процесс "не жив"
+            var runner = new TestRunner(exec, new FakeCapturer(new ScreenCapture(null, "n/a")), initialGraceSeconds: 0);
+            var suite = new TestSuite { Steps = new[]
+            {
+                new TestStep("app", "OCCT", Exe: exe, Args: $"test --schedule=\"{schedule}\"",
+                    DurationSeconds: 10900, KillImage: "occtcmd.exe", RunToCompletion: true, ArtifactFile: artifact),
+            } };
+
+            var output = runner.Run(suite, "156864", "PC-1", At);
+
+            var step = output.Report.Steps.Single();
+            Assert.NotNull(step.Output);
+            Assert.Contains("НЕПОЛНЫЙ", step.Output);
+            Assert.Contains("03:00:00", step.Output);   // план
+            Assert.Contains("00:10:00", step.Output);   // факт
+        }
+        finally { File.Delete(exe); File.Delete(schedule); File.Delete(artifact); }
+    }
+
+    [Fact]
+    public void Run_AppStep_ExecutedMatchesPlanned_NotesFullCompletion()
+    {
+        var exe = Path.GetTempFileName();
+        var workDir = Path.GetDirectoryName(exe)!;
+        var schedule = Path.Combine(workDir, Guid.NewGuid() + "-schedule.json");
+        File.WriteAllText(schedule, """
+            { "Periods": [
+                { "TestType": "Combined", "Duration": "00:05:00", "IsInfinite": false },
+                { "TestType": "PowerSupply", "Duration": "00:05:00", "IsInfinite": false }
+            ] }
+            """);
+        var artifact = Path.Combine(workDir, Guid.NewGuid() + "-occt-report.html");
+        File.WriteAllText(artifact, OcctReportHtml("""
+            { "periodExecutions": [
+                { "testType": "Combined", "executedDuration": "00:05:00", "errors": 0, "wheaErrors": 0 },
+                { "testType": "PowerSupply", "executedDuration": "00:05:00", "errors": 0, "wheaErrors": 0 }
+              ], "elapsed": "00:10:20" }
+            """));
+        File.SetLastWriteTime(artifact, DateTime.Now.AddMinutes(1));
+        try
+        {
+            var exec = new RecordingExecutor();
+            var runner = new TestRunner(exec, new FakeCapturer(new ScreenCapture(null, "n/a")), initialGraceSeconds: 0);
+            var suite = new TestSuite { Steps = new[]
+            {
+                new TestStep("app", "OCCT", Exe: exe, Args: $"test --schedule=\"{schedule}\"",
+                    DurationSeconds: 4500, KillImage: "occtcmd.exe", RunToCompletion: true, ArtifactFile: artifact),
+            } };
+
+            var output = runner.Run(suite, "156864", "PC-1", At);
+
+            var step = output.Report.Steps.Single();
+            Assert.NotNull(step.Output);
+            Assert.Contains("выполнено полностью", step.Output);
+            Assert.DoesNotContain("⚠", step.Output);
+        }
+        finally { File.Delete(exe); File.Delete(schedule); File.Delete(artifact); }
+    }
+
+    [Fact]
+    public void Run_AppStep_ReportHasErrors_WarnsWithPeriodDetail()
+    {
+        var exe = Path.GetTempFileName();
+        var workDir = Path.GetDirectoryName(exe)!;
+        var schedule = Path.Combine(workDir, Guid.NewGuid() + "-schedule.json");
+        File.WriteAllText(schedule, """
+            { "Periods": [ { "TestType": "Combined", "Duration": "00:05:00", "IsInfinite": false } ] }
+            """);
+        var artifact = Path.Combine(workDir, Guid.NewGuid() + "-occt-report.html");
+        File.WriteAllText(artifact, OcctReportHtml("""
+            { "periodExecutions": [
+                { "testType": "Combined", "executedDuration": "00:05:00", "errors": 3, "wheaErrors": 1 }
+              ], "elapsed": "00:05:10" }
+            """));
+        File.SetLastWriteTime(artifact, DateTime.Now.AddMinutes(1));
+        try
+        {
+            var exec = new RecordingExecutor();
+            var runner = new TestRunner(exec, new FakeCapturer(new ScreenCapture(null, "n/a")), initialGraceSeconds: 0);
+            var suite = new TestSuite { Steps = new[]
+            {
+                new TestStep("app", "OCCT", Exe: exe, Args: $"test --schedule=\"{schedule}\"",
+                    DurationSeconds: 400, KillImage: "occtcmd.exe", RunToCompletion: true, ArtifactFile: artifact),
+            } };
+
+            var output = runner.Run(suite, "156864", "PC-1", At);
+
+            var step = output.Report.Steps.Single();
+            Assert.NotNull(step.Output);
+            Assert.Contains("errors=3", step.Output);
+            Assert.Contains("wheaErrors=1", step.Output);
+        }
+        finally { File.Delete(exe); File.Delete(schedule); File.Delete(artifact); }
     }
 }

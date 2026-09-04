@@ -45,7 +45,7 @@
 | Метод (`HubRoutes`) | Параметры | Обработчик на агенте |
 |---|---|---|
 | `Revert` | `sz` | `AgentSession` → `RevertCoordinator.TriggerAsync` (откат) |
-| `RunTests` | `sz, filter?` | `Program.cs` `OnRunTests` → `TestReportRunner.RunAndUploadAsync` (стресс) |
+| `RunTests` | `sz, filter?, schedule?` | `Program.cs` `OnRunTests` → `TestReportRunner.RunAndUploadAsync` (стресс). `schedule` — профиль расписания OCCT (`default`/`smoke`/`long`/`infinite`, `OcctScheduleProfiles`) — подставляется в `{schedule}` testsuite.json (бэклог п.124/#60), явный профиль ещё и раздвигает таймаут шага под план, а не рубит прогон на середине |
 | `RunDiag` | `sz, sections?` | `Program.cs` `OnRunDiag` → `DiagReportRunner.RunAndUploadAsync` (read-only снапшот → `diag.md`) |
 | `Exec` | `ExecRequest{Sz,RequestId,Script,TimeoutSeconds,Detached,Isolated,AsSystem}` | `AgentCommandWiring` → `ExecCommandHandler.Handle`; ack сразу, результат отдельным `ExecResult`. `Isolated` (только с `Detached`) — `BackgroundJobs` оборачивает задачу в транзиентную scheduled task под SYSTEM (`szdiag-job-<сз>-<jobId>`, как sshd) вместо дочернего процесса агента — переживает падение/закрытие агента (бэклог п.53). `AsSystem` (без `Detached`) — `SystemExecRunner` гоняет тот же скрипт синхронно под SYSTEM тем же механизмом транзиентной задачи: часть операций (задачи `UpdateOrchestrator`, объекты TrustedInstaller) недоступна даже админу (бэклог п.39) |
 | `ExecStatus` | `ExecStatusRequest{Sz,RequestId,JobId,TailLines,Cancel}` | `ExecCommandHandler.Status`; `JobId="*"` — список задач, `Cancel=true` — снять задачу (дерево процессов). Этот канал короткий и проходит под полной нагрузкой — поэтому отмена/список едут им же (бэклог п.134/172/176) |
@@ -65,7 +65,9 @@ CLI-токен — заголовок `X-SzDiag-Mgmt-Token` (`ManagementApi.Toke
 |---|---|---|
 | `GET /api/sessions` | `Registry.GetActive()` | `SessionInfo[]` |
 | `POST /api/sessions/{sz}/close` | `SessionCloser.CloseAsync` | `Ok{CloseOutcome{Closed,Revert?}}`/`NotFound`; `Revert` — сводка из `RevertResultStore` (агент уже мог прислать её `RevertResult`'ом ДО этого close), а не только от `wasOnline`-ожидания |
-| `POST /api/sessions/{sz}/test` (тело `TestRunRequest{Filter,Config,SameConfig}`) | `TestRunTrigger.TriggerAsync` + метка конфигурации в SQLite и журнал | `Ok`/`NotFound`/`BadRequest` без метки |
+| `POST /api/sessions/{sz}/test` (тело `TestRunRequest{Filter,Config,SameConfig,Schedule}`) | `TestRunTrigger.TriggerAsync` + метка конфигурации в SQLite и журнал | `Ok`/`NotFound`/`BadRequest` без метки или на незнакомом `Schedule` (`OcctScheduleProfiles.KnownProfiles`) |
+| `GET /api/occt/schedule?profile=` | читает `<Hub.ToolsRoot>/occt/<файл>` (то, что РЕАЛЬНО раздаётся, не `deploy/occt` в репо) → `OcctSchedule.TryParsePeriods` | `OcctSchedulePlan{Periods,TotalFiniteSeconds,HasInfinite}`/`NotFound`/`BadRequest` — `szcli test run` печатает план ДО старта (бэклог п.124/#60, СЗ 161346: раздача 5+5 мин против репо 30+30) |
+| `GET /api/sessions/{sz}/test-result` | `TestResultFinder.FindLatestArtifact` (kb reports или `Hub.PullRoot`) → `OcctReportParser.TryParse` (gzip+base64 `scheduleExecutionCompressed` из `occt-report.html`) | `OcctReportSummary{Periods,ElapsedSeconds}`/`NotFound`/`422`; `szcli test result <СЗ>` — errors/wheaErrors/executedDuration по периодам без ручной распаковки |
 | `POST /api/sessions/{sz}/journal` (тело `JournalNoteRequest{Text}`) | `JournalWriter.Manual` → `kb/СЗ/<sz>/журнал.md` | `Ok`/`BadRequest`; **активная сессия не требуется** |
 | `POST /api/sessions/{sz}/diag?sections=` | `DiagRunTrigger.TriggerAsync` | `Ok`/`NotFound` |
 | `GET /api/sessions/{sz}/target` | реестр + `ServiceAccount` | `TargetInfo{Sz,Ip,User,Ssh}`/`NotFound` |
@@ -272,7 +274,8 @@ staging) → `AgentLauncher.LaunchAndWait` (запуск `agent.exe` в насл
 (`HubBaseUrl=http://localhost:5000`, `ManagementToken`, `KbRoot=kb`, `GpuDbPath`, `PciIdsPath`).
 
 - `watch` (дефолт) — Spectre `Live`, каждые 1000 мс `GET /api/sessions`, таблица СЗ/Статус/IP/Хост/Активность.
-- `list` · `close <СЗ>` · `target <СЗ>` · `test run <СЗ> [фильтр]` · `diag run <СЗ> [секции]` — к соответствующим `/api`.
+- `list` · `close <СЗ>` · `target <СЗ>` · `test run <СЗ> [фильтр] [--schedule default|smoke|long|infinite]` ·
+  `test result <СЗ>` · `diag run <СЗ> [секции]` — к соответствующим `/api`.
 - `diag status <СЗ>` — свежий `diag.md` + текущая `Activity` сессии без нового прогона (упавшая
   диагностика видна сразу, а не как «висит», `DiagStatusCommand`).
 - `kb record/summary/search …` — локальная ФС через `SzDiag.Kb` (без HTTP).

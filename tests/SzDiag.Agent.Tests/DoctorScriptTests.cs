@@ -1,5 +1,6 @@
 ﻿using System.Diagnostics;
 using System.Text;
+using SzDiag.Agent;
 
 namespace SzDiag.Agent.Tests;
 
@@ -194,10 +195,41 @@ public class DoctorOcctLicenseTests
         return root;
     }
 
-    private static string RunDoctor(string root)
+    /// <summary>Стенд для запуска doctor.ps1 целиком: изолированный `-Root` с минимальным
+    /// набором файлов, до которых скрипт доходит по порядку (пакет агента → cli/hub → каталог
+    /// инструментов, где и живёт проверка расписаний OCCT — бэклог п.124/#60).
+    ///
+    /// Живёт ПОД настоящим корнем репо (в `dist\`, который в .gitignore), а не во временном
+    /// каталоге вовсе без `.git`: `git -C $Root log …` на пути без git-репозитория пишет в
+    /// stderr, и даже с `2&gt;$null` PowerShell (при запуске `-File`, не интерактивно) всё
+    /// равно поднимает это как завершающую ошибку под `$ErrorActionPreference = 'Stop'` —
+    /// проверено эмпирически, не документированная тонкость самого PowerShell, не баг
+    /// doctor.ps1 (в бою `$Root` всегда настоящий репозиторий).</summary>
+    private static string BuildFixtureRoot(string toolsRoot, out string deployOcctDir, out string deployedOcctDir)
     {
+        var root = Path.Combine(RepoRoot(), "dist", $".test-doctor-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(Path.Combine(root, "dist", "host", "hub", "agent-dist"));
+        File.WriteAllBytes(Path.Combine(root, "dist", "host", "hub", "agent-dist", "package.zip"), new byte[] { 1 });
+        Directory.CreateDirectory(Path.Combine(root, "dist", "host", "hub"));
+        File.WriteAllText(Path.Combine(root, "dist", "host", "hub", "appsettings.json"),
+            $$"""{ "Hub": { "ToolsRoot": "{{toolsRoot.Replace("\\", "\\\\")}}" } } """);
+
+        deployOcctDir = Path.Combine(root, "deploy", "occt");
+        Directory.CreateDirectory(deployOcctDir);
+        deployedOcctDir = Path.Combine(toolsRoot, "occt");
+        Directory.CreateDirectory(deployedOcctDir);
+        // Каталог инструментов должен выглядеть непустым (проверка "почти пусто" считает папки).
+        Directory.CreateDirectory(Path.Combine(toolsRoot, "occt", "sub"));
+        Directory.CreateDirectory(Path.Combine(toolsRoot, "tm5"));
+        return root;
+    }
+
+    private static string RunDoctor(string fixtureRoot)
+    {
+        var doctorPath = Path.Combine(RepoRoot(), "tools", "doctor.ps1");
         var runner = new PowerShellRunner();
-        var r = runner.Run($"& '{DoctorPath()}' -Root '{root}'", throwOnError: false, timeout: TimeSpan.FromSeconds(60));
+        var r = runner.Run($"& '{doctorPath}' -Root '{fixtureRoot}' 2>&1 | Out-String",
+            throwOnError: false, timeout: TimeSpan.FromSeconds(30));
         return r.StdOut;
     }
 
@@ -273,5 +305,74 @@ public class DoctorOcctLicenseTests
             Assert.Contains("лицензии OCCT нет", output);
         }
         finally { try { Directory.Delete(root, true); } catch { } }
+    }
+
+    [Fact]
+    public void OcctScheduleFreshness_MatchingFiles_ReportsOk()
+    {
+        var toolsRoot = Path.Combine(Path.GetTempPath(), $"sztools-{Guid.NewGuid():N}");
+        var fixtureRoot = BuildFixtureRoot(toolsRoot, out var deployOcctDir, out var deployedOcctDir);
+        try
+        {
+            File.WriteAllText(Path.Combine(deployOcctDir, "schedule.json"), """{ "Periods": [] }""");
+            File.WriteAllText(Path.Combine(deployedOcctDir, "schedule.json"), """{ "Periods": [] }""");
+
+            var output = RunDoctor(fixtureRoot);
+
+            Assert.Contains("расписания OCCT в раздаче совпадают с репозиторием", output);
+        }
+        finally
+        {
+            Directory.Delete(fixtureRoot, recursive: true);
+            Directory.Delete(toolsRoot, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void OcctScheduleFreshness_ContentDiffers_ReportsMismatch()
+    {
+        // Регрессия СЗ 161346 (бэклог п.124/#60): раздача 5+5 минут, репо — 30+30, узнали
+        // только разбором occt-report.html постфактум.
+        var toolsRoot = Path.Combine(Path.GetTempPath(), $"sztools-{Guid.NewGuid():N}");
+        var fixtureRoot = BuildFixtureRoot(toolsRoot, out var deployOcctDir, out var deployedOcctDir);
+        try
+        {
+            File.WriteAllText(Path.Combine(deployOcctDir, "schedule.json"),
+                """{ "Periods": [ { "TestType": "Combined", "Duration": "00:30:00", "IsInfinite": false } ] }""");
+            File.WriteAllText(Path.Combine(deployedOcctDir, "schedule.json"),
+                """{ "Periods": [ { "TestType": "Combined", "Duration": "00:05:00", "IsInfinite": false } ] }""");
+
+            var output = RunDoctor(fixtureRoot);
+
+            Assert.Contains("расписания OCCT в раздаче расходятся с репозиторием", output);
+            Assert.Contains("schedule.json", output);
+        }
+        finally
+        {
+            Directory.Delete(fixtureRoot, recursive: true);
+            Directory.Delete(toolsRoot, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void OcctScheduleFreshness_MissingInDeployment_ReportsMismatch()
+    {
+        var toolsRoot = Path.Combine(Path.GetTempPath(), $"sztools-{Guid.NewGuid():N}");
+        var fixtureRoot = BuildFixtureRoot(toolsRoot, out var deployOcctDir, out _);
+        try
+        {
+            File.WriteAllText(Path.Combine(deployOcctDir, "schedule-long.json"),
+                """{ "Periods": [] }""");
+            // deployedOcctDir специально остаётся без schedule-long.json.
+
+            var output = RunDoctor(fixtureRoot);
+
+            Assert.Contains("нет в раздаче", output);
+        }
+        finally
+        {
+            Directory.Delete(fixtureRoot, recursive: true);
+            Directory.Delete(toolsRoot, recursive: true);
+        }
     }
 }

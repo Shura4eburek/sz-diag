@@ -50,5 +50,25 @@ public class TestRunArgsTests
         Assert.Null(args.Filter);
         Assert.Null(args.Config);
         Assert.False(args.SameConfig);
+        Assert.Null(args.Schedule);
+    }
+
+    [Fact]
+    public void Parse_ScheduleFlag_TakesNextArgumentAsProfile()
+    {
+        // Бэклог п.124/#60: выбор длины прогона OCCT командой, а не подменой файла руками.
+        var args = TestRunArgs.Parse(new[] { "occt", "--config", "EXPO 6000", "--schedule", "long" });
+
+        Assert.Equal("occt", args.Filter);
+        Assert.Equal("long", args.Schedule);
+    }
+
+    [Fact]
+    public void Parse_ScheduleWithoutValue_LeavesScheduleNull()
+    {
+        var args = TestRunArgs.Parse(new[] { "occt", "--schedule" });
+
+        Assert.Equal("occt", args.Filter);
+        Assert.Null(args.Schedule);
     }
 }

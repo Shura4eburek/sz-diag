@@ -15,8 +15,9 @@ public interface IHubLink
     /// <summary>Подписка на команду revert от hub (sz → callback).</summary>
     void OnRevert(Func<string, Task> handler);
 
-    /// <summary>Подписка на команду прогона тестов от hub (sz, filter → callback).</summary>
-    void OnRunTests(Func<string, string?, Task> handler);
+    /// <summary>Подписка на команду прогона тестов от hub (sz, filter, схема расписания OCCT
+    /// → callback; бэклог п.124/#60 — <c>szcli test run --schedule &lt;имя&gt;</c>).</summary>
+    void OnRunTests(Func<string, string?, string?, Task> handler);
 
     /// <summary>Подписка на команду диагностики от hub (sz, sections → callback).</summary>
     void OnRunDiag(Func<string, string?, Task> handler);

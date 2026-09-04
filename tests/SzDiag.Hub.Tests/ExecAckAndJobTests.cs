@@ -17,7 +17,7 @@ public class ExecAckAndJobTests
         public Func<ExecStatusRequest, Task>? OnStatus { get; set; }
 
         public Task SendRevertAsync(string c, string sz, CancellationToken ct = default) => Task.CompletedTask;
-        public Task SendRunTestsAsync(string c, string sz, string? f, CancellationToken ct = default) => Task.CompletedTask;
+        public Task SendRunTestsAsync(string c, string sz, string? f, string? schedule = null, CancellationToken ct = default) => Task.CompletedTask;
         public Task SendRunDiagAsync(string c, string sz, string? s, CancellationToken ct = default) => Task.CompletedTask;
         public Task SendPullAsync(string c, PullRequest r, CancellationToken ct = default) => Task.CompletedTask;
         public Task SendPushAsync(string c, PushRequest r, CancellationToken ct = default) => Task.CompletedTask;

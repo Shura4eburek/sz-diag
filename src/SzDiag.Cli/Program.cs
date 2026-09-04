@@ -617,14 +617,43 @@ switch (command)
     // что с чем сравнивать (на 160697 так потерялись обе половины дискриминатора).
     case "test" when args.Length >= 3 && args[1].Equals("run", StringComparison.OrdinalIgnoreCase):
     {
-        var (testFilter, testConfig, sameConfig) = TestRunArgs.Parse(args[3..]);
-        var testResult = await client.TriggerTestAsync(args[2], testFilter, testConfig, sameConfig);
+        var (testFilter, testConfig, sameConfig, testSchedule) = TestRunArgs.Parse(args[3..]);
+
+        // Профиль расписания OCCT валидируется на входе — до похода к hub (бэклог п.124/#60):
+        // незнакомое имя не должно молча уехать на агента.
+        if (!string.IsNullOrWhiteSpace(testSchedule) && OcctScheduleProfiles.ResolveFileName(testSchedule) is null)
+        {
+            AnsiConsole.MarkupLineInterpolated(
+                $"[red]Неизвестный профиль расписания:[/] {testSchedule}. Известны: {string.Join(", ", OcctScheduleProfiles.KnownProfiles)}");
+            return 2;
+        }
+
+        // План прогона ДО старта: сколько будет идти OCCT, а не «10 минут вместо 180» —
+        // выяснено постфактум разбором occt-report.html (бэклог п.124/#60, СЗ 161346). Смотрим
+        // расписание, реально лежащее в раздаче (Hub.ToolsRoot), а не в репозитории — раньше
+        // они молча расходились. Только когда occt вообще участвует в прогоне.
+        var includesOcct = testFilter is null
+            || testFilter.Split(',', StringSplitOptions.TrimEntries).Contains("occt", StringComparer.OrdinalIgnoreCase);
+        if (includesOcct)
+        {
+            var plan = await client.GetOcctScheduleAsync(testSchedule);
+            if (plan is not null)
+            {
+                var periodsLabel = string.Join(" + ", plan.Periods.Select(p => $"{p.TestType} {p.Duration.TotalMinutes:0} мин"));
+                var infiniteNote = plan.HasInfinite ? " + бесконечный период (ограничен только таймаутом шага)" : "";
+                AnsiConsole.MarkupLineInterpolated(
+                    $"[grey]План OCCT:[/] {periodsLabel}{infiniteNote}, итого {plan.TotalFinite:hh\\:mm\\:ss}.");
+            }
+        }
+
+        var testResult = await client.TriggerTestAsync(args[2], testFilter, testConfig, sameConfig, testSchedule);
         if (testResult.Ok)
         {
             var scope = testFilter is null ? "весь набор" : $"фильтр: {testFilter}";
             var label = testConfig ?? "как в прошлый раз";
+            var scheduleNote = string.IsNullOrWhiteSpace(testSchedule) ? "" : $", расписание OCCT: {testSchedule}";
             AnsiConsole.MarkupLineInterpolated(
-                $"[green]СЗ {args[2]}: прогон запущен[/] ({scope}, конфигурация: {label}) на агенте (отчёт появится в kb).");
+                $"[green]СЗ {args[2]}: прогон запущен[/] ({scope}, конфигурация: {label}{scheduleNote}) на агенте (отчёт появится в kb).");
         }
         else
         {
@@ -632,6 +661,37 @@ switch (command)
             AnsiConsole.MarkupLineInterpolated($"[red]СЗ {args[2]}: прогон не запущен.[/] {reason}");
             return 2;
         }
+        break;
+    }
+
+    // test result: разбор occt-report.html последнего прогона (errors/wheaErrors/
+    // executedDuration по каждому периоду) — раньше это была ручная распаковка gzip из HTML
+    // (бэклог п.124/#60, СЗ 161346).
+    case "test" when args.Length >= 3 && args[1].Equals("result", StringComparison.OrdinalIgnoreCase):
+    {
+        var resultSz = args[2];
+        var summary = await client.GetTestResultAsync(resultSz);
+        if (summary is null)
+        {
+            AnsiConsole.MarkupLineInterpolated(
+                $"[red]Отчёт OCCT для СЗ {resultSz} не найден[/] (прогон ещё не завершился или не разобрать occt-report.html).");
+            return 1;
+        }
+
+        foreach (var p in summary.Periods)
+        {
+            var duration = p.ExecutedDuration is { } d ? $"{d:hh\\:mm\\:ss}" : "н/д";
+            var mark = p.Errors > 0 || p.WheaErrors > 0 ? "[red]⚠[/]" : "[green]✓[/]";
+            AnsiConsole.MarkupLineInterpolated(
+                $"  {mark} {p.TestType,-14} executedDuration={duration}  errors={p.Errors}  wheaErrors={p.WheaErrors}");
+        }
+        var elapsedLabel = summary.Elapsed is { } e ? $"{e:hh\\:mm\\:ss}" : "н/д";
+        AnsiConsole.MarkupLineInterpolated($"[grey]elapsed:[/] {elapsedLabel}");
+        if (summary.TotalErrors > 0 || summary.TotalWheaErrors > 0)
+            AnsiConsole.MarkupLineInterpolated(
+                $"[red]Итого ошибок: {summary.TotalErrors}, WHEA: {summary.TotalWheaErrors}.[/]");
+        else
+            AnsiConsole.MarkupLine("[green]Ошибок нет ни в одном периоде.[/]");
         break;
     }
 
@@ -1065,9 +1125,10 @@ static void PrintUsage()
                 [grey]цикл «сон -> RTC-пробуждение»; умирает сам через --max-hours, стоп — одной командой при живом агенте[/]
               [yellow]szcli freeze[/] [blue]<СЗ>[/] [grey][[--status]][/]  заморозить Windows Update (или проверить, держится ли)
               [yellow]szcli unfreeze[/] [blue]<СЗ>[/]      вернуть Windows Update как было (обязательно!)
-              [yellow]szcli test run[/] [blue]<СЗ>[/] [grey][[occt|tm5,furmark|…]][/] [red]--config[/] [grey]"<конфигурация>"[/]
+              [yellow]szcli test run[/] [blue]<СЗ>[/] [grey][[occt|tm5,furmark|…]][/] [red]--config[/] [grey]"<конфигурация>"[/] [grey][[--schedule default|smoke|long|infinite]][/]
                 [grey]прогон тестов; метка конфигурации обязательна («EXPO 6000, штатный БП»),[/]
-                [grey]повторить ту же — --same-config[/]
+                [grey]повторить ту же — --same-config; --schedule выбирает длину прогона OCCT (план печатается ДО старта)[/]
+              [yellow]szcli test result[/] [blue]<СЗ>[/]  разбор occt-report.html последнего прогона: errors/wheaErrors/executedDuration по периодам
               [yellow]szcli diag run[/] [blue]<СЗ>[/] [grey][[storage,events|…]][/]  диагностика (снапшот; секции точечно)
               [yellow]szcli diag status[/] [blue]<СЗ>[/]  идёт ли прогон/упал ли он, плюс путь к свежему отчёту
                 [grey]секции: system cpu memory gpu storage temps drivers events reboots whea livekernel reliability battery[/]

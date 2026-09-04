@@ -17,7 +17,7 @@
 
     { "type": "app", "id": "occt", "name": "OCCT — комбинированный + Power (расписание, HTML-отчёт)",
       "exe": "tools\\occt\\OCCTCmd.exe",
-      "args": "test --schedule=\"{workdir}\\schedule.json\" --auto-start=true --auto-close=true --auto-save-report=true --report-file=\"{workdir}\\occt-report.html\" --overwrite-report-file=true --auto-enable-sensors=true",
+      "args": "test --schedule=\"{workdir}\\{schedule}\" --auto-start=true --auto-close=true --auto-save-report=true --report-file=\"{workdir}\\occt-report.html\" --overwrite-report-file=true --auto-enable-sensors=true",
       "durationSeconds": 4500,
       "killImage": "OCCTCmd.exe",
       "runToCompletion": true,

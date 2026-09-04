@@ -155,6 +155,37 @@ if (-not (Test-Path $hubCfgPath)) {
         } else {
             Ok "инструменты для раздачи: $($tools.Name -join ', ')"
         }
+
+        # 2b. Расписания OCCT: раздача не должна расходиться с репозиторием молча (бэклог
+        # п.124/#60, СЗ 161346) — `Hub.ToolsRoot\occt\schedule.json` был 5+5 минут, а
+        # `deploy\occt\schedule.json` в репо — 30+30; узнали только разбором occt-report.html
+        # постфактум, потеряв 26 минут ожидания на машине, которую фактически погоняли 10 минут.
+        $deployOcctDir = Join-Path $Root "deploy\occt"
+        if (Test-Path $deployOcctDir) {
+            $deployedOcctDir = Join-Path $toolsRoot "occt"
+            if (-not (Test-Path $deployedOcctDir)) {
+                Bad "раздача не содержит occt\ ($deployedOcctDir) — расписания клиенту не уедут"
+            } else {
+                $mismatches = @()
+                $deployFiles = @(Get-ChildItem $deployOcctDir -Filter *.json)
+                foreach ($f in $deployFiles) {
+                    $deployedFile = Join-Path $deployedOcctDir $f.Name
+                    if (-not (Test-Path $deployedFile)) {
+                        $mismatches += "$($f.Name): нет в раздаче"
+                        continue
+                    }
+                    $repoHash = (Get-FileHash $f.FullName -Algorithm SHA256).Hash
+                    $liveHash = (Get-FileHash $deployedFile -Algorithm SHA256).Hash
+                    if ($repoHash -ne $liveHash) { $mismatches += "$($f.Name): раздача отличается от репозитория" }
+                }
+                if ($mismatches.Count -gt 0) {
+                    Bad "расписания OCCT в раздаче расходятся с репозиторием: $($mismatches -join '; ')"
+                    Write-Host "       -> скопируй deploy\occt\*.json в $deployedOcctDir" -ForegroundColor Yellow
+                } else {
+                    Ok "расписания OCCT в раздаче совпадают с репозиторием ($($deployFiles.Count) файлов)"
+                }
+            }
+        }
     }
 }
 

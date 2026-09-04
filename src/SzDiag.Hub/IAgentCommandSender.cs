@@ -6,7 +6,10 @@ namespace SzDiag.Hub;
 public interface IAgentCommandSender
 {
     Task SendRevertAsync(string connectionId, string sz, CancellationToken ct = default);
-    Task SendRunTestsAsync(string connectionId, string sz, string? filter, CancellationToken ct = default);
+    /// <param name="schedule">Профиль расписания OCCT (бэклог п.124/#60, `--schedule &lt;имя&gt;`)
+    /// — null/"default" — как в testsuite.json.</param>
+    Task SendRunTestsAsync(string connectionId, string sz, string? filter, string? schedule = null,
+        CancellationToken ct = default);
     Task SendRunDiagAsync(string connectionId, string sz, string? sections, CancellationToken ct = default);
     Task SendExecAsync(string connectionId, ExecRequest request, CancellationToken ct = default);
 

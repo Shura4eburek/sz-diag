@@ -32,8 +32,8 @@ public sealed class SignalRHubLink : IHubLink
     public void OnRevert(Func<string, Task> handler)
         => _conn.On<string>(HubRoutes.Revert, sz => handler(sz));
 
-    public void OnRunTests(Func<string, string?, Task> handler)
-        => _conn.On<string, string?>(HubRoutes.RunTests, (sz, filter) => handler(sz, filter));
+    public void OnRunTests(Func<string, string?, string?, Task> handler)
+        => _conn.On<string, string?, string?>(HubRoutes.RunTests, (sz, filter, schedule) => handler(sz, filter, schedule));
 
     public void OnRunDiag(Func<string, string?, Task> handler)
         => _conn.On<string, string?>(HubRoutes.RunDiag, (sz, sections) => handler(sz, sections));

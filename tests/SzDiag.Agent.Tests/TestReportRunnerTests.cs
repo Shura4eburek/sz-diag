@@ -22,7 +22,7 @@ public class TestReportRunnerTests
         public Task ReportPowerEventsAsync(SzDiag.Contracts.PowerEventsReport report, CancellationToken ct = default) => Task.CompletedTask;
         public Task HeartbeatAsync(string sz, CancellationToken ct = default) => Task.CompletedTask;
         public void OnRevert(Func<string, Task> handler) { }
-        public void OnRunTests(Func<string, string?, Task> handler) { }
+        public void OnRunTests(Func<string, string?, string?, Task> handler) { }
         public void OnRunDiag(Func<string, string?, Task> handler) { }
         public Func<SzDiag.Contracts.ExecRequest, Task>? ExecHandler { get; private set; }
         public List<SzDiag.Contracts.ExecResult> ExecResults { get; } = new();
