@@ -395,6 +395,53 @@ exit $LASTEXITCODE
 '@
 Set-Content -Path dist\host\szcli.ps1 -Value $szcliPs1 -Encoding utf8
 
+# Лаунчер-страховка на клиенте: перехватывает вывод апдейтера в файл и держит окно.
+# Породила 161642: `SzDiag.Updater.exe` по двойному клику показывал окно на долю секунды,
+# а `logs\updater.log` не появлялся вообще — значит процесс умирал ДО своего Main (отказ
+# UAC, антивирус, битый exe) либо на клиенте лежала старая версия, ещё без логирования.
+# Внутренний лог такие случаи не ловит по определению, нужен внешний перехват.
+# Текст латиницей: файл в ASCII (как остальные лаунчеры), cmd.exe иначе даёт кракозябры.
+$updaterLog = @'
+@echo off
+setlocal
+set "LOG=%~dp0updater-run.txt"
+set "EXE=%~dp0SzDiag.Updater.exe"
+
+net session >nul 2>&1
+if errorlevel 1 (
+  echo.
+  echo [!] Net prav administratora. Zakroy eto okno i zapusti fayl
+  echo     pravoy knopkoy -^> "Zapusk ot imeni administratora".
+  echo.
+  pause
+  exit /b 1
+)
+
+echo ==== %DATE% %TIME% ==== > "%LOG%"
+if not exist "%EXE%" (
+  echo NET FAYLA: %EXE% >> "%LOG%"
+  type "%LOG%"
+  pause
+  exit /b 2
+)
+
+rem Data i razmer exe: srazu vidno, staraya li eto versiya (bez logirovaniya).
+for %%F in ("%EXE%") do echo exe: %%~zF bayt, %%~tF >> "%LOG%"
+echo. >> "%LOG%"
+
+"%EXE%" >> "%LOG%" 2>&1
+echo. >> "%LOG%"
+echo Kod vozvrata: %ERRORLEVEL% >> "%LOG%"
+
+type "%LOG%"
+echo.
+echo Vyvod sohranen: %LOG%
+pause
+'@
+if (Test-Path dist\client) {
+    Set-Content -Path dist\client\updater-log.cmd -Value $updaterLog -Encoding ascii
+}
+
 Write-Host ""
 if ($failed.Count -gt 0) {
     # Явно и громко: «готово частично» раньше читалось как «готово», и правка молча не
@@ -409,7 +456,7 @@ if ($failed.Count -gt 0) {
     Write-Host "== Готово =="
 }
 Write-Host "Хост:   dist\host\   (start-hub.cmd, szcli.cmd)"
-Write-Host "Клиент: dist\client\ (SzDiag.Agent.exe + ключ + testsuite)"
+Write-Host "Клиент: dist\client\ (SzDiag.Agent.exe + ключ + testsuite, updater-log.cmd)"
 Write-Host "Гайд:   docs\TESTING.md"
 Write-Host "Открой порт на хосте (от админа):"
 Write-Host "  New-NetFirewallRule -DisplayName szdiag-hub-$Port -Direction Inbound -Protocol TCP -LocalPort $Port -Action Allow"

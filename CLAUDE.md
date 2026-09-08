@@ -288,7 +288,14 @@ IP и пинг hub; ручной повтор — команда `net-up`. Но�
   Находит hub (`HubDiscovery`, вынесен в Contracts), сверяет `version.txt`, при расхождении
   качает пакет агента с hub (`/agent/version|package|package.sha256`, sha256-проверка),
   распаковывает поверх (`PackageApplier` — кроме `appsettings.json`/`tools/`) и запускает
-  `agent.exe`. Пакет собирает `build-dist` в `dist\host\hub\agent-dist\`.
+  `agent.exe`. Пакет собирает `build-dist` в `dist\host\hub\agent-dist\`. Весь вывод дублируется
+  в `logs\updater.log` рядом с exe (`UpdaterLog`; из облачной папки или когда рядом с exe
+  писать нельзя — в `%TEMP%\szdiag\`; фактический путь печатается в окно). Если лога нет
+  вообще — процесс не дошёл до `Main` (отказ UAC, антивирус, старый exe без логирования):
+  на это `dist\client\updater-log.cmd` — запускает апдейтер с перехватом вывода в
+  `updater-run.txt`, печатает дату и размер exe и держит окно.
+  Коды: 1 нет агента · 2 hub не найден · 3 обновление невозможно ·
+  4 облачная папка · 5 необработанное исключение (стек — в логе).
 - **SzDiag.ConsoleUi** — консольный UI, общий для hub, агента и CLI. `StickyHeader` —
   липкая панель статуса в верхних строках через ANSI scroll region (DECSTBM): логи
   скроллятся под ней обычным потоком, поэтому **перехват логов не нужен**.

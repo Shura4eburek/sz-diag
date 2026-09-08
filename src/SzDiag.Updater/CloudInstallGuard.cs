@@ -19,7 +19,10 @@ public static class CloudInstallGuard
         if (!CloudSyncPaths.IsSynced(baseDir)) return null;
         return $"Апдейтер запущен из синхронизируемой облачной папки: {baseDir}\n" +
                "Логи и state.json текущей сессии уедут в личное облако клиента и не откатятся " +
-               "при закрытии СЗ (бэклог п.41). Перенеси SzDiag.Updater.exe + appsettings.json " +
-               "в локальную папку (например C:\\szdiag или C:\\Client-test вне облака) и запусти оттуда.";
+               "при закрытии СЗ (бэклог п.41).\n" +
+               "ЧТО ДЕЛАТЬ: перенеси SzDiag.Updater.exe + appsettings.json в C:\\szdiag " +
+               "(любая папка вне облака) и запусти оттуда.\n" +
+               "ПОЧЕМУ ЭТО ЧАСТО: рабочий стол в Windows 11 по умолчанию синхронизируется в " +
+               "OneDrive, поэтому «положил на рабочий стол» = положил в облако (161642).";
     }
 }
