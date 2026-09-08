@@ -6,7 +6,9 @@ namespace SzDiag.Erp;
 /// <summary>Тонкий транспорт к локальному API: один POST на вызов инструмента.</summary>
 public sealed class ErpApiClient : IDisposable
 {
-    private const string TokenHeader = "X-Api-Token";
+    // Имя заголовка задаёт сторона API: с версии клиента от 2026-09-03 это X-TeleAuto-Token,
+    // старое X-Api-Token отвечает 401 (поймано на 161642 — fetch падал «неверный токен»).
+    private const string TokenHeader = "X-TeleAuto-Token";
 
     private readonly HttpClient _http;
     private readonly bool _ownsHttp;
@@ -54,7 +56,13 @@ public sealed class ErpApiClient : IDisposable
         HttpResponseMessage response;
         try
         {
-            response = await _http.PostAsJsonAsync("/call", new { name, arguments = args ?? new { } }, ct);
+            // Только StringContent: у него известна длина, поэтому уходит Content-Length.
+            // PostAsJsonAsync отдаёт JsonContent без длины → HttpClient шлёт chunked, а сервер
+            // на той стороне (BaseHTTPRequestHandler) читает РОВНО Content-Length и получает
+            // пустое тело — ответ «нет поля name» при корректном запросе (поймано на 161642).
+            var payload = JsonSerializer.Serialize(new { name, arguments = args ?? new { } });
+            using var content = new StringContent(payload, System.Text.Encoding.UTF8, "application/json");
+            response = await _http.PostAsync("/call", content, ct);
         }
         catch (HttpRequestException e)
         {
