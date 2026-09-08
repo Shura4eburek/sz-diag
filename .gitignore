@@ -46,3 +46,7 @@ build/
 
 # Локальная дока по API учётной системы — держим вне репо (он публичный)
 docs/erp-api.md
+
+# Telegram-бот уведомлений: токен и маппинг id -> username (личные данные)
+telegram-users.json
+secrets/telegram.json

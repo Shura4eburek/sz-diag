@@ -6,7 +6,14 @@
 $Sz = '000000'   # ← номер СЗ: попадает в имя задачи, чтобы хвосты было видно в inventory
 
 $proc = Get-CimInstance Win32_Process -Filter "Name='SzDiag.Agent.exe'" | Select-Object -First 1
-$lhm  = Join-Path (Split-Path $proc.ExecutablePath -Parent) 'tools\lhmmon\lhmmon.exe'
+# Тулы лежат либо рядом с агентом, либо в ProgramData (агент запущен из OneDrive-папки —
+# 161716, 04.09: рецепт искал только рядом и молча выдал «НЕ ЗАПУСТИЛСЯ»).
+$lhm = @(
+    (Join-Path (Split-Path $proc.ExecutablePath -Parent) 'tools\lhmmon\lhmmon.exe'),
+    (Join-Path $env:ProgramData 'szdiag\tools\lhmmon\lhmmon.exe')
+) | Where-Object { Test-Path $_ } | Select-Object -First 1
+if (-not $lhm) { 'lhmmon.exe не найден ни рядом с агентом, ни в ProgramData — сначала szcli push <СЗ> lhmmon'; return }
+"lhmmon: $lhm"
 $task = "szdiag-lhm-$Sz"
 
 schtasks /delete /tn $task /f 2>$null | Out-Null
