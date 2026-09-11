@@ -23,6 +23,10 @@ $Sz       = '162367'              # ← номер СЗ
 $Schedule = 'schedule-mem.json'   # ← расписание (make-mem-schedule.ps1)
 $Tag      = 'EXPO6000'            # ← метка конфигурации в имя отчёта: EXPO6000 / JEDEC4800
 $Suffix   = 'mem'                 # ← в имя задачи: szdiag-occt<Suffix>-<СЗ>
+# Лимит задачи — С ЗАПАСОМ сверх длительности расписания (162003, 11.09): при лимите ровно 3 ч
+# на 3-часовое расписание планировщик убивает OCCTCmd за секунды до конца, а отчёт OCCT пишет
+# только по завершении — прогон целиком уходит в мусор.
+$LimitHours = 4                   # ← > длительности расписания
 
 $proc = Get-CimInstance Win32_Process -Filter "Name='SzDiag.Agent.exe'" | Select-Object -First 1
 if (-not $proc) { 'агент не найден — не от чего считать путь к tools\occt'; return }
@@ -54,7 +58,7 @@ Unregister-ScheduledTask -TaskName $task -Confirm:$false -ErrorAction SilentlyCo
 $argline = 'test --schedule="{0}" --auto-start=true --auto-save-report=true --report-file="{1}" --overwrite-report-file=true --auto-close=true' -f $sched, $report
 $action    = New-ScheduledTaskAction -Execute (Join-Path $occt 'OCCTCmd.exe') -Argument $argline -WorkingDirectory $occt
 $principal = New-ScheduledTaskPrincipal -UserId 'SYSTEM' -LogonType ServiceAccount -RunLevel Highest
-$settings  = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -MultipleInstances IgnoreNew -ExecutionTimeLimit ([TimeSpan]::FromHours(3))
+$settings  = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -MultipleInstances IgnoreNew -ExecutionTimeLimit ([TimeSpan]::FromHours($LimitHours))
 Register-ScheduledTask -TaskName $task -Action $action -Principal $principal -Settings $settings | Out-Null
 Start-ScheduledTask -TaskName $task
 "задача $task запущена, отчёт: $report"

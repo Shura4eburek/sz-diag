@@ -34,7 +34,9 @@ $marker = if ($here) { Join-Path $here 'bootprobe.marker' } else { '' }
 
 # ---------- режим установки: скрипт приехал через exec и рядом нет маркера ----------
 if (-not $marker -or -not (Test-Path $marker)) {
-    $agent = Get-Process -Name 'agent' -ErrorAction SilentlyContinue |
+    # имя процесса агента отличается по сборкам (agent.exe / SzDiag.Agent.exe) — ищем по обоим
+    $agent = Get-Process -ErrorAction SilentlyContinue |
+             Where-Object { $_.ProcessName -in @('agent', 'SzDiag.Agent') } |
              Select-Object -First 1 -ExpandProperty Path
     if (-not $agent) { throw 'Не найден процесс agent.exe — некуда ставить пробу (тулзы живут рядом с агентом)' }
     $dir = Join-Path (Split-Path -Parent $agent) 'tools\bootprobe'
@@ -73,7 +75,9 @@ foreach ($m in $ids) {
     $name = -join ($m.UserFriendlyName | Where-Object { $_ -gt 0 } | ForEach-Object { [char]$_ })
     $sn = -join ($m.SerialNumberID | Where-Object { $_ -gt 0 } | ForEach-Object { [char]$_ })
     $c = $conn | Where-Object { $_.InstanceName -eq $m.InstanceName } | Select-Object -First 1
-    $t = if ($c) { $techMap[[int64]$c.VideoOutputTechnology] } else { $null }
+    # ключи хэштаблицы - int32: обращение по [int64] их НЕ находит и тип выхода теряется
+    $t = if ($c) { $techMap[[int]$c.VideoOutputTechnology] } else { $null }
+    if (-not $t -and $c) { $t = "код $($c.VideoOutputTechnology)" }
     if (-not $t) { $t = '?' }
     $mons += ('{0}/{1}/{2}' -f $name, $sn, $t)
 }

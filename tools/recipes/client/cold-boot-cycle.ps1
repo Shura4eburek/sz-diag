@@ -31,7 +31,9 @@ $here = if ($self) { Split-Path -Parent $self } else { '' }
 $marker = if ($here) { Join-Path $here 'bootcycle.marker' } else { '' }
 
 if (-not $marker -or -not (Test-Path $marker)) {
-    $agent = Get-Process -Name 'agent' -ErrorAction SilentlyContinue |
+    # имя процесса агента отличается по сборкам (agent.exe / SzDiag.Agent.exe) — ищем по обоим
+    $agent = Get-Process -ErrorAction SilentlyContinue |
+             Where-Object { $_.ProcessName -in @('agent', 'SzDiag.Agent') } |
              Select-Object -First 1 -ExpandProperty Path
     if (-not $agent) { throw 'Не найден процесс agent.exe — некуда ставить цикл' }
     $dir = Join-Path (Split-Path -Parent $agent) 'tools\bootprobe'

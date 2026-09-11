@@ -104,7 +104,8 @@ foreach ($m in $ids) {
     $name = -join ($m.UserFriendlyName | Where-Object { $_ -gt 0 } | ForEach-Object { [char]$_ })
     $sn = -join ($m.SerialNumberID | Where-Object { $_ -gt 0 } | ForEach-Object { [char]$_ })
     $c = $conn | Where-Object { $_.InstanceName -eq $m.InstanceName } | Select-Object -First 1
-    $t = if ($c) { $techMap[[int64]$c.VideoOutputTechnology] } else { '?' }
+    # ключи хэштаблицы - int32: обращение по [int64] их НЕ находит и тип выхода теряется
+    $t = if ($c) { $techMap[[int]$c.VideoOutputTechnology] } else { '?' }
     if (-not $t) { $t = "код $($c.VideoOutputTechnology)" }
     '   {0} / SN {1} / {2}' -f $name, $sn, $t
 }
