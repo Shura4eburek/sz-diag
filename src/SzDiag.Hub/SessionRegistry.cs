@@ -66,9 +66,17 @@ public sealed class SessionRegistry
     /// <param name="lastShutdown">Чем закончилась прошлая сессия ОС по журналу клиента
     /// (<see cref="ShutdownKind"/>). Выключение кнопкой в счётчик отказов не идёт: на 161312
     /// два «аварийных выключения» из пяти были нажатием кнопки (бэклог п.93).</param>
+    /// <param name="lanIp">Адрес машины в её собственной сети со слов агента — справочный.
+    /// Адресом подключения не является: за туннелем и за NAT по нему не достучаться.</param>
+    /// <param name="accessHost">Имя quick tunnel'а, если поднят. Именно оно, а не
+    /// <paramref name="ip"/>, становится адресом подключения в туннельном режиме.</param>
+    /// <param name="accessMode">См. <see cref="AccessMode"/>; null у агентов старых сборок.</param>
+    /// <param name="sshHostKeyFingerprint">Публичный host-ключ sshd клиента для пиннинга.</param>
     public RegisterOutcome Register(string sz, string ip, string hostname, string connectionId,
         DateTimeOffset? bootTime = null, string? lastShutdown = null,
-        string? agentUser = null, int? agentSessionId = null)
+        string? agentUser = null, int? agentSessionId = null,
+        string? lanIp = null, string? accessHost = null, string? accessMode = null,
+        string? sshHostKeyFingerprint = null)
     {
         var now = _time.GetUtcNow();
         _bySz.TryGetValue(sz, out var prev);
@@ -91,7 +99,9 @@ public sealed class SessionRegistry
         // RevertNote раньше Status == Online.
         var info = new SessionInfo(sz, ip, hostname, SessionStatus.Online, now, now,
             BootTime: bootTime, LastRebootAt: lastReboot, RebootCount: rebootCount,
-            AgentUser: agentUser, AgentSessionId: agentSessionId);
+            AgentUser: agentUser, AgentSessionId: agentSessionId,
+            LanIp: lanIp, AccessHost: accessHost, AccessMode: accessMode,
+            SshHostKeyFingerprint: sshHostKeyFingerprint);
         _bySz[sz] = new Entry(info, connectionId);
 
         if (!rebooted)
@@ -120,6 +130,34 @@ public sealed class SessionRegistry
         if (!_bySz.TryGetValue(sz, out var e)) return false;
         var now = _time.GetUtcNow();
         _bySz[sz] = e with { Info = e.Info with { Status = SessionStatus.Online, LastHeartbeat = now } };
+        return true;
+    }
+
+    /// <summary>Агент сообщил, чем машина доступна сейчас. Отдельно от <see cref="Register"/>,
+    /// потому что имя quick tunnel'а меняется в течение сессии: туннель не сохраняет hostname
+    /// между запусками, а агент переподнимает его после ребута и при обрыве.
+    ///
+    /// Пустое <paramref name="accessHost"/> — не ошибка: туннель отвалился, сессия при этом
+    /// жива (управляющий канал отдельный). Освежает heartbeat, раз агент на связи.</summary>
+    public bool SetAccess(string sz, string? accessHost, string? accessMode, string? fingerprint)
+    {
+        if (!_bySz.TryGetValue(sz, out var e)) return false;
+        var now = _time.GetUtcNow();
+        _bySz[sz] = e with
+        {
+            Info = e.Info with
+            {
+                AccessHost = string.IsNullOrWhiteSpace(accessHost) ? null : accessHost,
+                AccessMode = string.IsNullOrWhiteSpace(accessMode) ? null : accessMode,
+                // Ключ пустым не затираем: агент может отчитаться о смене имени туннеля, не
+                // трогая host-ключ — ключи переживают перезапуск туннеля, терять пиннинг нельзя.
+                SshHostKeyFingerprint = string.IsNullOrWhiteSpace(fingerprint)
+                    ? e.Info.SshHostKeyFingerprint
+                    : fingerprint,
+                Status = SessionStatus.Online,
+                LastHeartbeat = now,
+            }
+        };
         return true;
     }
 
