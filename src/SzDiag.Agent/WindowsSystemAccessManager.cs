@@ -14,15 +14,24 @@ public sealed class WindowsSystemAccessManager : ISystemAccessManager
     private const string AdminsSid = "S-1-5-32-544";
     private const string TokenPolicyPath = @"HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System";
 
+    /// <summary>Сколько ждём имя от quick tunnel'а. Больше — задерживаем открытие доступа
+    /// ради необязательного шага; меньше — не успеваем на медленной сети клиента.</summary>
+    private static readonly TimeSpan TunnelStartTimeout = TimeSpan.FromSeconds(30);
+
     private readonly IPowerShellRunner _ps;
     private readonly ISshServer _sshd;
     private readonly string _statePath;
+    private readonly IAccessTunnel? _tunnel;
 
-    public WindowsSystemAccessManager(IPowerShellRunner ps, ISshServer sshd, string statePath)
+    /// <param name="tunnel">null — прямой режим: машина в одной сети с боксом, публиковать
+    /// sshd наружу не нужно.</param>
+    public WindowsSystemAccessManager(IPowerShellRunner ps, ISshServer sshd, string statePath,
+        IAccessTunnel? tunnel = null)
     {
         _ps = ps;
         _sshd = sshd;
         _statePath = statePath;
+        _tunnel = tunnel;
     }
 
     /// <summary>Постороннее <c>szdiag-*</c> на клиенте ДО открытия доступа своей сессии
@@ -151,6 +160,36 @@ public sealed class WindowsSystemAccessManager : ISystemAccessManager
         state.CreatedDesktopShortcut = LocalRevertShortcut.Create(_ps, spec.Sz, exe, _statePath);
         Persist();
 
+        // 10. Публикация sshd наружу через quick tunnel — последним, туннель бессмысленен
+        // без живого sshd. Шаг необязательный: не поднялся — доступ остаётся открытым,
+        // заявка продолжает работать через exec-канал, а `target` честно скажет, что SSH
+        // недоступен, вместо неработающей строки.
+        if (_tunnel is not null)
+        {
+            try
+            {
+                state.TunnelTaskName = $"szdiag-cfd-{spec.Sz}";
+                var host = _tunnel.Start(spec.SshPort, state.TunnelTaskName, TunnelStartTimeout);
+                if (!string.IsNullOrWhiteSpace(host))
+                {
+                    state.StartedQuickTunnel = true;
+                    state.QuickTunnelHost = host;
+                }
+                else
+                {
+                    // Имя не появилось — задачу Start уже снял за собой, флаг не ставим.
+                    state.TunnelTaskName = "";
+                }
+            }
+            catch
+            {
+                // Туннель — не причина не открыть доступ. Молчать не страшно: режим уедет
+                // на hub как Direct, и `szcli target` честно скажет, что SSH недоступен.
+                state.TunnelTaskName = "";
+            }
+            Persist();
+        }
+
         return state;
     }
 
@@ -167,6 +206,15 @@ public sealed class WindowsSystemAccessManager : ISystemAccessManager
             try { action(); done.Add(name); }
             catch (Exception ex) { failed.Add(new RevertStepFailure(name, ex.ToString())); }
         }
+
+        // Туннель снимаем ПЕРВЫМ, раньше sshd: иначе на время отката наружу остаётся
+        // опубликованная дверь в уже разваливающийся доступ.
+        Step("quick tunnel", state.StartedQuickTunnel && _tunnel is not null, () =>
+        {
+            _tunnel!.Stop(state.TunnelTaskName);
+            state.StartedQuickTunnel = false;
+            state.QuickTunnelHost = "";
+        });
 
         // Ярлык «закрыть доступ» снимаем в самом начале: он ведёт на этот же откат, и
         // оставшийся на рабочем столе клиента ярлык — такой же след, как задача или учётка.

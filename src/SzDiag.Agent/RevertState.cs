@@ -33,4 +33,18 @@ public sealed class RevertState
     public int? TokenPolicyPreviousValue { get; set; }
     public bool CreatedWatchdogTask { get; set; }
     public bool CreatedAutostartTask { get; set; }
+
+    /// <summary>Имя quick tunnel'а этой сессии. Меняется при каждом переподнятии (туннель не
+    /// сохраняет hostname между запусками), поэтому хранится ради отката и диагностики —
+    /// актуальный адрес живёт на hub, куда агент шлёт ReportAccess.</summary>
+    public string QuickTunnelHost { get; set; } = "";
+
+    /// <summary>Задача, под которой крутится cloudflared (транзиентная, под SYSTEM).</summary>
+    public string TunnelTaskName { get; set; } = "";
+
+    public bool StartedQuickTunnel { get; set; }
+
+    /// <summary>Клали ли cloudflared.exe на машину мы. Если бинарь был там до нас — при
+    /// откате не трогаем: чужое не наше дело.</summary>
+    public bool DeployedCloudflared { get; set; }
 }
