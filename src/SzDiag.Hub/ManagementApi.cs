@@ -275,8 +275,16 @@ public static class ManagementApi
                     Unavailable: "туннель не поднят — SSH недоступен; exec-канал работает"));
 
             var host = s.AccessMode == AccessMode.Tunnel ? s.AccessHost! : s.Ip;
+            // Ключ приколот только когда агент его прислал: у старых сборок его нет, и
+            // ломать им рабочий путь нельзя.
+            string? knownHosts = null;
+            if (!string.IsNullOrWhiteSpace(s.SshHostKeyFingerprint))
+            {
+                var candidate = KnownHostsWriter.PathFor(opts.Value.KnownHostsRoot, sz);
+                if (File.Exists(candidate)) knownHosts = candidate;
+            }
             return Results.Ok(new TargetInfo(sz, s.Ip, user, $"ssh {user}@{host}",
-                s.AccessHost, s.AccessMode));
+                s.AccessHost, s.AccessMode, KnownHostsPath: knownHosts));
         });
     }
 }

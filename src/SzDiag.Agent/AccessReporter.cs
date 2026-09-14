@@ -21,8 +21,9 @@ public static class AccessReporter
         // Туннельным режим называем, только когда имя реально есть: иначе target напечатает
         // ProxyCommand в никуда вместо честного «SSH недоступен».
         if (foundHubByBroadcast || !туннельЖив)
-            return new AccessReportRequest(sz, null, AccessMode.Direct);
+            return new AccessReportRequest(sz, null, AccessMode.Direct, state.SshHostPublicKey);
 
-        return new AccessReportRequest(sz, state.QuickTunnelHost, AccessMode.Tunnel);
+        return new AccessReportRequest(sz, state.QuickTunnelHost, AccessMode.Tunnel,
+            state.SshHostPublicKey);
     }
 }

@@ -9,5 +9,8 @@ namespace SzDiag.Contracts;
 /// <param name="AccessMode">См. <see cref="SzDiag.Contracts.AccessMode"/>.</param>
 /// <param name="Unavailable">Заполнено, когда подключиться нельзя. Печатать в этом случае
 /// неработающую строку — врать пользователю: `target` обязан назвать причину.</param>
+/// <param name="KnownHostsPath">Файл с приколотым host-ключом этой СЗ (лежит на том же
+/// боксе, что и CLI). Задан — ходим со строгой проверкой; null — агент ключа не присылал.</param>
 public sealed record TargetInfo(string Sz, string Ip, string User, string Ssh,
-    string? AccessHost = null, string? AccessMode = null, string? Unavailable = null);
+    string? AccessHost = null, string? AccessMode = null, string? Unavailable = null,
+    string? KnownHostsPath = null);

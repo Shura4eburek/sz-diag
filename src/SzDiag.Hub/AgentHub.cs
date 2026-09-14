@@ -150,6 +150,25 @@ public sealed class AgentHub : Microsoft.AspNetCore.SignalR.Hub
 
         _registry.SetAccess(request.Sz, request.AccessHost, request.AccessMode,
             request.SshHostKeyFingerprint);
+
+        // Пиннинг host-ключа: имя quick tunnel'а публично и не аутентифицировано, и без
+        // known_hosts подмену не отличить. Ключ пришёл управляющим каналом (аутентифицирован,
+        // по TLS), а не с того конца, к которому мы будем подключаться, — в этом и смысл.
+        if (!string.IsNullOrWhiteSpace(request.SshHostKeyFingerprint)
+            && !string.IsNullOrWhiteSpace(request.AccessHost))
+        {
+            try
+            {
+                KnownHostsWriter.Write(_options.KnownHostsRoot, request.Sz,
+                    request.AccessHost, request.SshHostKeyFingerprint);
+            }
+            catch (Exception ex)
+            {
+                // Не смогли записать — сессия не страдает, но строгую проверку включить
+                // будет нечем: `target` отдаст прежний вариант без пиннинга.
+                Console.WriteLine($"[hub] СЗ {request.Sz}: не записал known_hosts: {ex.Message}");
+            }
+        }
         return Task.CompletedTask;
     }
 

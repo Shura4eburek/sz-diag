@@ -15,3 +15,29 @@ public interface IAccessTunnel
     /// <summary>Снять туннель (идемпотентно): задача и процесс.</summary>
     void Stop(string taskName);
 }
+
+/// <summary>Чтение публичного host-ключа portable sshd для пиннинга на hub. Вынесено
+/// отдельно: формат `*.pub` — «тип ключ комментарий», а в known_hosts комментарий не нужен
+/// и только мешает сравнению.</summary>
+public static class SshHostKeyReader
+{
+    /// <summary>Читает `ssh_host_ed25519_key.pub` из рабочей папки sshd и возвращает первые
+    /// два поля («ssh-ed25519 AAAA…»). null — файла нет или он пуст: пиннинг тогда просто
+    /// не включится, рабочий путь остаётся прежним.</summary>
+    public static string? TryRead(string sshWorkDir)
+    {
+        try
+        {
+            var path = Path.Combine(sshWorkDir, "ssh_host_ed25519_key.pub");
+            if (!File.Exists(path)) return null;
+
+            var parts = File.ReadAllText(path).Trim()
+                .Split(' ', StringSplitOptions.RemoveEmptyEntries);
+            return parts.Length >= 2 ? $"{parts[0]} {parts[1]}" : null;
+        }
+        catch
+        {
+            return null;
+        }
+    }
+}

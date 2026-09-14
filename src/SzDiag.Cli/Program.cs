@@ -576,7 +576,8 @@ switch (command)
         var key = TargetSsh.FindKey(options.SshKeyPath, AppContext.BaseDirectory);
         var viaTunnel = t.AccessMode == AccessMode.Tunnel;
         var targetHost = viaTunnel ? t.AccessHost! : t.Ip;
-        AnsiConsole.WriteLine(TargetSsh.BuildSshLine(t.User, targetHost, key, viaTunnel));
+        AnsiConsole.WriteLine(TargetSsh.BuildSshLine(t.User, targetHost, key, viaTunnel,
+            t.KnownHostsPath));
         if (key is null)
             AnsiConsole.MarkupLine("[yellow]⚠ Ключ svc_diag_key не найден (SshKeyPath в appsettings.json) — добавь -i <путь к ключу>.[/]");
         break;

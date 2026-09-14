@@ -1,4 +1,4 @@
-using System.Security.Cryptography;
+﻿using System.Security.Cryptography;
 using SzDiag.Contracts;
 
 namespace SzDiag.Agent;
@@ -139,6 +139,9 @@ public sealed class WindowsSystemAccessManager : ISystemAccessManager
         state.GeneratedHostKeys = true;
         state.WroteAuthorizedKey = true;
         state.CreatedSshdTask = true;
+        // Публичный host-ключ — для пиннинга на hub: имя туннеля публично и не
+        // аутентифицировано, без known_hosts подмену не отличить.
+        state.SshHostPublicKey = SshHostKeyReader.TryRead(_sshd.WorkDir);
         Persist();
 
         // 7. Watchdog scheduled task (запускает этот exe с --revert по таймауту)
@@ -287,6 +290,7 @@ public sealed class WindowsSystemAccessManager : ISystemAccessManager
         // задача). User/firewall/token policy/watchdog переживают ребут.
         var keyLine = $"{spec.ServicePublicKey.Trim()} {state.AuthorizedKeyComment}";
         _sshd.Start(spec.SshPort, keyLine, state.SshdTaskName);
+        state.SshHostPublicKey = SshHostKeyReader.TryRead(_sshd.WorkDir);
 
         // Пересоздать watchdog с новым дедлайном (-Force): серия ребутов под стрессом
         // продлевает сессию, а не грохает её протухшим -Once из прошлой загрузки.

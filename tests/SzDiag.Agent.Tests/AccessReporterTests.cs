@@ -69,6 +69,49 @@ public class AccessReporterTests
     }
 
     [Fact]
+    public void Host_ключ_едет_в_отчёте_в_обоих_режимах()
+    {
+        // Пиннинг нужен и в прямом режиме: IP переиспользуются между заявками, и подмену
+        // там сегодня тоже нечем отличить.
+        var прямой = new RevertState { Sz = "162003", SshHostPublicKey = "ssh-ed25519 AAAA1" };
+        var туннельный = new RevertState
+        {
+            Sz = "162003",
+            StartedQuickTunnel = true,
+            QuickTunnelHost = "a.trycloudflare.com",
+            SshHostPublicKey = "ssh-ed25519 AAAA1",
+        };
+
+        Assert.Equal("ssh-ed25519 AAAA1",
+            AccessReporter.BuildReport(прямой, "162003", true).SshHostKeyFingerprint);
+        Assert.Equal("ssh-ed25519 AAAA1",
+            AccessReporter.BuildReport(туннельный, "162003", false).SshHostKeyFingerprint);
+    }
+
+    [Fact]
+    public void Комментарий_из_pub_файла_в_known_hosts_не_едет()
+    {
+        // Формат *.pub — «тип ключ комментарий». Комментарий в known_hosts не нужен и
+        // только мешает сравнению.
+        var dir = Path.Combine(Path.GetTempPath(), "szssh-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(dir);
+        try
+        {
+            File.WriteAllText(Path.Combine(dir, "ssh_host_ed25519_key.pub"),
+                "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5 szdiag@TEST-PC\n");
+
+            Assert.Equal("ssh-ed25519 AAAAC3NzaC1lZDI1NTE5", SshHostKeyReader.TryRead(dir));
+        }
+        finally { Directory.Delete(dir, recursive: true); }
+    }
+
+    [Fact]
+    public void Нет_pub_файла_ключа_нет_и_пиннинг_просто_не_включится()
+    {
+        Assert.Null(SshHostKeyReader.TryRead(Path.Combine(Path.GetTempPath(), "нет-такой-папки-" + Guid.NewGuid())));
+    }
+
+    [Fact]
     public void Номер_СЗ_берётся_из_аргумента_а_не_из_состояния()
     {
         // Состояние могло остаться от прошлой заявки — отчитываемся за ту СЗ, под которой

@@ -54,4 +54,9 @@ public sealed class RevertState
     /// агентов одинаковый IP. Скоупнут одной СЗ: позволяет ровно одно — отчитаться о её
     /// откате.</summary>
     public string? SessionSecret { get; set; }
+
+    /// <summary>Публичный host-ключ нашего portable sshd (строка из `*.pub` без комментария).
+    /// Уезжает hub управляющим каналом, чтобы тот приколол его в known_hosts: имя quick
+    /// tunnel'а публично и не аутентифицировано, без пиннинга подмену не отличить.</summary>
+    public string? SshHostPublicKey { get; set; }
 }

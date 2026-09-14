@@ -38,6 +38,11 @@ public sealed class HubOptions
     /// от папки exe. Намеренно НЕ в vault: дампы и CSV раздувают git-историю базы знаний.</summary>
     public string PullRoot { get; set; } = "pulled";
 
+    /// <summary>Куда складывать known_hosts по СЗ (относительный — от папки exe). Нужен,
+    /// чтобы `szcli target` ходил со строгой проверкой host-ключа: имя quick tunnel'а
+    /// публично и не аутентифицировано, без пиннинга подмену не отличить.</summary>
+    public string KnownHostsRoot { get; set; } = "known_hosts";
+
     /// <summary>Каталог лог-файлов hub (относительный — от папки exe). Пусто — не писать в файл.</summary>
     public string LogDir { get; set; } = "logs";
 
