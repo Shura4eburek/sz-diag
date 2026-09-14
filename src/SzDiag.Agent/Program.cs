@@ -214,9 +214,15 @@ if (args.Length >= 2 && args[0] == "--resume")
     var rSpec = new AccessSpec(state.Sz, rOpts.ServiceAccount, rPubKey, rOpts.SshPort,
         TimeSpan.FromHours(rOpts.WatchdogHours));
     var rSshd = new PortableSshServer(R(rOpts.SshBinDir), rOpts.SshWorkDir, ps);
-    var rManager = new WindowsSystemAccessManager(ps, rSshd, args[1]);
+    var rCloudflared = string.IsNullOrWhiteSpace(rOpts.CloudflaredPath)
+        ? null : R(rOpts.CloudflaredPath);
+    IAccessTunnel? rTunnel = rCloudflared is not null && File.Exists(rCloudflared)
+        ? new CloudflaredTunnel(rCloudflared, rOpts.SshWorkDir, ps)
+        : null;
+    var rManager = new WindowsSystemAccessManager(ps, rSshd, args[1], rTunnel);
 
     var rHubUrl = rOpts.HubUrl;
+    var rFoundByBroadcast = string.IsNullOrWhiteSpace(rHubUrl);
     if (string.IsNullOrWhiteSpace(rHubUrl))
     {
         try { rHubUrl = await HubDiscovery.FindHubAsync(rOpts.AgentToken); }
@@ -228,12 +234,13 @@ if (args.Length >= 2 && args[0] == "--resume")
         }
     }
 
-    var rLink = new SignalRHubLink(rHubUrl, rOpts.AgentToken);
+    var rLink = new SignalRHubLink(rHubUrl, rOpts.AgentToken,
+        rOpts.AccessClientId, rOpts.AccessClientSecret);
     // Разбор прошлого выключения уезжает на hub вместе с boot-time: без него нажатие
     // кнопки питания попадало в счётчик вырубонов наравне с обрывом (бэклог п.93).
     var rBoot = BootTimeReader.Read(ps);
     var rSession = new AgentSession(rManager, rLink, rSpec, Environment.MachineName,
-        rBoot, ShutdownClassifier.Read(ps, rBoot));
+        rBoot, ShutdownClassifier.Read(ps, rBoot), rFoundByBroadcast);
 
     // Ребут мог случиться быстрее, чем поднялась сеть — bounded-ретрай подъёма.
     const int maxAttempts = 10;
@@ -518,7 +525,14 @@ var spec = new AccessSpec(sz, opts.ServiceAccount, pubKey, opts.SshPort,
 
 var sshBinDir = ResolvePath(opts.SshBinDir);
 var sshd = new PortableSshServer(sshBinDir, opts.SshWorkDir, ps);
-var manager = new WindowsSystemAccessManager(ps, sshd, opts.StatePath);
+// Туннель поднимаем, только когда на клиенте есть cloudflared: бинарь приезжает через
+// `szcli push`, и до его доставки работает прямой режим.
+var cloudflaredPath = string.IsNullOrWhiteSpace(opts.CloudflaredPath)
+    ? null : ResolvePath(opts.CloudflaredPath);
+IAccessTunnel? accessTunnel = cloudflaredPath is not null && File.Exists(cloudflaredPath)
+    ? new CloudflaredTunnel(cloudflaredPath, opts.SshWorkDir, ps)
+    : null;
+var manager = new WindowsSystemAccessManager(ps, sshd, opts.StatePath, accessTunnel);
 
 // Бэклог п.140 (#77): опечатка в номере СЗ от ручного/бракованного запуска не оставляет
 // state.json — RevertStaleState такой хвост не увидит никогда. Единственный шанс поймать —
@@ -546,7 +560,8 @@ if (string.IsNullOrWhiteSpace(hubUrl))
     }
 }
 
-var link = new SignalRHubLink(hubUrl, opts.AgentToken);
+var link = new SignalRHubLink(hubUrl, opts.AgentToken,
+    opts.AccessClientId, opts.AccessClientSecret);
 var sessionBoot = BootTimeReader.Read(ps);
 var session = new AgentSession(manager, link, spec, Environment.MachineName,
     sessionBoot, ShutdownClassifier.Read(ps, sessionBoot), foundHubByBroadcast);

@@ -7,11 +7,23 @@ public sealed class SignalRHubLink : IHubLink
 {
     private readonly HubConnection _conn;
 
-    public SignalRHubLink(string hubUrl, string token)
+    /// <param name="accessClientId">Service token приложения Cloudflare Access перед hub
+    /// (пара заголовков CF-Access-*). Пусто — Access не используется: hub в локальной сети.
+    /// Это секрет доступа к НАШЕМУ hub, общий для всех агентов, — ровно то же, чем уже
+    /// является <paramref name="token"/>, так что модель угроз не меняется.</param>
+    public SignalRHubLink(string hubUrl, string token,
+        string? accessClientId = null, string? accessClientSecret = null)
     {
         _conn = new HubConnectionBuilder()
             .WithUrl($"{hubUrl.TrimEnd('/')}{HubRoutes.Path}", o =>
-                o.Headers[HubRoutes.TokenHeader] = token)
+            {
+                o.Headers[HubRoutes.TokenHeader] = token;
+                if (!string.IsNullOrWhiteSpace(accessClientId))
+                {
+                    o.Headers["CF-Access-Client-Id"] = accessClientId;
+                    o.Headers["CF-Access-Client-Secret"] = accessClientSecret ?? "";
+                }
+            })
             .WithAutomaticReconnect()
             .Build();
     }

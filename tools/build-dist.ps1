@@ -41,7 +41,18 @@ param(
     # намеренно: репозиторий публичный, конкретика живёт в docs\erp-api.md вне git.
     # Пустой ErpPort = команда честно скажет «адрес не задан», а не будет стучаться в никуда.
     [int]$ErpPort = 0,
-    [string]$ErpTokenFile = ""
+    [string]$ErpTokenFile = "",
+    # Постоянный адрес hub через Cloudflare Tunnel (например https://hub.example.com).
+    # Задан — попадает в HubUrl клиента и становится основным путём, а UDP-broadcast
+    # остаётся запасным. Значения по умолчанию нет намеренно: репозиторий публичный,
+    # реальный домен в git не хранится.
+    [string]$HubUrl = "",
+    # Service token приложения Cloudflare Access перед hub (пара CF-Access-*).
+    [string]$AccessClientId = "",
+    [string]$AccessClientSecret = "",
+    # Путь к cloudflared.exe на клиенте. Пусто — туннель не поднимается (прямой режим);
+    # бинарь приезжает на клиента через `szcli push cloudflared`.
+    [string]$ClientCloudflaredPath = "tools\cloudflared\cloudflared.exe"
 )
 
 $ErrorActionPreference = "Stop"
@@ -335,14 +346,23 @@ if ((Test-Path dist\host\cli) -and (Should-WriteConfig "dist/host/cli")) {
     Set-Content -Path dist\host\cli\appsettings.json -Value $cliCfg -Encoding utf8
 }
 
-$hubUrlValue = if ([string]::IsNullOrWhiteSpace($HubIp)) { "" } else { "http://$($HubIp):$($Port)" }
+# Явный -HubUrl (домен через Cloudflare Tunnel) главнее -HubIp: это постоянный адрес,
+# который работает из любой сети, тогда как IP годится только внутри LAN сервиса.
+$hubUrlValue = if (-not [string]::IsNullOrWhiteSpace($HubUrl)) { $HubUrl }
+               elseif ([string]::IsNullOrWhiteSpace($HubIp)) { "" }
+               else { "http://$($HubIp):$($Port)" }
 # Через InvariantCulture: на локали с запятой "1.5" превратилось бы в "1,5" и порвало JSON.
 $watchdogValue = $WatchdogHours.ToString([System.Globalization.CultureInfo]::InvariantCulture)
 
+# JSON не терпит одиночный обратный слеш — путь к cloudflared экранируем.
+$clientCloudflaredJson = $ClientCloudflaredPath.Replace('\', '\\')
 $agentCfg = @"
 {
   "HubUrl": "$hubUrlValue",
   "AgentToken": "$Token",
+  "AccessClientId": "$AccessClientId",
+  "AccessClientSecret": "$AccessClientSecret",
+  "CloudflaredPath": "$clientCloudflaredJson",
   "ServiceAccount": "svc-diag",
   "ServicePublicKeyPath": "service_key.pub",
   "SshPort": 22,
