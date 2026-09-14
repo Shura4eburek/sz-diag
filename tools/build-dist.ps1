@@ -235,6 +235,24 @@ if (Test-Path client-tools) {
     Write-Host "-- client-tools нет: стресс-утилиты не вложены (шаги app сообщат 'не найден exe')"
 }
 
+# 2c. cloudflared для публикации sshd клиента quick tunnel'ом. Кладём в каталог раздачи,
+# чтобы он ехал на клиента по требованию через `szcli push cloudflared`, а не в пакете
+# агента: иначе апдейтер потолстеет на полсотни мегабайт ради случая, нужного не всегда.
+# Отсутствие — не ошибка: без него работает прямой режим (машина в сети бокса).
+$cloudflaredSrc = @(
+    "$env:ProgramFiles\cloudflared\cloudflared.exe",
+    "${env:ProgramFiles(x86)}\cloudflared\cloudflared.exe"
+) | Where-Object { Test-Path $_ } | Select-Object -First 1
+if ($cloudflaredSrc) {
+    $cfDst = Join-Path $ToolsRoot "cloudflared"
+    New-Item -ItemType Directory $cfDst -Force | Out-Null
+    Copy-Item $cloudflaredSrc $cfDst -Force
+    Write-Host "-- cloudflared -> $cfDst (раздача через szcli push cloudflared)"
+} else {
+    Write-Host "   cloudflared не найден на боксе — туннельный режим будет недоступен," -ForegroundColor Yellow
+    Write-Host "   пока бинарь не попадёт в $ToolsRoot\cloudflared\ (прямой режим работает)." -ForegroundColor Yellow
+}
+
 # Портативный sshd рядом с агентом: dist\client\ssh
 if (Test-Path dist\client\SzDiag.Agent.exe) {
     Write-Host "-- копирую OpenSSH -> dist\client\ssh"

@@ -30,7 +30,8 @@
 
 | Метод (`HubRoutes`) | Сигнатура на hub | Что делает |
 |---|---|---|
-| `Register` | `Register(RegisterRequest{Sz,Hostname})` | IP из соединения; `SessionRegistry.Register` + `Kb.EnsureSkeleton` + `store.RecordOpenAsync` |
+| `Register` | `Register(RegisterRequest{Sz,Hostname,…,LanIp,AccessHost,AccessMode,SshHostKeyFingerprint})` → `RegisterResponse{SessionSecret}` | `SessionRegistry.Register` + `Kb.EnsureSkeleton` + `store.RecordOpenAsync`; **возвращает секрет сессии** — им headless-откат доказывает владение СЗ |
+| `ReportAccess` | `ReportAccess(AccessReportRequest{Sz,AccessHost,AccessMode,SshHostKeyFingerprint})` | Чем машина доступна сейчас: `Registry.SetAccess` + запись `known_hosts` по СЗ. Отдельный метод, а не поле heartbeat: SignalR не умеет перегрузки, а имя quick tunnel меняется в течение сессии (после ребута оно **другое**) |
 | `Heartbeat` | `Heartbeat(string sz)` | `Registry.Heartbeat` (обновляет `LastHeartbeat`, статус Online) |
 | `ReportActivity` | `ReportActivity(sz, activity, since)` | `Registry.SetActivity`; `since=null` = простой. Fire-and-forget |
 | `UploadReportFile` | `UploadReportFile(UploadReportPart{Sz,Timestamp,FileName,Content})` | `ReportStore.Save` → `kb/СЗ/<sz>/reports/<ts>/<file>` |
@@ -360,6 +361,10 @@ staging) → `AgentLauncher.LaunchAndWait` (запуск `agent.exe` в насл
 
 - **Откат без следов**: каждый шаг `Open` ⇒ флаг + парная ветка `Revert`. Забыл → следы на клиенте.
 - **Токены разные**: агентский `X-SzDiag-Token` ≠ управляющий `X-SzDiag-Mgmt-Token`.
+- **Секрет сессии** `X-SzDiag-Session` — третий заголовок, не токен: выдаётся hub на `Register`
+  под конкретную СЗ, живёт в `state.json` агента и предъявляется на `/agent/revert-status`.
+  Нужен потому, что агентский токен общий на весь флот, а за Cloudflare Tunnel у всех
+  агентов ещё и одинаковый `RemoteIpAddress` — прежняя сверка по IP там не различает машины.
 - **UTF-8 с BOM** для файлов сборки (PowerShell 5.1 ломает кириллицу).
 - **Пути от `AppContext.BaseDirectory`**, не от CWD.
 - **`/api`-пути не в `HubRoutes`** — захардкожены в `HubApiClient` (менять в двух местах: hub-эндпоинт + клиент).
