@@ -134,6 +134,20 @@ public sealed class AgentHub : Microsoft.AspNetCore.SignalR.Hub
         }
     }
 
+    /// <summary>Агент сообщает, чем машина доступна сейчас. Зовётся при открытии доступа и
+    /// заново при каждой смене имени туннеля (ребут, переподнятие после обрыва): quick tunnel
+    /// не сохраняет hostname между запусками, поэтому одного значения из Register мало.</summary>
+    public Task ReportAccess(AccessReportRequest request)
+    {
+        // Токен /agents общий на всех агентов, поэтому Sz из тела проверяем, как и на соседних
+        // путях: без этого произвольная строка уезжает дальше по коду как номер СЗ.
+        if (!SzNumber.IsValid(request.Sz)) return Task.CompletedTask;
+
+        _registry.SetAccess(request.Sz, request.AccessHost, request.AccessMode,
+            request.SshHostKeyFingerprint);
+        return Task.CompletedTask;
+    }
+
     public Task Heartbeat(string sz)
     {
         _registry.Heartbeat(sz);
