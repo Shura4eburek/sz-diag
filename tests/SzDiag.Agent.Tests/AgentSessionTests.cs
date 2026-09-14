@@ -22,6 +22,12 @@ public class AgentSessionTests
             return new RevertOutcome(new[] { "sshd", "учётка svc-diag" }, Array.Empty<RevertStepFailure>());
         }
         public void Resume(RevertState state, AccessSpec spec) => ResumeCalls++;
+        public string? PersistedSecret { get; private set; }
+        public void PersistSessionSecret(RevertState state, string? secret)
+        {
+            PersistedSecret = secret;
+            state.SessionSecret = secret;
+        }
     }
 
     private sealed class FakeHubLink : IHubLink
@@ -34,7 +40,8 @@ public class AgentSessionTests
 
         public Task ConnectAsync(CancellationToken ct = default) { Connected = true; return Task.CompletedTask; }
         public DateTimeOffset? RegisteredBootTime { get; private set; }
-        public Task RegisterAsync(string sz, string hostname, DateTimeOffset? bootTime = null, string? lastShutdown = null, string? agentUser = null, int? agentSessionId = null, CancellationToken ct = default) { RegisteredSz = sz; RegisteredBootTime = bootTime; return Task.CompletedTask; }
+        public string? SecretToIssue { get; init; }
+        public Task<string?> RegisterAsync(string sz, string hostname, DateTimeOffset? bootTime = null, string? lastShutdown = null, string? agentUser = null, int? agentSessionId = null, CancellationToken ct = default) { RegisteredSz = sz; RegisteredBootTime = bootTime; return Task.FromResult(SecretToIssue); }
         public Task ReportPowerEventsAsync(SzDiag.Contracts.PowerEventsReport report, CancellationToken ct = default) => Task.CompletedTask;
         public Task HeartbeatAsync(string sz, CancellationToken ct = default) { Heartbeats++; return Task.CompletedTask; }
         public SzDiag.Contracts.AccessReportRequest? AccessReport { get; private set; }
@@ -94,6 +101,33 @@ public class AgentSessionTests
         Assert.Equal(1, mgr.OpenCalls);
         Assert.True(link.Connected);
         Assert.Equal("156864", link.RegisteredSz);
+    }
+
+    // Секрет обязан осесть в state.json: headless-откат (watchdog, после ребута) идёт без
+    // живого SignalR, и доказать hub владение СЗ там больше нечем.
+    [Fact]
+    public async Task StartAsync_СохраняетСекретСессии()
+    {
+        var mgr = new FakeManager();
+        var link = new FakeHubLink { SecretToIssue = "секрет-от-хаба" };
+        var session = new AgentSession(mgr, link, Spec(), "PC-1");
+
+        await session.StartAsync();
+
+        Assert.Equal("секрет-от-хаба", mgr.PersistedSecret);
+    }
+
+    [Fact]
+    public async Task ResumeAsync_ОбновляетСекретПослеРебута()
+    {
+        // Hub мог перезапуститься, пока клиент ребутился: секрет будет новым.
+        var mgr = new FakeManager();
+        var link = new FakeHubLink { SecretToIssue = "новый-секрет" };
+        var session = new AgentSession(mgr, link, Spec(), "PC-1");
+
+        await session.ResumeAsync(new RevertState { Sz = "156864", SessionSecret = "старый" });
+
+        Assert.Equal("новый-секрет", mgr.PersistedSecret);
     }
 
     // Hub перестал угадывать адрес клиента из RemoteIpAddress: без этого отчёта он не знает,

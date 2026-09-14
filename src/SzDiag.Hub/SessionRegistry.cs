@@ -133,6 +133,41 @@ public sealed class SessionRegistry
         return true;
     }
 
+    /// <summary>Секреты сессий: СЗ → секрет. Отдельно от <see cref="_bySz"/>, потому что
+    /// секрет не должен уезжать в <see cref="SessionInfo"/> — тот ходит в CLI и в журнал.</summary>
+    private readonly Dictionary<string, string> _secrets = new();
+
+    /// <summary>Выдать секрет сессии. Агент кладёт его в state.json и предъявляет при
+    /// headless-откате, когда живого SignalR-коннекта уже нет и доказать владение СЗ нечем:
+    /// токен `/agent/*` общий на весь флот.</summary>
+    public string IssueSecret(string sz)
+    {
+        var secret = Convert.ToBase64String(
+            System.Security.Cryptography.RandomNumberGenerator.GetBytes(32));
+        lock (_secrets) _secrets[sz] = secret;
+        return secret;
+    }
+
+    /// <summary>Есть ли у СЗ выданный секрет. Нет — агент старой сборки, и вызывающий
+    /// откатывается на прежнюю сверку по IP.</summary>
+    public bool HasSecret(string sz)
+    {
+        lock (_secrets) return _secrets.ContainsKey(sz);
+    }
+
+    /// <summary>Сверка секрета за фиксированное время: значение проверяется по сети.</summary>
+    public bool SecretMatches(string sz, string? secret)
+    {
+        if (string.IsNullOrEmpty(secret)) return false;
+        lock (_secrets)
+        {
+            if (!_secrets.TryGetValue(sz, out var known)) return false;
+            return System.Security.Cryptography.CryptographicOperations.FixedTimeEquals(
+                System.Text.Encoding.UTF8.GetBytes(known),
+                System.Text.Encoding.UTF8.GetBytes(secret));
+        }
+    }
+
     /// <summary>Агент сообщил, чем машина доступна сейчас. Отдельно от <see cref="Register"/>,
     /// потому что имя quick tunnel'а меняется в течение сессии: туннель не сохраняет hostname
     /// между запусками, а агент переподнимает его после ребута и при обрыве.

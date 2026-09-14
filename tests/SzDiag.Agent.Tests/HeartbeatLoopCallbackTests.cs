@@ -13,8 +13,8 @@ public class HeartbeatLoopCallbackTests
         public CountingLink(bool shouldThrow) => _throw = shouldThrow;
 
         public Task ConnectAsync(CancellationToken ct = default) => Task.CompletedTask;
-        public Task RegisterAsync(string sz, string hostname, DateTimeOffset? bootTime = null, string? lastShutdown = null,
-            string? agentUser = null, int? agentSessionId = null, CancellationToken ct = default) => Task.CompletedTask;
+        public Task<string?> RegisterAsync(string sz, string hostname, DateTimeOffset? bootTime = null, string? lastShutdown = null,
+            string? agentUser = null, int? agentSessionId = null, CancellationToken ct = default) => Task.FromResult<string?>(null);
         public Task ReportPowerEventsAsync(SzDiag.Contracts.PowerEventsReport report, CancellationToken ct = default) => Task.CompletedTask;
         public Task HeartbeatAsync(string sz, CancellationToken ct = default)
         {
@@ -55,6 +55,7 @@ public class HeartbeatLoopCallbackTests
         public RevertOutcome Revert(RevertState state)
             => new(Array.Empty<string>(), Array.Empty<RevertStepFailure>());
         public void Resume(RevertState state, AccessSpec spec) { }
+        public void PersistSessionSecret(RevertState state, string? secret) { }
     }
 
     /// <summary>StartAsync не зовём: HeartbeatOnceAsync дёргает link напрямую.</summary>
@@ -161,9 +162,9 @@ public class HeartbeatLoopCallbackTests
     {
         public List<string> Activities { get; } = new();
         public Task ConnectAsync(CancellationToken ct = default) => Task.CompletedTask;
-        public Task RegisterAsync(string sz, string hostname, DateTimeOffset? bootTime = null,
+        public Task<string?> RegisterAsync(string sz, string hostname, DateTimeOffset? bootTime = null,
             string? lastShutdown = null, string? agentUser = null, int? agentSessionId = null,
-            CancellationToken ct = default) => Task.CompletedTask;
+            CancellationToken ct = default) => Task.FromResult<string?>(null);
         public Task HeartbeatAsync(string sz, CancellationToken ct = default) => Task.CompletedTask;
         public Task ReportAccessAsync(SzDiag.Contracts.AccessReportRequest report, CancellationToken ct = default) => Task.CompletedTask;
         public Task ReportPowerEventsAsync(SzDiag.Contracts.PowerEventsReport report, CancellationToken ct = default) => Task.CompletedTask;

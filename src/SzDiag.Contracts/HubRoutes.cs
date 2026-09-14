@@ -8,6 +8,11 @@ public static class HubRoutes
     // Заголовок с pre-shared токеном при коннекте.
     public const string TokenHeader = "X-SzDiag-Token";
 
+    // Секрет КОНКРЕТНОЙ сессии (не общий токен агента): им агент подтверждает, что
+    // отчитывается за свою СЗ. Общего токена для этого не хватает — он один на весь флот,
+    // а за туннелем ещё и IP у всех агентов одинаков.
+    public const string SessionSecretHeader = "X-SzDiag-Session";
+
     // Методы, которые агент вызывает на hub.
     public const string Register = nameof(Register);
     public const string Heartbeat = nameof(Heartbeat);

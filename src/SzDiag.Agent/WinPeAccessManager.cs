@@ -18,4 +18,8 @@ public sealed class WinPeAccessManager : ISystemAccessManager
         => new(Array.Empty<string>(), Array.Empty<RevertStepFailure>());   // нечего откатывать
 
     public void Resume(RevertState state, AccessSpec spec) { /* PE не переживает ребут */ }
+
+    /// <summary>В PE секрет хранить негде и незачем: файла состояния нет, headless-отката
+    /// после ребута тоже — PE ребут не переживает.</summary>
+    public void PersistSessionSecret(RevertState state, string? secret) { }
 }

@@ -47,4 +47,11 @@ public sealed class RevertState
     /// <summary>Клали ли cloudflared.exe на машину мы. Если бинарь был там до нас — при
     /// откате не трогаем: чужое не наше дело.</summary>
     public bool DeployedCloudflared { get; set; }
+
+    /// <summary>Секрет этой сессии, выданный hub при регистрации. Нужен headless-откату
+    /// (watchdog, после ребута): там нет живого SignalR, и доказать hub, что отчитывается
+    /// владелец СЗ, больше нечем — токен `/agent/*` общий на весь флот, а за туннелем у всех
+    /// агентов одинаковый IP. Скоупнут одной СЗ: позволяет ровно одно — отчитаться о её
+    /// откате.</summary>
+    public string? SessionSecret { get; set; }
 }

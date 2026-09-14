@@ -142,7 +142,8 @@ if (args.Length >= 2 && args[0] == "--revert")
             if (!string.IsNullOrEmpty(revertOpts.AgentToken))
                 reportHttp.DefaultRequestHeaders.Add(HubRoutes.TokenHeader, revertOpts.AgentToken);
             var reportError = await new RevertStatusReporter(reportHttp)
-                .ReportAsync(st.Sz, outcome.AllClean, outcome.Summary(), reportCts.Token);
+                .ReportAsync(st.Sz, outcome.AllClean, outcome.Summary(), st.SessionSecret,
+                    reportCts.Token);
             revertLog.Write(reportError is null
                 ? "hub уведомлён об итоге отката."
                 : $"не смог сообщить hub статус отката: {reportError}");

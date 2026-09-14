@@ -37,7 +37,7 @@ public sealed class AgentHub : Microsoft.AspNetCore.SignalR.Hub
         _options = options.Value;
     }
 
-    public async Task Register(RegisterRequest request)
+    public async Task<RegisterResponse> Register(RegisterRequest request)
     {
         var ip = Context.GetHttpContext()?.Connection.RemoteIpAddress?.ToString() ?? "unknown";
         var now = DateTimeOffset.UtcNow;
@@ -105,6 +105,11 @@ public sealed class AgentHub : Microsoft.AspNetCore.SignalR.Hub
         _kb.EnsureSkeleton(request.Sz);
         await _store.RecordOpenAsync(
             new SessionRecord(request.Sz, ip, request.Hostname, now, null));
+
+        // Секрет сессии — единственное, чем headless-откат (watchdog, после ребута) сможет
+        // доказать, что отчитывается владелец СЗ: живого SignalR там нет, токен `/agent/*`
+        // общий на весь флот, а за туннелем у всех агентов одинаковый IP.
+        return new RegisterResponse(_registry.IssueSecret(request.Sz));
     }
 
     /// <summary>Агент принёс события питания из журнала клиента. Hub сливает их со своими:

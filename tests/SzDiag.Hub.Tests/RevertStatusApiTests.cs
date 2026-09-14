@@ -124,11 +124,13 @@ public class RevertStatusApiTests : IClassFixture<WebApplicationFactory<Program>
     {
         // Critical-5, вторая половина: даже с валидным форматом Sz заражённый клиент не
         // должен иметь возможности отчитаться за чужую активную СЗ и выкинуть её из реестра.
+        // Секрет сессии не выдавался — это переходная ветка для агентов старой сборки,
+        // где сверка всё ещё идёт по IP (см. SessionSecretAuthTests про основной путь).
         var registry = new SessionRegistry();
         registry.Register("160709", "10.0.0.9", "PC-5", "conn-5");
 
-        Assert.False(RevertStatusApi.IsAuthorizedForSz(registry, "160709", "6.6.6.6"));
-        Assert.True(RevertStatusApi.IsAuthorizedForSz(registry, "160709", "10.0.0.9"));
+        Assert.False(RevertStatusApi.IsAuthorizedForSz(registry, "160709", "6.6.6.6", null));
+        Assert.True(RevertStatusApi.IsAuthorizedForSz(registry, "160709", "10.0.0.9", null));
     }
 
     [Fact]
@@ -140,8 +142,8 @@ public class RevertStatusApiTests : IClassFixture<WebApplicationFactory<Program>
         var registry = new SessionRegistry();
         registry.Register("160710", "10.0.0.10", "PC-6", "conn-6");
 
-        Assert.True(RevertStatusApi.IsAuthorizedForSz(registry, "000000", "6.6.6.6"));
-        Assert.True(RevertStatusApi.IsAuthorizedForSz(registry, "160710", null));
+        Assert.True(RevertStatusApi.IsAuthorizedForSz(registry, "000000", "6.6.6.6", null));
+        Assert.True(RevertStatusApi.IsAuthorizedForSz(registry, "160710", null, null));
     }
 
     public void Dispose()

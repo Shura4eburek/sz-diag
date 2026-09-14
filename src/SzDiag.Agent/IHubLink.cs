@@ -4,7 +4,9 @@
 public interface IHubLink
 {
     Task ConnectAsync(CancellationToken ct = default);
-    Task RegisterAsync(string sz, string hostname, DateTimeOffset? bootTime = null, string? lastShutdown = null,
+    /// <returns>Секрет сессии от hub (null — hub старой сборки). Агент обязан сохранить его
+    /// в state.json: при headless-откате доказать владение СЗ больше нечем.</returns>
+    Task<string?> RegisterAsync(string sz, string hostname, DateTimeOffset? bootTime = null, string? lastShutdown = null,
         string? agentUser = null, int? agentSessionId = null, CancellationToken ct = default);
     Task HeartbeatAsync(string sz, CancellationToken ct = default);
 

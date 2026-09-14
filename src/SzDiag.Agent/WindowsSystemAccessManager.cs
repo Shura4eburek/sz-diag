@@ -314,6 +314,13 @@ public sealed class WindowsSystemAccessManager : ISystemAccessManager
         }
     }
 
+    public void PersistSessionSecret(RevertState state, string? secret)
+    {
+        if (string.IsNullOrEmpty(secret)) return;   // hub старой сборки — секрета нет
+        state.SessionSecret = secret;
+        RevertStateStore.Save(_statePath, state);
+    }
+
     /// <summary>Если на диске остался state.json от ДРУГОЙ (незакрытой) СЗ — откатить её,
     /// прежде чем открывать новую. Иначе задачи/автостарт прошлой СЗ повиснут = след.</summary>
     public void RevertStaleState(string currentSz)

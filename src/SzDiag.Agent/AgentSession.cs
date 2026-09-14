@@ -54,8 +54,9 @@ public sealed class AgentSession
         _state = _manager.Open(_spec);
         _link.OnRevert(async _ => await _coordinator.TriggerAsync());
         await _link.ConnectAsync(ct);
-        await _link.RegisterAsync(_spec.Sz, _hostname, _bootTime, _lastShutdown,
+        var secret = await _link.RegisterAsync(_spec.Sz, _hostname, _bootTime, _lastShutdown,
             AgentIdentity.CurrentUser(), AgentIdentity.CurrentSessionId(), ct);
+        _manager.PersistSessionSecret(_state, secret);
         await ReportAccessAsync(ct);
     }
 
@@ -67,8 +68,9 @@ public sealed class AgentSession
         _manager.Resume(loaded, _spec);
         _link.OnRevert(async _ => await _coordinator.TriggerAsync());
         await _link.ConnectAsync(ct);
-        await _link.RegisterAsync(_spec.Sz, _hostname, _bootTime, _lastShutdown,
+        var secret = await _link.RegisterAsync(_spec.Sz, _hostname, _bootTime, _lastShutdown,
             AgentIdentity.CurrentUser(), AgentIdentity.CurrentSessionId(), ct);
+        _manager.PersistSessionSecret(loaded, secret);
         // После ребута имя туннеля новое — без этого hub остался бы с мёртвым адресом.
         await ReportAccessAsync(ct);
     }
