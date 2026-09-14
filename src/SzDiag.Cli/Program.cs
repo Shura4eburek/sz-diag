@@ -564,10 +564,19 @@ switch (command)
             AnsiConsole.MarkupLineInterpolated($"[red]СЗ {args[1]} не найдена.[/]");
             break;
         }
+        // Машина недостижима по SSH (туннель не поднялся) — печатать строку, которая
+        // гарантированно не сработает, значит врать: называем причину.
+        if (!string.IsNullOrWhiteSpace(t.Unavailable))
+        {
+            AnsiConsole.MarkupLineInterpolated($"[yellow]⚠ {t.Unavailable}[/]");
+            break;
+        }
         // Полная строка с -i и опциями host-ключа: голый `ssh user@ip` не подключается,
         // а рабочую команду раньше собирали тремя попытками и поиском по диску (п.118).
         var key = TargetSsh.FindKey(options.SshKeyPath, AppContext.BaseDirectory);
-        AnsiConsole.WriteLine(TargetSsh.BuildSshLine(t.User, t.Ip, key));
+        var viaTunnel = t.AccessMode == AccessMode.Tunnel;
+        var targetHost = viaTunnel ? t.AccessHost! : t.Ip;
+        AnsiConsole.WriteLine(TargetSsh.BuildSshLine(t.User, targetHost, key, viaTunnel));
         if (key is null)
             AnsiConsole.MarkupLine("[yellow]⚠ Ключ svc_diag_key не найден (SshKeyPath в appsettings.json) — добавь -i <путь к ключу>.[/]");
         break;

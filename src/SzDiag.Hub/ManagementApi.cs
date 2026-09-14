@@ -266,7 +266,17 @@ public static class ManagementApi
             var s = reg.GetActive().FirstOrDefault(x => x.Sz == sz);
             if (s is null) return Results.NotFound();
             var user = opts.Value.ServiceAccount;
-            return Results.Ok(new TargetInfo(sz, s.Ip, user, $"ssh {user}@{s.Ip}"));
+
+            // Туннельный режим без имени — машина сейчас недостижима по SSH. Сессия при этом
+            // может быть жива: управляющий канал отдельный, exec продолжает работать. Отдаём
+            // причину, а не строку, которая гарантированно не сработает.
+            if (s.AccessMode == AccessMode.Tunnel && string.IsNullOrWhiteSpace(s.AccessHost))
+                return Results.Ok(new TargetInfo(sz, s.Ip, user, "", AccessMode: s.AccessMode,
+                    Unavailable: "туннель не поднят — SSH недоступен; exec-канал работает"));
+
+            var host = s.AccessMode == AccessMode.Tunnel ? s.AccessHost! : s.Ip;
+            return Results.Ok(new TargetInfo(sz, s.Ip, user, $"ssh {user}@{host}",
+                s.AccessHost, s.AccessMode));
         });
     }
 }
