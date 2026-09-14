@@ -39,6 +39,13 @@ public sealed class PullCommandHandler
         if (matches.Count == 0)
             return new PullResult(request.RequestId, Array.Empty<PullFileInfo>());
 
+        // ВАЖНО: в PullFileInfo уезжает `info.FullName`, а НЕ исходный `path`. Hub сводит
+        // чанки с отчётом точным сравнением строк (PullCoordinator.AcceptChunk кладёт поток
+        // под ключ chunk.FullPath), а чанки уходят как раз под FullName. Стоит ключам
+        // разъехаться — файл целиком лежит на диске хоста, а отчёт говорит «данные не
+        // пришли». Поймано вживую на 999001: короткий 8.3-путь `C:\Users\ADMINI~1\...`
+        // FileInfo разворачивает в `C:\Users\Administrator\...`. То же даёт любая
+        // ненормализованная форма («\.\», «..»).
         var files = new List<PullFileInfo>();
         foreach (var path in matches)
         {
@@ -54,7 +61,7 @@ public sealed class PullCommandHandler
             // лежат live-дампы на гигабайты, и попытка утащить такой съест час впустую.
             if (info.Length > request.MaxBytes)
             {
-                files.Add(new PullFileInfo(info.Name, path, info.Length, "", true,
+                files.Add(new PullFileInfo(info.Name, info.FullName, info.Length, "", true,
                     $"больше лимита ({Mb(info.Length)} МБ > {Mb(request.MaxBytes)} МБ)", OverLimit: true));
                 continue;
             }
@@ -62,11 +69,11 @@ public sealed class PullCommandHandler
             try
             {
                 var sha = await SendFileAsync(request.RequestId, info, ct);
-                files.Add(new PullFileInfo(info.Name, path, info.Length, sha));
+                files.Add(new PullFileInfo(info.Name, info.FullName, info.Length, sha));
             }
             catch (Exception ex)
             {
-                files.Add(new PullFileInfo(info.Name, path, info.Length, "", true, DescribeLockError(ex, path)));
+                files.Add(new PullFileInfo(info.Name, info.FullName, info.Length, "", true, DescribeLockError(ex, path)));
             }
         }
 

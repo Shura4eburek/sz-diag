@@ -36,6 +36,28 @@ public class PullCommandHandlerTests : IDisposable
         => _chunks.Where(c => c.FullPath == fullPath).OrderBy(c => c.Index)
             .SelectMany(c => c.Data).ToArray();
 
+    // Живая СЗ 999001: `szcli pull` по короткому 8.3-пути (C:\Users\ADMINI~1\...) сказал
+    // «агент отчитался о файле, но данные не пришли» — при том, что файл целиком лежал на
+    // диске хоста. Причина: чанки уходят под `info.FullName` (который РАЗВОРАЧИВАЕТ 8.3 в
+    // C:\Users\Administrator\...), а в отчёт писалась исходная строка вызывающего. Hub сводит
+    // их точным сравнением строк — ключи разъезжались, и отчёт врал про успешную передачу.
+    [Fact]
+    public async Task Ключ_чанков_и_отчёта_совпадают_при_ненормализованном_пути()
+    {
+        var content = Bytes(100);
+        WriteFile("dump.dmp", content);
+        // Тот же файл, записанный иначе: FileInfo.FullName схлопывает «\.\» ровно так же,
+        // как разворачивает 8.3-имя. Портативная замена короткому пути.
+        var ненормализованный = Path.Combine(_dir, ".", "dump.dmp");
+
+        var result = await Handler().HandleAsync(
+            new PullRequest("999001", "req-1", ненормализованный, 1024 * 1024));
+
+        var file = Assert.Single(result.Files);
+        Assert.False(file.Skipped);
+        Assert.Contains(_chunks, c => c.FullPath == file.FullPath);
+    }
+
     [Fact]
     public async Task Handle_SingleFile_SendsChunksAndReportsSha()
     {

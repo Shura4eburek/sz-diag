@@ -297,9 +297,21 @@ public static class ClientTraces
             .Select(l => l["agenttoolsdir:".Length..].Trim())
             .FirstOrDefault(p => p.Length > 0);
 
-    /// <summary>Задачи рабочего доступа текущей сессии по её номеру СЗ.</summary>
+    /// <summary>Задачи рабочего доступа текущей сессии по её номеру СЗ.
+    ///
+    /// Заводишь в <c>Open</c> новую задачу — добавляй её СЮДА тем же заходом. Иначе живая
+    /// задача текущей сессии попадает в «остатки»: `close` отказывается закрывать здоровую
+    /// заявку, а `client cleanup` по собственному совету сносит рабочий доступ посреди
+    /// работы. Ровно так было с sshd/watchdog (бэклог п.107) и повторилось с туннелем
+    /// на 999001.</summary>
     public static string[] SessionTasks(string sz)
-        => new[] { $"szdiag-sshd-{sz}", $"szdiag-watchdog-{sz}", $"szdiag-autostart-{sz}" };
+        => new[]
+        {
+            $"szdiag-sshd-{sz}",
+            $"szdiag-watchdog-{sz}",
+            $"szdiag-autostart-{sz}",
+            $"szdiag-cfd-{sz}",     // quick tunnel, публикующий sshd наружу
+        };
 
     /// <summary>Разбор инвентаря с разделением на «текущая сессия (не трогать)» и «остатки».
     /// Без этого `client info` сразу после подъёма агента называл рабочий sshd/watchdog

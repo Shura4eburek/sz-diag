@@ -224,17 +224,6 @@ if (Test-Path dist\client\SzDiag.Agent.exe) {
     Copy-Item secrets\svc_diag_key.pub dist\client\service_key.pub -Force
 }
 
-# 2b. Портативные стресс-утилиты (TM5 / OCCT / 3DMark / FurMark и пр.).
-# Кладутся в client-tools\<name>\ (в .gitignore — бинарники и лицензии не коммитим),
-# при сборке уезжают в dist\client\tools\. Пути в testsuite.json — tools\<name>\...
-if (Test-Path client-tools) {
-    Write-Host "-- копирую client-tools -> dist\client\tools"
-    New-Item -ItemType Directory dist\client\tools -Force | Out-Null
-    Copy-Item client-tools\* dist\client\tools\ -Recurse -Force
-} else {
-    Write-Host "-- client-tools нет: стресс-утилиты не вложены (шаги app сообщат 'не найден exe')"
-}
-
 # 2c. cloudflared для публикации sshd клиента quick tunnel'ом. Кладём в каталог раздачи,
 # чтобы он ехал на клиента по требованию через `szcli push cloudflared`, а не в пакете
 # агента: иначе апдейтер потолстеет на полсотни мегабайт ради случая, нужного не всегда.
@@ -307,6 +296,17 @@ if (Test-Path dist\client\SzDiag.Agent.exe) {
     Set-Content -Path (Join-Path $distRoot "version.txt")    -Value $version -Encoding ascii -NoNewline
     Remove-Item $pkgStage -Recurse -Force -ErrorAction SilentlyContinue
     Write-Host "-- пакет апдейтера: $zipPath (version=$version)"
+}
+
+# 2b. Портативные стресс-утилиты (TM5 / OCCT / 3DMark / FurMark и пр.).
+# Кладутся в client-tools\<name>\ (в .gitignore — бинарники и лицензии не коммитим),
+# при сборке уезжают в dist\client\tools\. Пути в testsuite.json — tools\<name>\...
+if (Test-Path client-tools) {
+    Write-Host "-- копирую client-tools -> dist\client\tools"
+    New-Item -ItemType Directory dist\client\tools -Force | Out-Null
+    Copy-Item client-tools\* dist\client\tools\ -Recurse -Force
+} else {
+    Write-Host "-- client-tools нет: стресс-утилиты не вложены (шаги app сообщат 'не найден exe')"
 }
 
 # 3. Конфиги (абсолютные пути хоста — под ЭТУ машину; относительные — агенту)
