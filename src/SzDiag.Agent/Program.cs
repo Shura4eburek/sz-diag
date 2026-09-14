@@ -527,6 +527,9 @@ foreach (var foreign in manager.ScanForeignObjects(sz))
         $"[yellow]⚠ на клиенте уже есть постороннее:[/] {Markup.Escape(foreign)}");
 
 var hubUrl = opts.HubUrl;
+// Нашли hub broadcast'ом — значит машина в одной сети с боксом: подключаться к ней надо
+// напрямую, туннель тут только замедлит и добавит зависимость от Cloudflare.
+var foundHubByBroadcast = string.IsNullOrWhiteSpace(hubUrl);
 if (string.IsNullOrWhiteSpace(hubUrl))
 {
     Announce("Ищу hub в сети…", "[grey]Ищу hub в сети…[/]");
@@ -545,7 +548,7 @@ if (string.IsNullOrWhiteSpace(hubUrl))
 var link = new SignalRHubLink(hubUrl, opts.AgentToken);
 var sessionBoot = BootTimeReader.Read(ps);
 var session = new AgentSession(manager, link, spec, Environment.MachineName,
-    sessionBoot, ShutdownClassifier.Read(ps, sessionBoot));
+    sessionBoot, ShutdownClassifier.Read(ps, sessionBoot), foundHubByBroadcast);
 
 Announce($"Открываю доступ для СЗ {sz}…", $"[grey]Открываю доступ для СЗ {sz}…[/]");
 try

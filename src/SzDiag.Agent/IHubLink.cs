@@ -8,6 +8,10 @@ public interface IHubLink
         string? agentUser = null, int? agentSessionId = null, CancellationToken ct = default);
     Task HeartbeatAsync(string sz, CancellationToken ct = default);
 
+    /// <summary>Агент -> hub: чем машина доступна сейчас. Отдельно от RegisterAsync, потому
+    /// что имя quick tunnel'а меняется в течение сессии — после ребута оно другое.</summary>
+    Task ReportAccessAsync(SzDiag.Contracts.AccessReportRequest report, CancellationToken ct = default);
+
     /// <summary>Отдать hub события питания из журнала клиента — то, что hub сам увидеть не
     /// может (бэклог п.97).</summary>
     Task ReportPowerEventsAsync(SzDiag.Contracts.PowerEventsReport report, CancellationToken ct = default);

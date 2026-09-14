@@ -169,6 +169,34 @@ public class AccessTunnelLifecycleTests : IDisposable
         Assert.False(tunnel.Снят);
     }
 
+    [Fact]
+    public void Resume_переподнимает_туннель_с_новым_именем()
+    {
+        // Quick tunnel не сохраняет hostname между запусками: после ребута имя ДРУГОЕ.
+        // Не переподнять — значит оставить hub с адресом мёртвого туннеля.
+        var manager = new WindowsSystemAccessManager(new ФейкPs(), new ФейкSsh(), _statePath,
+            new ФейкТуннель { ИмяКВыдаче = "новое-после-ребута.trycloudflare.com" });
+        var state = StateСТуннелем();
+
+        manager.Resume(state, Spec());
+
+        Assert.True(state.StartedQuickTunnel);
+        Assert.Equal("новое-после-ребута.trycloudflare.com", state.QuickTunnelHost);
+    }
+
+    [Fact]
+    public void Resume_без_туннеля_в_прошлой_сессии_его_и_не_поднимает()
+    {
+        // Прямой режим переживает ребут прямым режимом.
+        var tunnel = new ФейкТуннель();
+        var manager = new WindowsSystemAccessManager(new ФейкPs(), new ФейкSsh(), _statePath, tunnel);
+        var state = new RevertState { Sz = "162003", SshdTaskName = "x", CreatedSshdTask = true };
+
+        manager.Resume(state, Spec());
+
+        Assert.False(state.StartedQuickTunnel);
+    }
+
     private sealed class ПадающийТуннель : IAccessTunnel
     {
         public string? Start(int sshPort, string taskName, TimeSpan timeout) => null;

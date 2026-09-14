@@ -12,6 +12,7 @@ public sealed class AgentSession
     private readonly string _hostname;
     private readonly DateTimeOffset? _bootTime;
     private readonly string? _lastShutdown;
+    private readonly bool _foundHubByBroadcast;
     private readonly RevertCoordinator _coordinator;
     private RevertState? _state;
     private readonly TaskCompletionSource _completed = new(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -24,8 +25,11 @@ public sealed class AgentSession
     /// <param name="lastShutdown">Чем закончилась прошлая сессия ОС (см.
     /// <see cref="ShutdownClassifier"/>): hub по нему отличает обрыв питания от выключения
     /// кнопкой и не считает второе вырубоном (бэклог п.93).</param>
+    /// <param name="foundHubByBroadcast">Hub найден UDP-broadcast'ом — машина в одной сети с
+    /// боксом, и подключаться к ней надо напрямую, а не через туннель.</param>
     public AgentSession(ISystemAccessManager manager, IHubLink link, AccessSpec spec, string hostname,
-        DateTimeOffset? bootTime = null, string? lastShutdown = null)
+        DateTimeOffset? bootTime = null, string? lastShutdown = null,
+        bool foundHubByBroadcast = false)
     {
         _manager = manager;
         _link = link;
@@ -33,8 +37,17 @@ public sealed class AgentSession
         _hostname = hostname;
         _bootTime = bootTime;
         _lastShutdown = lastShutdown;
+        _foundHubByBroadcast = foundHubByBroadcast;
         _coordinator = new RevertCoordinator(DoRevertAsync);
     }
+
+    /// <summary>Сообщить hub, чем машина доступна. Зовётся после каждой регистрации: и при
+    /// открытии доступа, и после ребута, где имя туннеля уже другое.</summary>
+    private Task ReportAccessAsync(CancellationToken ct)
+        => _state is null
+            ? Task.CompletedTask
+            : _link.ReportAccessAsync(
+                AccessReporter.BuildReport(_state, _spec.Sz, _foundHubByBroadcast), ct);
 
     public async Task StartAsync(CancellationToken ct = default)
     {
@@ -43,6 +56,7 @@ public sealed class AgentSession
         await _link.ConnectAsync(ct);
         await _link.RegisterAsync(_spec.Sz, _hostname, _bootTime, _lastShutdown,
             AgentIdentity.CurrentUser(), AgentIdentity.CurrentSessionId(), ct);
+        await ReportAccessAsync(ct);
     }
 
     /// <summary>Возобновление после ребута: state загружен с диска, доступ переподнимается
@@ -55,6 +69,8 @@ public sealed class AgentSession
         await _link.ConnectAsync(ct);
         await _link.RegisterAsync(_spec.Sz, _hostname, _bootTime, _lastShutdown,
             AgentIdentity.CurrentUser(), AgentIdentity.CurrentSessionId(), ct);
+        // После ребута имя туннеля новое — без этого hub остался бы с мёртвым адресом.
+        await ReportAccessAsync(ct);
     }
 
     public Task HeartbeatOnceAsync(CancellationToken ct = default) => _link.HeartbeatAsync(_spec.Sz, ct);

@@ -1,4 +1,5 @@
 using SzDiag.Agent;
+using SzDiag.Contracts;
 using Xunit;
 
 namespace SzDiag.Agent.Tests;
@@ -36,6 +37,8 @@ public class AgentSessionTests
         public Task RegisterAsync(string sz, string hostname, DateTimeOffset? bootTime = null, string? lastShutdown = null, string? agentUser = null, int? agentSessionId = null, CancellationToken ct = default) { RegisteredSz = sz; RegisteredBootTime = bootTime; return Task.CompletedTask; }
         public Task ReportPowerEventsAsync(SzDiag.Contracts.PowerEventsReport report, CancellationToken ct = default) => Task.CompletedTask;
         public Task HeartbeatAsync(string sz, CancellationToken ct = default) { Heartbeats++; return Task.CompletedTask; }
+        public SzDiag.Contracts.AccessReportRequest? AccessReport { get; private set; }
+        public Task ReportAccessAsync(SzDiag.Contracts.AccessReportRequest report, CancellationToken ct = default) { AccessReport = report; return Task.CompletedTask; }
         public void OnRevert(Func<string, Task> handler) => _onRevert = handler;
         public List<SzDiag.Contracts.UploadReportPart> Uploaded { get; } = new();
         private Func<string, string?, string?, Task>? _onRunTests;
@@ -91,6 +94,52 @@ public class AgentSessionTests
         Assert.Equal(1, mgr.OpenCalls);
         Assert.True(link.Connected);
         Assert.Equal("156864", link.RegisteredSz);
+    }
+
+    // Hub перестал угадывать адрес клиента из RemoteIpAddress: без этого отчёта он не знает,
+    // чем машина доступна, и `szcli target` не может построить рабочую строку.
+    [Fact]
+    public async Task StartAsync_СообщаетHubРежимДоступа()
+    {
+        var link = new FakeHubLink();
+        var session = new AgentSession(new FakeManager(), link, Spec(), "PC-1");
+
+        await session.StartAsync();
+
+        Assert.NotNull(link.AccessReport);
+        Assert.Equal("156864", link.AccessReport!.Sz);
+    }
+
+    [Fact]
+    public async Task StartAsync_HubНайденBroadcastом_РежимПрямой()
+    {
+        // Машина в одной сети с боксом — туннель только замедлит и добавит зависимость.
+        var link = new FakeHubLink();
+        var session = new AgentSession(new FakeManager(), link, Spec(), "PC-1",
+            foundHubByBroadcast: true);
+
+        await session.StartAsync();
+
+        Assert.Equal(AccessMode.Direct, link.AccessReport!.AccessMode);
+    }
+
+    // После ребута имя quick tunnel'а другое: не отчитаться заново — оставить hub с адресом
+    // мёртвого туннеля.
+    [Fact]
+    public async Task ResumeAsync_СообщаетHubРежимДоступаЗаново()
+    {
+        var link = new FakeHubLink();
+        var session = new AgentSession(new FakeManager(), link, Spec(), "PC-1");
+
+        await session.ResumeAsync(new RevertState
+        {
+            Sz = "156864",
+            StartedQuickTunnel = true,
+            QuickTunnelHost = "новое-после-ребута.trycloudflare.com",
+        });
+
+        Assert.Equal("новое-после-ребута.trycloudflare.com", link.AccessReport!.AccessHost);
+        Assert.Equal(AccessMode.Tunnel, link.AccessReport.AccessMode);
     }
 
     [Fact]

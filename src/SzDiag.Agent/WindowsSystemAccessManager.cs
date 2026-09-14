@@ -292,6 +292,26 @@ public sealed class WindowsSystemAccessManager : ISystemAccessManager
         // продлевает сессию, а не грохает её протухшим -Once из прошлой загрузки.
         _ps.Run(BuildWatchdogTaskCommand(state.WatchdogTaskName, Environment.ProcessPath!,
             _statePath, DateTime.Now.Add(spec.WatchdogTimeout)));
+
+        // Туннель умирает от ребута так же, как sshd, и имя после переподнятия будет ДРУГИМ:
+        // quick tunnel не сохраняет hostname между запусками. Не переподнять — оставить hub
+        // с адресом мёртвого туннеля; новое имя агент отдаст через ReportAccess.
+        if (_tunnel is not null && state.StartedQuickTunnel)
+        {
+            try
+            {
+                state.TunnelTaskName = $"szdiag-cfd-{spec.Sz}";
+                var host = _tunnel.Start(spec.SshPort, state.TunnelTaskName, TunnelStartTimeout);
+                state.StartedQuickTunnel = !string.IsNullOrWhiteSpace(host);
+                state.QuickTunnelHost = host ?? "";
+            }
+            catch
+            {
+                // Как в Open: туннель не причина срывать возврат сессии после ребута.
+                state.StartedQuickTunnel = false;
+                state.QuickTunnelHost = "";
+            }
+        }
     }
 
     /// <summary>Если на диске остался state.json от ДРУГОЙ (незакрытой) СЗ — откатить её,

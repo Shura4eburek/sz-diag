@@ -26,6 +26,9 @@ public sealed class SignalRHubLink : IHubLink
     public Task HeartbeatAsync(string sz, CancellationToken ct = default)
         => _conn.InvokeAsync(HubRoutes.Heartbeat, sz, ct);
 
+    public Task ReportAccessAsync(AccessReportRequest report, CancellationToken ct = default)
+        => _conn.InvokeAsync(HubRoutes.ReportAccess, report, ct);
+
     public Task ReportPowerEventsAsync(PowerEventsReport report, CancellationToken ct = default)
         => _conn.InvokeAsync(HubRoutes.PowerEvents, report, ct);
 
