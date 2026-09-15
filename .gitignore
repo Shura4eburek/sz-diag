@@ -50,3 +50,6 @@ docs/erp-api.md
 # Telegram-бот уведомлений: токен и маппинг id -> username (личные данные)
 telegram-users.json
 secrets/telegram.json
+
+# lhmmon: сборочные артефакты (сам источник в tools/lhmmon коммитим, бинарь — нет)
+tools/lhmmon/publish/
