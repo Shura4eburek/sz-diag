@@ -28,6 +28,8 @@ $Sz       = '161538'
 $Schedule = 'schedule-combined.json'
 $Tag      = 'EXPO6000-asis'
 $Suffix   = 'int'
+$Prefix   = 'combined'          # ← имя отчёта: <Prefix>-<Tag>-<время>.html (memtest/combined/...)
+$LimitHours = 4                 # ← лимит задачи, ч: ЗАВЕДОМО больше расписания (162003)
 
 $proc = Get-CimInstance Win32_Process -Filter "Name='SzDiag.Agent.exe'" | Select-Object -First 1
 if (-not $proc) { 'агент не найден'; return }
@@ -51,21 +53,43 @@ if (-not (Test-Path $good)) {
     else { 'ВНИМАНИЕ: .oke не найден' }
 }
 
+# ЛИЦЕНЗИЯ: проверяем СРОК, а не наличие файла (162003, 15.09, бэклог п.272).
+# Просроченная лицензия не роняет OCCT — он поднимает модальное окно «No valid license
+# found» (в сессии 0 невидимое), при этом резервирует 85 % ОЗУ, поэтому приёмка «взял
+# память» даёт ложное ДА. Так сожгли два прогона по 3+ часа: приборно 0.0 мин нагрузки
+# за 233 мин. Дальше стартовать нельзя.
+$okeHead = (Get-Content $good -Raw).Split('|')[0]
+try {
+    $okeTxt  = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String($okeHead))
+    $okeTill = [datetime]::ParseExact($okeTxt.Split(';')[2], 'yyyy/MM/dd', $null)
+    $okeDays = ($okeTill - (Get-Date).Date).Days
+    if ($okeDays -lt 0) {
+        'ЛИЦЕНЗИЯ OCCT ПРОТУХЛА {0:dd.MM.yyyy} ({1} дн. назад) — прогон НЕ ЗАПУЩЕН: тест не пойдёт, а выглядеть будет как идущий' -f $okeTill, [math]::Abs($okeDays)
+        return
+    }
+    'лицензия OCCT: до {0:dd.MM.yyyy} (осталось {1} дн.)' -f $okeTill, $okeDays
+} catch { 'ВНИМАНИЕ: срок лицензии не разобрать — прогон может не пойти' }
+
 $sched = Join-Path $occt $Schedule
 if (-not (Test-Path $sched)) { "нет расписания $sched"; return }
 
 New-Item -ItemType Directory -Path 'C:\OCCT' -Force | Out-Null
 $stamp  = Get-Date -Format 'yyyyMMdd-HHmmss'
-$report = "C:\OCCT\combined-$Tag-$stamp.html"
+$report = "C:\OCCT\$Prefix-$Tag-$stamp.html"
 $task   = "szdiag-occt$Suffix-$Sz"
 
-Get-Process OCCTCmd, OCCT, OcctMemtest, CpuOcct64, linpack -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
+Get-Process OCCTCmd, OCCTEnterprise, OCCT, OcctMemtest, CpuOcct64, linpack -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
 Unregister-ScheduledTask -TaskName $task -Confirm:$false -ErrorAction SilentlyContinue
 
 $argline = 'test --schedule="{0}" --auto-start=true --auto-save-report=true --report-file="{1}" --overwrite-report-file=true --auto-close=true' -f $sched, $report
-$action    = New-ScheduledTaskAction -Execute (Join-Path $occt 'OCCTCmd.exe') -Argument $argline -WorkingDirectory $occt
+# Имя бинаря не зашиваем: в раздаче с 04.09 лежит OCCTEnterprise.exe (162003, бэклог п.269).
+$exe = @('OCCTCmd.exe', 'OCCTEnterprise.exe', 'OCCT.exe') |
+    ForEach-Object { Join-Path $occt $_ } | Where-Object { Test-Path $_ } | Select-Object -First 1
+if (-not $exe) { "в $occt нет ни OCCTCmd.exe, ни OCCTEnterprise.exe — раздача битая"; return }
+"бинарь: $exe"
+$action    = New-ScheduledTaskAction -Execute $exe -Argument $argline -WorkingDirectory $occt
 $principal = New-ScheduledTaskPrincipal -UserId $user -LogonType Interactive -RunLevel Highest
-$settings  = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -MultipleInstances IgnoreNew -ExecutionTimeLimit ([TimeSpan]::FromHours(3))
+$settings  = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -MultipleInstances IgnoreNew -ExecutionTimeLimit ([TimeSpan]::FromHours($LimitHours))
 Register-ScheduledTask -TaskName $task -Action $action -Principal $principal -Settings $settings | Out-Null
 Start-ScheduledTask -TaskName $task
 "задача $task запущена под $user, отчёт: $report"
@@ -73,7 +97,7 @@ Start-ScheduledTask -TaskName $task
 Start-Sleep -Seconds 60
 $all = Get-Process -ErrorAction SilentlyContinue
 $gpu = $all | Where-Object { $_.Name -match 'gpu3d|GpuUnreal|Vram|OcctGpu' }
-$cpuProc = $all | Where-Object { $_.Name -match 'OcctMemtest|CpuOcct64|linpack' }
+$cpuProc = $all | Where-Object { $_.Name -match 'OcctMemtest|CpuOcct64|linpack|OCCTEnterprise|OCCTCmd' }
 'CPU-подтесты: ' + (($cpuProc | ForEach-Object { $_.Name }) -join ', ')
 if ($gpu) { 'GPU-подтесты: ' + (($gpu | ForEach-Object { ('{0} (session {1})' -f $_.Name, $_.SessionId) }) -join ', ') }
 else { 'GPU-ПОДТЕСТЫ НЕ ЗАПУСТИЛИСЬ — прогон неполный, останавливай и разбирайся' }

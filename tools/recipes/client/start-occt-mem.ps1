@@ -44,6 +44,23 @@ if (-not (Test-Path $good)) {
     else { 'ВНИМАНИЕ: .oke не найден — OCCT пойдёт без лицензии' }
 }
 
+# ЛИЦЕНЗИЯ: проверяем СРОК, а не наличие файла (162003, 15.09, бэклог п.272).
+# Просроченная лицензия не роняет OCCT — он поднимает модальное окно «No valid license
+# found» (в сессии 0 невидимое), при этом резервирует 85 % ОЗУ, поэтому приёмка «взял
+# память» даёт ложное ДА. Так сожгли два прогона по 3+ часа: приборно 0.0 мин нагрузки
+# за 233 мин. Дальше стартовать нельзя.
+$okeHead = (Get-Content $good -Raw).Split('|')[0]
+try {
+    $okeTxt  = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String($okeHead))
+    $okeTill = [datetime]::ParseExact($okeTxt.Split(';')[2], 'yyyy/MM/dd', $null)
+    $okeDays = ($okeTill - (Get-Date).Date).Days
+    if ($okeDays -lt 0) {
+        'ЛИЦЕНЗИЯ OCCT ПРОТУХЛА {0:dd.MM.yyyy} ({1} дн. назад) — прогон НЕ ЗАПУЩЕН: тест не пойдёт, а выглядеть будет как идущий' -f $okeTill, [math]::Abs($okeDays)
+        return
+    }
+    'лицензия OCCT: до {0:dd.MM.yyyy} (осталось {1} дн.)' -f $okeTill, $okeDays
+} catch { 'ВНИМАНИЕ: срок лицензии не разобрать — прогон может не пойти' }
+
 $sched = Join-Path $occt $Schedule
 if (-not (Test-Path $sched)) { "нет расписания $sched — сначала make-mem-schedule.ps1"; return }
 

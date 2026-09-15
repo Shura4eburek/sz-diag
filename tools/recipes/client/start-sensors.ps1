@@ -61,4 +61,15 @@ if (Test-Path $csv) {
         }
     }
 }
-'драйвер R0lhmmon: ' + ((sc.exe query R0lhmmon 2>&1 | Select-String 'STATE|FAILED' | ForEach-Object { $_.Line.Trim() }) -join ' / ')
+# Имя ring0-драйвера зависит от версии LibreHardwareMonitorLib: 0.8.x ставила `R0lhmmon`,
+# 0.9.6 (сборка 15.09, tools\lhmmon) грузит драйвер HWiNFO — служба `HWiNFO_<версия>`.
+# Поэтому ищем по списку, а не по одному имени: `sc query R0lhmmon` на 162003 отвечал
+# «нет такой службы» при живом захвате, и это читалось как отказ (бэклог п.273).
+$drv = @(Get-CimInstance Win32_SystemDriver -ErrorAction SilentlyContinue |
+    Where-Object { $_.Name -match '^R0lhmmon$|^WinRing0|^HWiNFO_' })
+if ($drv) {
+    foreach ($d in $drv) { 'ring0-драйвер: {0} — {1} ({2})' -f $d.Name, $d.State, $d.PathName }
+    '(снимается cleanup-stress.ps1 — иначе остаётся на клиенте навсегда)'
+} else {
+    'ring0-драйвер: не найден. Если температуры CPU в CSV пустые — захват идёт без него'
+}
