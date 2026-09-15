@@ -1,4 +1,4 @@
-using System.Collections.Concurrent;
+﻿using System.Collections.Concurrent;
 using SzDiag.Contracts;
 
 namespace SzDiag.Hub;
@@ -125,11 +125,21 @@ public sealed class SessionRegistry
             string.IsNullOrWhiteSpace(prev.Info.Activity) ? null : prev.Info.Activity);
     }
 
-    public bool Heartbeat(string sz)
+    /// <param name="connectionId">Соединение, с которого пришёл heartbeat. Передаётся всегда,
+    /// когда известно: адрес агента в реестре — это соединение ПОСЛЕДНЕГО heartbeat, иначе
+    /// после реконнекта команды hub→агент уходят на закрытый id (СЗ 162003, бэклог п.273).
+    /// `WithAutomaticReconnect()` выдаёт новый ConnectionId, а `Register` агент зовёт один
+    /// раз за жизнь процесса, поэтому обновлять адрес больше негде.</param>
+    public bool Heartbeat(string sz, string? connectionId = null)
     {
         if (!_bySz.TryGetValue(sz, out var e)) return false;
         var now = _time.GetUtcNow();
-        _bySz[sz] = e with { Info = e.Info with { Status = SessionStatus.Online, LastHeartbeat = now } };
+        var address = string.IsNullOrEmpty(connectionId) ? e.ConnectionId : connectionId;
+        _bySz[sz] = e with
+        {
+            Info = e.Info with { Status = SessionStatus.Online, LastHeartbeat = now },
+            ConnectionId = address,
+        };
         return true;
     }
 

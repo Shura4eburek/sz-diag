@@ -1,4 +1,4 @@
-using SzDiag.Agent;
+﻿using SzDiag.Agent;
 using SzDiag.Contracts;
 using Xunit;
 
@@ -41,12 +41,18 @@ public class AgentSessionTests
         public Task ConnectAsync(CancellationToken ct = default) { Connected = true; return Task.CompletedTask; }
         public DateTimeOffset? RegisteredBootTime { get; private set; }
         public string? SecretToIssue { get; init; }
-        public Task<string?> RegisterAsync(string sz, string hostname, DateTimeOffset? bootTime = null, string? lastShutdown = null, string? agentUser = null, int? agentSessionId = null, CancellationToken ct = default) { RegisteredSz = sz; RegisteredBootTime = bootTime; return Task.FromResult(SecretToIssue); }
+        public int RegisterCalls { get; private set; }
+        public Task<string?> RegisterAsync(string sz, string hostname, DateTimeOffset? bootTime = null, string? lastShutdown = null, string? agentUser = null, int? agentSessionId = null, CancellationToken ct = default) { RegisteredSz = sz; RegisteredBootTime = bootTime; RegisterCalls++; return Task.FromResult(SecretToIssue); }
         public Task ReportPowerEventsAsync(SzDiag.Contracts.PowerEventsReport report, CancellationToken ct = default) => Task.CompletedTask;
         public Task HeartbeatAsync(string sz, CancellationToken ct = default) { Heartbeats++; return Task.CompletedTask; }
         public SzDiag.Contracts.AccessReportRequest? AccessReport { get; private set; }
-        public Task ReportAccessAsync(SzDiag.Contracts.AccessReportRequest report, CancellationToken ct = default) { AccessReport = report; return Task.CompletedTask; }
+        public Task ReportAccessAsync(SzDiag.Contracts.AccessReportRequest report, CancellationToken ct = default) { AccessReport = report; AccessReportCount++; return Task.CompletedTask; }
         public void OnRevert(Func<string, Task> handler) => _onRevert = handler;
+        private Func<Task>? _onReconnected;
+        public void OnReconnected(Func<Task> handler) => _onReconnected = handler;
+        /// <summary>Сымитировать восстановление соединения так, как это делает SignalR.</summary>
+        public Task RaiseReconnectedAsync() => _onReconnected?.Invoke() ?? Task.CompletedTask;
+        public int AccessReportCount { get; private set; }
         public List<SzDiag.Contracts.UploadReportPart> Uploaded { get; } = new();
         private Func<string, string?, string?, Task>? _onRunTests;
         public void OnRunTests(Func<string, string?, string?, Task> handler) => _onRunTests = handler;
@@ -101,6 +107,40 @@ public class AgentSessionTests
         Assert.Equal(1, mgr.OpenCalls);
         Assert.True(link.Connected);
         Assert.Equal("156864", link.RegisteredSz);
+    }
+
+    // Реконнект обязан перерегистрировать агента (СЗ 162003, бэклог п.273): SignalR после
+    // обрыва выдаёт новый ConnectionId, и пока hub его не узнал, exec/push/close уходят на
+    // закрытое соединение — снаружи это «heartbeat свежий, агент не отвечает».
+    [Fact]
+    public async Task Reconnected_ПеререгистрируетАгентаИСообщаетДоступ()
+    {
+        var mgr = new FakeManager();
+        var link = new FakeHubLink();
+        var session = new AgentSession(mgr, link, Spec(), "PC-1");
+        await session.StartAsync();
+        var registersAfterStart = link.RegisterCalls;
+        var accessAfterStart = link.AccessReportCount;
+
+        await link.RaiseReconnectedAsync();
+
+        Assert.Equal(registersAfterStart + 1, link.RegisterCalls);
+        Assert.Equal(accessAfterStart + 1, link.AccessReportCount);
+        Assert.Equal(1, mgr.OpenCalls);   // доступ повторно НЕ открываем: это только адрес
+    }
+
+    [Fact]
+    public async Task Reconnected_ПослеResume_ТожеПеререгистрирует()
+    {
+        var mgr = new FakeManager();
+        var link = new FakeHubLink();
+        var session = new AgentSession(mgr, link, Spec(), "PC-1");
+        await session.ResumeAsync(new RevertState { Sz = "156864" });
+        var before = link.RegisterCalls;
+
+        await link.RaiseReconnectedAsync();
+
+        Assert.Equal(before + 1, link.RegisterCalls);
     }
 
     // Секрет обязан осесть в state.json: headless-откат (watchdog, после ребута) идёт без

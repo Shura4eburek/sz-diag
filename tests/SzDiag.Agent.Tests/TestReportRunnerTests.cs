@@ -1,4 +1,4 @@
-using SzDiag.Agent;
+﻿using SzDiag.Agent;
 using SzDiag.Contracts;
 using Xunit;
 
@@ -23,6 +23,7 @@ public class TestReportRunnerTests
         public Task HeartbeatAsync(string sz, CancellationToken ct = default) => Task.CompletedTask;
         public Task ReportAccessAsync(SzDiag.Contracts.AccessReportRequest report, CancellationToken ct = default) => Task.CompletedTask;
         public void OnRevert(Func<string, Task> handler) { }
+        public void OnReconnected(Func<Task> handler) { }
         public void OnRunTests(Func<string, string?, string?, Task> handler) { }
         public void OnRunDiag(Func<string, string?, Task> handler) { }
         public Func<SzDiag.Contracts.ExecRequest, Task>? ExecHandler { get; private set; }

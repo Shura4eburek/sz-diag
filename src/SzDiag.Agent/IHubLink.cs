@@ -18,6 +18,12 @@ public interface IHubLink
     /// может (бэклог п.97).</summary>
     Task ReportPowerEventsAsync(SzDiag.Contracts.PowerEventsReport report, CancellationToken ct = default);
 
+    /// <summary>Подписка на восстановление соединения. Обязательна: `WithAutomaticReconnect()`
+    /// после обрыва даёт НОВЫЙ ConnectionId, и пока агент не перерегистрируется, hub адресует
+    /// команды на закрытое соединение — heartbeat идёт, а управление мертво (СЗ 162003,
+    /// бэклог п.273).</summary>
+    void OnReconnected(Func<Task> handler);
+
     /// <summary>Подписка на команду revert от hub (sz → callback).</summary>
     void OnRevert(Func<string, Task> handler);
 

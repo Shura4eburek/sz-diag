@@ -174,7 +174,9 @@ public sealed class AgentHub : Microsoft.AspNetCore.SignalR.Hub
 
     public Task Heartbeat(string sz)
     {
-        _registry.Heartbeat(sz);
+        // ConnectionId берём из ЖИВОГО соединения: после реконнекта он новый, а Register
+        // агент второй раз не зовёт — без этого управление уходит в никуда (бэклог п.273).
+        _registry.Heartbeat(sz, Context.ConnectionId);
         return Task.CompletedTask;
     }
 

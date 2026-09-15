@@ -48,6 +48,9 @@ public sealed class SignalRHubLink : IHubLink
     public Task ReportPowerEventsAsync(PowerEventsReport report, CancellationToken ct = default)
         => _conn.InvokeAsync(HubRoutes.PowerEvents, report, ct);
 
+    public void OnReconnected(Func<Task> handler)
+        => _conn.Reconnected += _ => handler();
+
     public void OnRevert(Func<string, Task> handler)
         => _conn.On<string>(HubRoutes.Revert, sz => handler(sz));
 
