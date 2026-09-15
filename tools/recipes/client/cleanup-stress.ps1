@@ -25,7 +25,7 @@ foreach ($s in $TaskSuffixes) {
     } catch { "задача $t : $($_.Exception.Message)" }
 }
 
-foreach ($n in @('OCCTCmd', 'lhmmon', 'GPU3DDX11', 'FurMark', 'prime95')) {
+foreach ($n in @('OCCTCmd', 'OCCTEnterprise', 'lhmmon', 'GPU3DDX11', 'FurMark', 'prime95')) {
     try { Get-Process $n -ErrorAction SilentlyContinue | ForEach-Object { $_.Kill(); "процесс $n убит" } } catch {}
 }
 
