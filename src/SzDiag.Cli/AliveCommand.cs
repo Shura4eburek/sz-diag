@@ -47,7 +47,10 @@ public static class AliveCommand
         }
 
         var icmpOk = await PingAsync(ip);
-        AnsiConsole.MarkupLineInterpolated($"[grey]ICMP:[/] {(icmpOk ? "[green]отвечает[/]" : "[dim]молчит[/]")}");
+        // MarkupLine, а не MarkupLineInterpolated: последний ЭКРАНИРУЕТ вставляемое значение,
+        // и готовая разметка внутри {…} печаталась как текст — «ICMP: [green]отвечает[/]».
+        // Вставляются только литералы, так что экранировать здесь нечего.
+        AnsiConsole.MarkupLine($"[grey]ICMP:[/] {(icmpOk ? "[green]отвечает[/]" : "[dim]молчит[/]")}");
 
         var openPorts = new List<int>();
         foreach (var port in ProbePorts)
@@ -58,7 +61,7 @@ public static class AliveCommand
             AnsiConsole.MarkupLine("[grey]TCP:[/] [dim]ни один из проверенных портов не отвечает[/]");
 
         var arpFound = ArpTableParser.HasEntry(await RunArpAsync(), ip);
-        AnsiConsole.MarkupLineInterpolated($"[grey]ARP:[/] {(arpFound ? "[green]запись есть[/]" : "[dim]записи нет[/]")}");
+        AnsiConsole.MarkupLine($"[grey]ARP:[/] {(arpFound ? "[green]запись есть[/]" : "[dim]записи нет[/]")}");
 
         var verdict = AliveVerdict.Describe(new AliveSignals(heartbeatAge, arpFound, icmpOk, openPorts.Count > 0));
         AnsiConsole.MarkupLineInterpolated($"\n[bold]Вердикт:[/] {Markup.Escape(verdict)}");
