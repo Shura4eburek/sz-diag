@@ -268,6 +268,19 @@ staging) → `AgentLauncher.LaunchAndWait` (запуск `agent.exe` в насл
   `Registry.TryGetConnectionId(sz)`, зовут `IAgentCommandSender`; `false` при неизвестном connId.
 - **Аутентификация**: `AgentToken` (`X-SzDiag-Token`, middleware на `/agents` + discovery),
   `ManagementToken` (`X-SzDiag-Mgmt-Token`, фильтр на `/api`). Оба из секции `Hub` конфига.
+- **`HubTunnelService`** (`BackgroundService`) — именованный Cloudflare Tunnel, публикующий
+  hub наружу (`hub.<домен>`). Поднимает `cloudflared` дочерним процессом на старте, снимает
+  при остановке, перезапускает через `RestartDelay`, если тот упал сам. Секция
+  `Hub.Tunnel`: `Enabled` (рубильник), `Name` (имя/UUID туннеля), `ConfigPath` (yml с ingress),
+  `ExecutablePath` (пусто — ищется в PATH и `Program Files (x86)\cloudflared`), `PidFile`.
+  Служба Windows/автозапуск по входу **не используются намеренно**: туннель без hub отдаёт
+  502, а поднятый hub без туннеля недоступен снаружи — 16.09.2026 так и было (hub слушал,
+  `hub.<домен>` отвечал 530/1033, потому что `cloudflared` никто не запустил).
+  Два страховочных пути от осиротевшего процесса: job object с `KILL_ON_JOB_CLOSE`
+  (`KillOnCloseJob`) снимает `cloudflared` даже при `Stop-Process -Force` по hub, а pid-файл
+  рядом с exe даёт следующему старту добить того, кто всё же выжил. `build-dist.ps1
+  -TunnelName/-TunnelConfig/-TunnelExe` пишет секцию; без параметров она **переносится из
+  существующего** `dist\host\hub\appsettings.json`, чтобы пересборка не разоружила хаб молча.
 
 ## CLI (`szcli`, `SzDiag.Cli`)
 

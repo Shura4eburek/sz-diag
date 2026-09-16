@@ -66,6 +66,9 @@ builder.Services.AddSingleton<IKbBackup>(sp =>
 builder.Services.AddHostedService<KbBackupService>();
 builder.Services.AddHostedService<OfflineSweeper>();
 builder.Services.AddHostedService<ThreadPoolWatchdog>();
+// Туннель наружу живёт ровно столько, сколько hub: поднятый hub без туннеля недоступен
+// снаружи, туннель без hub отдаёт 502.
+builder.Services.AddHostedService<HubTunnelService>();
 builder.Services.AddHostedService(sp =>
     new HubDiscoveryResponder(sp.GetRequiredService<IOptions<HubOptions>>()));
 builder.Services.AddSingleton<IAgentCommandSender, SignalRAgentCommandSender>();

@@ -52,7 +52,14 @@ param(
     [string]$AccessClientSecret = "",
     # Путь к cloudflared.exe на клиенте. Пусто — туннель не поднимается (прямой режим);
     # бинарь приезжает на клиента через `szcli push cloudflared`.
-    [string]$ClientCloudflaredPath = "tools\cloudflared\cloudflared.exe"
+    [string]$ClientCloudflaredPath = "tools\cloudflared\cloudflared.exe",
+    # Именованный туннель, публикующий САМ hub наружу (hub.<домен>). Hub поднимает cloudflared
+    # на старте и снимает при остановке — служба/автозапуск по входу не нужны. Пусто — берётся
+    # из уже существующего dist\host\hub\appsettings.json, иначе туннель выключен.
+    [string]$TunnelName = "",
+    [string]$TunnelConfig = "",
+    # Путь к cloudflared.exe на хосте. Пусто — ищется в PATH и штатных каталогах установки.
+    [string]$TunnelExe = ""
 )
 
 $ErrorActionPreference = "Stop"
@@ -313,6 +320,28 @@ if (Test-Path client-tools) {
 $kb = ("$root\dist\host\kb").Replace('\', '\\')
 $db = ("$root\dist\host\szdiag.db").Replace('\', '\\')
 
+# Туннель хаба: hub сам поднимает cloudflared на старте и снимает при остановке.
+# Параметры не заданы — сохраняем то, что уже настроено в существующем конфиге, иначе
+# пересборка молча оставила бы hub без внешнего адреса (та же грабля, что с appsettings).
+$tunnelName = $TunnelName
+$tunnelConfig = $TunnelConfig
+$tunnelExe = $TunnelExe
+$existingHubCfg = "dist\host\hub\appsettings.json"
+if (-not $tunnelName -and -not $tunnelConfig -and (Test-Path $existingHubCfg)) {
+    try {
+        $prev = (Get-Content $existingHubCfg -Raw | ConvertFrom-Json).Hub.Tunnel
+        if ($prev) {
+            $tunnelName   = [string]$prev.Name
+            $tunnelConfig = [string]$prev.ConfigPath
+            $tunnelExe    = [string]$prev.ExecutablePath
+        }
+    } catch {
+        Write-Host "   ВНИМАНИЕ: прежний appsettings.json хаба не разобран — секция Tunnel не перенесена." -ForegroundColor Yellow
+    }
+}
+$tunnelEnabled = if ($tunnelName -or $tunnelConfig) { "true" } else { "false" }
+Write-Host "-- туннель хаба: $(if ($tunnelEnabled -eq 'true') { "$tunnelName ($tunnelConfig)" } else { 'выключен' })"
+
 $hubCfg = @"
 {
   "Urls": "http://0.0.0.0:$Port",
@@ -332,6 +361,14 @@ $hubCfg = @"
       "Remote": "origin",
       "Branch": "main",
       "CommandTimeout": "00:02:00"
+    },
+    "Tunnel": {
+      "Enabled": $tunnelEnabled,
+      "Name": "$tunnelName",
+      "ConfigPath": "$($tunnelConfig.Replace('\','\\'))",
+      "ExecutablePath": "$($tunnelExe.Replace('\','\\'))",
+      "RestartDelay": "00:00:10",
+      "PidFile": "cloudflared.pid"
     }
   }
 }

@@ -10,7 +10,9 @@
 ## Подготовка на боксе
 
 - [ ] `cloudflared` установлен на боксе (`build-dist` кладёт его в каталог раздачи сам)
-- [ ] Именованный туннель на хаб поднят, `hub.<домен>` отвечает снаружи
+- [x] Именованный туннель на хаб поднят, `hub.<домен>` отвечает снаружи
+      (16.09.2026: туннель поднимает сам hub — секция `Hub.Tunnel` в его конфиге,
+      `HubTunnelService`; отдельно руками запускать `cloudflared` больше не нужно)
 - [ ] Access-приложение и service token заведены
 - [ ] `build-dist.ps1 -HubUrl https://hub.<домен> -AccessClientId … -AccessClientSecret …`
 - [ ] `szcli push --list` показывает `cloudflared`
