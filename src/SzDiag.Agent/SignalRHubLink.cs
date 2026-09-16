@@ -7,6 +7,13 @@ public sealed class SignalRHubLink : IHubLink
 {
     private readonly HubConnection _conn;
 
+    /// <summary>Обработчик восстановления связи (перерегистрация в hub). Зовётся и после
+    /// штатного реконнекта SignalR, и после подъёма из состояния Closed.</summary>
+    private Func<Task>? _reconnected;
+
+    /// <summary>Агент закрыл связь сам (откат/выход) — переподключаться больше не нужно.</summary>
+    private volatile bool _closing;
+
     /// <param name="accessClientId">Service token приложения Cloudflare Access перед hub
     /// (пара заголовков CF-Access-*). Пусто — Access не используется: hub в локальной сети.
     /// Это секрет доступа к НАШЕМУ hub, общий для всех агентов, — ровно то же, чем уже
@@ -24,8 +31,44 @@ public sealed class SignalRHubLink : IHubLink
                     o.Headers["CF-Access-Client-Secret"] = accessClientSecret ?? "";
                 }
             })
-            .WithAutomaticReconnect()
+            .WithAutomaticReconnect(new InfiniteRetryPolicy())
             .Build();
+
+        // Второй рубеж к бесконечной политике: SignalR всё равно может дойти до Closed
+        // (например, отказ на самом хендшейке трактуется иначе, чем обрыв). Оттуда
+        // автоматика уже не поднимает — поднимаем сами, иначе агент молча выпадает из
+        // сессии при живой машине (бэклог п.280).
+        _conn.Closed += error =>
+        {
+            if (!_closing) _ = Task.Run(ReconnectForeverAsync);
+            return Task.CompletedTask;
+        };
+    }
+
+    /// <summary>Поднимать соединение, пока не поднимется (или пока агент не закрывается).
+    /// После успеха — тот же обработчик, что и у штатного реконнекта: без перерегистрации
+    /// hub адресовал бы команды на закрытое соединение (бэклог п.273).</summary>
+    private async Task ReconnectForeverAsync()
+    {
+        for (var attempt = 0; !_closing; attempt++)
+        {
+            var delay = InfiniteRetryPolicy.DelayFor(attempt);
+            if (delay > TimeSpan.Zero) await Task.Delay(delay);
+            if (_closing) return;
+            if (_conn.State != HubConnectionState.Disconnected) return;   // подняли без нас
+
+            try
+            {
+                await _conn.StartAsync();
+                Console.WriteLine("связь с hub поднята заново после разрыва");
+                if (_reconnected is not null) await _reconnected();
+                return;
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"hub недоступен ({ex.Message}) — повтор через {InfiniteRetryPolicy.DelayFor(attempt + 1)}");
+            }
+        }
     }
 
     public Task ConnectAsync(CancellationToken ct = default) => _conn.StartAsync(ct);
@@ -49,7 +92,10 @@ public sealed class SignalRHubLink : IHubLink
         => _conn.InvokeAsync(HubRoutes.PowerEvents, report, ct);
 
     public void OnReconnected(Func<Task> handler)
-        => _conn.Reconnected += _ => handler();
+    {
+        _reconnected = handler;
+        _conn.Reconnected += _ => handler();
+    }
 
     public void OnRevert(Func<string, Task> handler)
         => _conn.On<string>(HubRoutes.Revert, sz => handler(sz));
@@ -109,5 +155,9 @@ public sealed class SignalRHubLink : IHubLink
     public void OnRestartAgent(Action<string> handler)
         => _conn.On<string>(HubRoutes.RestartAgent, sz => handler(sz));
 
-    public ValueTask DisposeAsync() => _conn.DisposeAsync();
+    public ValueTask DisposeAsync()
+    {
+        _closing = true;   // иначе Closed от Dispose запустил бы вечный цикл переподключения
+        return _conn.DisposeAsync();
+    }
 }
