@@ -10,6 +10,14 @@
 #   szcli exec <СЗ> -f tools\recipes\client\make-combined-schedule.ps1
 
 $Duration = '01:00:00'   # ← сколько гнать
+# Выключить GPU-подтесты (GpuUnreal/Gpu3d/GpuCompute/Vram) — оставить CPU + Linpack + Memory.
+# Грабля (СЗ 162003, 16.09.2026): прогон запускается задачей под SYSTEM, то есть в сессии 0,
+# где D3D-устройства нет. С включённым GpuUnreal OCCTEnterprise поднимается, резервирует
+# 10-13 ГБ ОЗУ и висит с 7-8 тысячами потоков, но НЕ грузит ничего: CPU 3 %, за минуту
+# жизни 22 секунды процессорного времени. Приёмка по «задача запущена» это пропускает —
+# ловит только confirm-load-or-fail.ps1. Для дискриминатора IMC (CPU+RAM транзиенты) GPU
+# и не нужен; нужен полный пик со сборкой — гони интерактивно (start-occt-interactive.ps1).
+$NoGpu = $false          # ← true: Combined без GPU (прогон задачей под SYSTEM)
 
 $proc = Get-CimInstance Win32_Process -Filter "Name='SzDiag.Agent.exe'" | Select-Object -First 1
 if (-not $proc) { throw 'агент не найден — не от чего считать путь к tools\occt' }
@@ -40,6 +48,7 @@ $sched.Periods = @(
     $c.TestType   = 'Combined'
     $c.Duration   = $Duration
     $c.IsInfinite = $false
+    if ($NoGpu) { foreach ($n in 'Gpu3d', 'GpuUnreal', 'GpuCompute', 'Vram') { $c.CombinedConfig.$n = $false } }
     $c
 )
 
