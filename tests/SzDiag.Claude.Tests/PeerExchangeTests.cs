@@ -10,6 +10,7 @@ public class PeerExchangeTests : IDisposable
     public void Dispose() => _h.Dispose();
 
     private static string Result => Fixture.Line("simple-turn.jsonl", e => e is TurnResult);
+    private static string Aborted => Fixture.Line("interrupt-turn.jsonl", e => e is TurnResult { Interrupted: true });
 
     private sealed class Clock : TimeProvider
     {
@@ -58,13 +59,13 @@ public class PeerExchangeTests : IDisposable
     public async Task Live_AnswerReturned_PairActiveWhileInFlight()
     {
         Peer("161501");
-        _h.Manager.Create("161501");
+        var b = await _h.Running("161501");
         var ex = New();
         var changes = 0;
         ex.Changed += () => changes++;
 
         var reply = ex.AskAsync("161432", "161501", "какой BIOS?", live: true, default);
-        await WaitUntil(() => _h.Processes.Count == 1);
+        await WaitUntil(() => b.IsAnsweringPeer);
         Assert.Equal(new[] { ("161432", "161501") }, ex.Active);
 
         _h.Last.Emit(Result);
@@ -87,8 +88,8 @@ public class PeerExchangeTests : IDisposable
     {
         Peer("161501");
         Peer("161600");
-        _h.Manager.Create("161600");
-        var asker = _h.Manager.Create("161501");
+        await _h.Running("161600");
+        var asker = await _h.Running("161501");
         _ = asker.AskAsync("161600", "вопрос", default);   // 161501 сейчас отвечает соседу
 
         var r = await New().AskAsync("161501", "161600", "встречный?", live: true, default);
@@ -131,7 +132,7 @@ public class PeerExchangeTests : IDisposable
     public async Task RateLimit_PerHour()
     {
         Peer("161501");
-        _h.Manager.Create("161501");
+        await _h.Running("161501");
         var clock = new Clock();
         var ex = New(new PeerLimits(2, TimeSpan.FromMinutes(5)), clock);
         for (var i = 0; i < 2; i++)
@@ -164,6 +165,32 @@ public class PeerExchangeTests : IDisposable
         Assert.False(r.Ok);
         Assert.Contains("не ответил", r.Text);
         Assert.Equal(0, b.PeerQueued);
+    }
+
+    [Fact]
+    public async Task AskerInterrupted_DropsQueuedQuestion()
+    {
+        // Ревью I-2: «■» у спросившего — его вопрос соседу больше некому ждать; сосед не должен
+        // потом отвечать в пустоту, а пара — держать «уже есть вопрос» до таймаута.
+        Peer("161501");
+        var b = await _h.Running("161501");
+        await b.SendAsync("долгая работа оператора");
+        var a = await _h.Running("161432");
+        var aProc = _h.Last;
+        await a.SendAsync("ход, в котором спрашиваем соседа");
+        var ex = New();
+        var reply = ex.AskAsync("161432", "161501", "?", live: true, default);
+        await WaitUntil(() => b.PeerQueued == 1);
+
+        var interrupt = a.InterruptAsync();
+        aProc.Emit(Aborted);
+        await interrupt;
+
+        var r = await reply;
+        Assert.False(r.Ok);
+        Assert.Contains("прервал", r.Text);
+        Assert.Equal(0, b.PeerQueued);
+        Assert.Empty(ex.Active);
     }
 
     [Fact]

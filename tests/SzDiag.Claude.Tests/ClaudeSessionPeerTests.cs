@@ -26,13 +26,13 @@ public class ClaudeSessionPeerTests : IDisposable
     [Fact]
     public async Task Idle_SendsPrefixedQuestion_AnswerIsTurnResultText()
     {
-        var s = _h.Manager.Create("161501");
+        var s = await _h.Running("161501");
         var answer = s.AskAsync("161432", "какой BIOS на плате?", default);
 
         Assert.Equal(SessionState.AnsweringPeer, s.State);
         Assert.True(s.IsAnsweringPeer);
-        Assert.StartsWith("[вопрос от сессии 161432] какой BIOS на плате?", UserText(Assert.Single(_h.Last.Written)));
-        var q = Assert.IsType<PeerQuestion>(Assert.Single(s.History));
+        Assert.StartsWith("[вопрос от сессии 161432] какой BIOS на плате?", UserText(_h.Last.Written[^1]));
+        var q = Assert.IsType<PeerQuestion>(s.History[^1]);
         Assert.Equal("161432", q.FromKey);
 
         _h.Last.Emit(Text);
@@ -63,7 +63,7 @@ public class ClaudeSessionPeerTests : IDisposable
     [Fact]
     public async Task Interrupted_Fails()
     {
-        var s = _h.Manager.Create("161501");
+        var s = await _h.Running("161501");
         var answer = s.AskAsync("161432", "вопрос", default);
         _h.Last.Emit(Aborted);
         var ex = await Assert.ThrowsAsync<PeerAnswerException>(() => answer);
@@ -73,7 +73,7 @@ public class ClaudeSessionPeerTests : IDisposable
     [Fact]
     public async Task ProcessExit_FailsPendingAnswer()
     {
-        var s = _h.Manager.Create("161501");
+        var s = await _h.Running("161501");
         var answer = s.AskAsync("161432", "вопрос", default);
         _h.Last.Exit(1);
         await Assert.ThrowsAsync<PeerAnswerException>(() => answer);
@@ -109,7 +109,7 @@ public class ClaudeSessionPeerTests : IDisposable
     [Fact]
     public async Task PermissionDuringAnswer_ReturnsToAnsweringPeer()
     {
-        var s = _h.Manager.Create("161501");
+        var s = await _h.Running("161501");
         _ = s.AskAsync("161432", "вопрос", default);
         var perm = _h.Broker.AskAsync("161501", "Bash", JsonDocument.Parse("{}").RootElement, null, default);
         Assert.Equal(SessionState.WaitingPermission, s.State);
@@ -117,6 +117,33 @@ public class ClaudeSessionPeerTests : IDisposable
         _h.Broker.Resolve(_h.Broker.Pending("161501").Single().RequestId, true);
         await perm;
         Assert.Equal(SessionState.AnsweringPeer, s.State);
+    }
+
+    [Fact]
+    public async Task NotRunning_Rejects_NoProcessStarted()
+    {
+        // Ревью I-1: остановленная сессия может быть открыта в терминале (--resume того же
+        // разговора) — поднять её вопросом соседа значит дать разговору двух писателей.
+        var s = _h.Manager.Create("161501");
+        var ex = await Assert.ThrowsAsync<PeerAnswerException>(() => s.AskAsync("161432", "вопрос", default));
+        Assert.Contains("не запущена", ex.Message);
+        Assert.Empty(_h.Processes);
+    }
+
+    [Fact]
+    public async Task WhileStopping_Rejects()
+    {
+        // Ревью I-3: вопрос в окне остановки/архива поднял бы новый процесс за «архивной» сессией.
+        var s = await _h.Running("161501");
+        var gate = new TaskCompletionSource();
+        _h.Last.StopGate = gate;
+        var stop = s.ArchiveAsync();
+
+        var ex = await Assert.ThrowsAsync<PeerAnswerException>(() => s.AskAsync("161432", "вопрос", default));
+        Assert.Contains("останавлива", ex.Message);
+        gate.SetResult();
+        await stop;
+        Assert.Single(_h.Processes);
     }
 
     [Fact]
@@ -129,12 +156,12 @@ public class ClaudeSessionPeerTests : IDisposable
     }
 
     [Fact]
-    public void PeerQuestion_SurvivesDeskRestart()
+    public async Task PeerQuestion_SurvivesDeskRestart()
     {
-        var s = _h.Manager.Create("161501");
+        var s = await _h.Running("161501");
         _ = s.AskAsync("161432", "вопрос", default);
         var again = _h.New().Get("161501")!;
-        var q = Assert.IsType<PeerQuestion>(again.History.First());
+        var q = again.History.OfType<PeerQuestion>().Single();
         Assert.Equal(("161432", "вопрос"), (q.FromKey, q.Text));
     }
 }

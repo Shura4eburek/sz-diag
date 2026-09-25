@@ -106,6 +106,12 @@ public sealed class ClaudeSession
         {
             if (State == SessionState.Archived) throw new PeerAnswerException("сессия соседа в архиве — СЗ закрыта");
             if (State == SessionState.Crashed) throw new PeerAnswerException("сессия соседа упала — оператор её ещё не перезапустил");
+            // Процесс не поднимаем ради соседа: остановленная сессия может быть открыта в
+            // терминале (два писателя в один разговор), а в окне остановки/архива новый процесс
+            // остался бы сиротой за «архивной» сессией (ревью части 4, I-1 и I-3).
+            if (_stopping || _archiving) throw new PeerAnswerException("сессия соседа останавливается — спроси без live (выжимка kb)");
+            if (_process is not { IsRunning: true })
+                throw new PeerAnswerException("сессия соседа не запущена (остановлена или открыта в терминале) — спроси без live (выжимка kb)");
             _peerQueue.Add(ask);
         }
         var reg = ct.Register(() =>
@@ -130,6 +136,10 @@ public sealed class ClaudeSession
 
     /// <summary>Состояние или очередь изменились. Может прийти с потока процесса — UI маршалит сам.</summary>
     public event Action? Changed;
+
+    /// <summary>Ход прерван «■» или процесс остановлен/упал: живые вопросы, которые эта сессия
+    /// задала соседям, больше некому ждать (ревью части 4, I-2). Вызывается вне лока сессии.</summary>
+    public event Action? Halted;
 
     /// <summary>История на момент подписки + всё, что придёт после, без дыр между ними.
     /// Слушатель вызывается под локом сессии: он должен только поставить работу в очередь UI.</summary>
@@ -295,6 +305,7 @@ public sealed class ClaudeSession
             _interrupt?.TrySetResult(false);
         }
         _d.Broker.DenyAll(Key, "сессия остановлена");
+        Halted?.Invoke();
         Changed?.Invoke();
     }
 
@@ -320,6 +331,7 @@ public sealed class ClaudeSession
         }
         Changed?.Invoke();
         if (!active) return back;
+        Halted?.Invoke();
 
         // Висящий запрос разрешения держит ход — сначала отказ, потом interrupt.
         _d.Broker.DenyAll(Key, "ход прерван оператором");
@@ -357,6 +369,7 @@ public sealed class ClaudeSession
             _stopping = true;
         }
         _d.Broker.DenyAll(Key, "сессия остановлена");
+        Halted?.Invoke();
         if (p is not null) await p.StopAsync(_d.Timeouts.StopGrace).ConfigureAwait(false);
         lock (_gate)
         {

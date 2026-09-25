@@ -43,6 +43,16 @@ internal sealed class SessionHarness : IDisposable
 
     public FakeClaudeProcess Last => Processes[^1];
 
+    /// <summary>Сессия с живым процессом в Idle: живой вопрос соседа принимается только такой
+    /// (ревью части 4, I-1 — не будить остановленную или открытую в терминале).</summary>
+    public async Task<ClaudeSession> Running(string key)
+    {
+        var s = Manager.Get(key) ?? Manager.Create(key);
+        await s.SendAsync("старт");
+        Last.Emit(Fixture.Line("simple-turn.jsonl", e => e is TurnResult));
+        return s;
+    }
+
     public void Dispose()
     {
         try { Directory.Delete(Dir, true); } catch (IOException) { }

@@ -27,11 +27,14 @@ public sealed class FakeClaudeProcess : IClaudeProcess
         return Task.CompletedTask;
     }
 
-    public Task StopAsync(TimeSpan grace)
+    /// <summary>Не null — остановка ждёт, пока тест не отпустит (окно «процесс ещё выходит»).</summary>
+    public TaskCompletionSource? StopGate { get; set; }
+
+    public async Task StopAsync(TimeSpan grace)
     {
         Stopped = true;
+        if (StopGate is { } gate) await gate.Task;
         if (IsRunning) Exit(0);
-        return Task.CompletedTask;
     }
 
     public void Emit(string line) => OutputLine?.Invoke(line);

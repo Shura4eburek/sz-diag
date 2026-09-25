@@ -84,7 +84,17 @@ public sealed class PeerExchange(SessionManager sessions, IPeerDirectory directo
         Changed?.Invoke();
 
         using var timeout = new CancellationTokenSource(limits.Timeout, time);
-        using var linked = CancellationTokenSource.CreateLinkedTokenSource(ct, timeout.Token);
+        // «■» или остановка спросившего: MCP-сервер stateless, отмену tools/call от claude
+        // обработчик не видит — узнаём о ней от самой сессии (ревью части 4, I-2).
+        using var halted = new CancellationTokenSource();
+        var askerSession = sessions.Peek(asker);
+        void OnHalted()
+        {
+            try { halted.Cancel(); }
+            catch (ObjectDisposedException) { }
+        }
+        if (askerSession is not null) askerSession.Halted += OnHalted;
+        using var linked = CancellationTokenSource.CreateLinkedTokenSource(ct, timeout.Token, halted.Token);
         try
         {
             return new PeerReply(true, await target.AskAsync(asker, question, linked.Token).ConfigureAwait(false));
@@ -92,6 +102,10 @@ public sealed class PeerExchange(SessionManager sessions, IPeerDirectory directo
         catch (OperationCanceledException) when (timeout.IsCancellationRequested)
         {
             return PeerReply.Fail($"сосед {key} не ответил за {limits.Timeout.TotalMinutes:0.#} мин — вопрос снят");
+        }
+        catch (OperationCanceledException) when (halted.IsCancellationRequested)
+        {
+            return PeerReply.Fail("спрашивающий прервал ход — вопрос снят");
         }
         catch (OperationCanceledException)
         {
@@ -103,6 +117,7 @@ public sealed class PeerExchange(SessionManager sessions, IPeerDirectory directo
         }
         finally
         {
+            if (askerSession is not null) askerSession.Halted -= OnHalted;
             lock (_gate) _active.Remove((asker, key));
             Changed?.Invoke();
         }

@@ -49,7 +49,9 @@ public class MainViewModelPeerTests : IDisposable
         var vm = New(new() { ["161432"] = Other, ["161501"] = Other });
         vm.Apply(Snap(S("161432"), S("161501")));
         _h.Services.Sessions.Create("161432");
-        _h.Services.Sessions.Create("161501");
+        var b = _h.Services.Sessions.Create("161501");
+        await b.SendAsync("старт");   // живой вопрос — только сессии с процессом (ревью I-1)
+        _h.Last.Emit(Fixture.Line("simple-turn.jsonl", e => e is TurnResult));
         _h.PeerDir.All.Add(new PeerInfo("161501", "", null));
 
         var reply = _h.Peers.AskAsync("161432", "161501", "?", live: true, default);
