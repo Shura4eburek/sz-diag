@@ -34,7 +34,8 @@
 param(
     [string]$HubIp = "",
     [int]$Port = 5099,
-    [string]$Token = "dev-token",
+    # Пусто — берётся из существующего dist\host\hub\appsettings.json, иначе "dev-token".
+    [string]$Token = "",
     [string]$ToolsRoot = "",
     [double]$WatchdogHours = 6,
     # Доступ к локальному API учётной системы для `szcli sz fetch`. Порта по умолчанию нет
@@ -202,6 +203,13 @@ function Publish($project, $out) {
 # ошибки и валимся с сводкой только в самом конце, после того как попробовали все.
 $failed = @()
 $staleDirs = @()   # компоненты, оставшиеся на старом бинаре: их конфиг трогать нельзя
+
+# Прежние конфиги снимаем ДО публикации: Publish подменяет папку целиком, и после неё в
+# dist лежит appsettings.json из проекта (туннель выключен, токен по умолчанию). Раньше
+# «перенос из прежнего конфига» читал уже его — и туннель/токен молча терялись (бэклог п.265).
+$prevHubCfgText = if (Test-Path dist\host\hub\appsettings.json) { Get-Content dist\host\hub\appsettings.json -Raw } else { $null }
+$prevClientCfgText = if (Test-Path dist\client\appsettings.json) { Get-Content dist\client\appsettings.json -Raw } else { $null }
+
 foreach ($p in @(
     @{ Project = "src/SzDiag.Hub"; Out = "dist/host/hub" },
     @{ Project = "src/SzDiag.Cli"; Out = "dist/host/cli" },
@@ -327,10 +335,15 @@ $db = ("$root\dist\host\szdiag.db").Replace('\', '\\')
 $tunnelName = $TunnelName
 $tunnelConfig = $TunnelConfig
 $tunnelExe = $TunnelExe
-$existingHubCfg = "dist\host\hub\appsettings.json"
-if (-not $tunnelName -and -not $tunnelConfig -and (Test-Path $existingHubCfg)) {
+$prevHub = $null
+if ($prevHubCfgText) {
+    try { $prevHub = ($prevHubCfgText | ConvertFrom-Json).Hub } catch {
+        Write-Host "   ВНИМАНИЕ: прежний appsettings.json хаба не разобран — туннель и токен не перенесены." -ForegroundColor Yellow
+    }
+}
+if (-not $tunnelName -and -not $tunnelConfig -and $prevHub) {
     try {
-        $prev = (Get-Content $existingHubCfg -Raw | ConvertFrom-Json).Hub.Tunnel
+        $prev = $prevHub.Tunnel
         if ($prev) {
             $tunnelName   = [string]$prev.Name
             $tunnelConfig = [string]$prev.ConfigPath
@@ -340,6 +353,25 @@ if (-not $tunnelName -and -not $tunnelConfig -and (Test-Path $existingHubCfg)) {
         Write-Host "   ВНИМАНИЕ: прежний appsettings.json хаба не разобран — секция Tunnel не перенесена." -ForegroundColor Yellow
     }
 }
+# Токен и постоянный адрес hub тоже переносим из прежнего dist: пересборка без -Token молча
+# ставила "dev-token", и апдейтер на клиенте с настоящим токеном получал 401 — а без HubUrl
+# клиент из новой сборки терял внешний адрес (бэклог п.265).
+if (-not $Token -and $prevHub) { $Token = [string]$prevHub.AgentToken }
+if (-not $Token) { $Token = "dev-token" }
+if (-not $HubUrl -and -not $HubIp -and $prevClientCfgText) {
+    try {
+        $prevClient = $prevClientCfgText | ConvertFrom-Json
+        # Только постоянный адрес (домен туннеля): http://<ip> прошлой сборки мог устареть.
+        if ([string]$prevClient.HubUrl -like 'https://*') {
+            $HubUrl = [string]$prevClient.HubUrl
+            if (-not $AccessClientId) {
+                $AccessClientId = [string]$prevClient.AccessClientId
+                $AccessClientSecret = [string]$prevClient.AccessClientSecret
+            }
+        }
+    } catch { }
+}
+Write-Host "-- токен: $(if ($Token -eq 'dev-token') { 'dev-token (по умолчанию)' } else { 'задан/перенесён' }); HubUrl клиента: $(if ($HubUrl) { $HubUrl } else { 'нет (UDP-обнаружение)' })"
 $tunnelEnabled = if ($tunnelName -or $tunnelConfig) { "true" } else { "false" }
 Write-Host "-- туннель хаба: $(if ($tunnelEnabled -eq 'true') { "$tunnelName ($tunnelConfig)" } else { 'выключен' })"
 
