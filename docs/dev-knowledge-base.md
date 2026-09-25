@@ -5,13 +5,15 @@
 > ежедневной работы — [../CLAUDE.md](../CLAUDE.md). Здесь — протокол, точки расширения,
 > таблицы параметров и рецепты. Обновлено 2026-09-04.
 
-## Проекты (9 в `src/` + зеркальные тесты в `tests/`)
+## Проекты (11 в `src/` + зеркальные тесты в `tests/`)
 
 | Проект | Роль | Ключевые типы |
 |---|---|---|
 | `SzDiag.Contracts` | DTO + имена протокола (единый источник) + автообнаружение | `HubRoutes`, `DiscoveryProtocol`, `HubDiscovery`, DTO-записи |
 | `SzDiag.Hub` | ASP.NET Core на хосте: SignalR `/agents` + `/api/*` + `/agent/*` | `AgentHub`, `ManagementApi`, `AgentPackageApi`, `SessionRegistry` |
-| `SzDiag.Cli` (`szcli`) | тонкий клиент к `/api` | `HubApiClient`, команды в `Program.cs` |
+| `SzDiag.Cli` (`szcli`) | тонкий клиент к `/api` | команды в `Program.cs` |
+| `SzDiag.HubClient` | клиент `/api`, общий для CLI и Desk | `HubApiClient`, `IHubApiClient`, `SzLiveness` |
+| `SzDiag.Desk` | окно на Avalonia: список СЗ, инспектор, передачи, статусбар | `HubPoller`, `MainViewModel`, `CollectionSync`, `MainWindow` |
 | `SzDiag.Agent` | консоль на клиенте (админ, `app.manifest`) | `AgentSession`, `WindowsSystemAccessManager`, `PortableSshServer` |
 | `SzDiag.Updater` | точка входа на клиенте: самообновление агента с hub | `HttpUpdateClient`, `PackageApplier`, `AgentLauncher` |
 | `SzDiag.ConsoleUi` | консольный UI, общий для hub/агента/CLI | `StickyHeader`, `SyncedConsoleWriter`, `MarkupText` |
@@ -108,7 +110,26 @@ RecordCloseAsync` + `Remove(sz)`; неудача — `Status=Offline` + `Session
 RevertNote` выставляет и живой SignalR-путь `RevertResult` выше — единое состояние сессии
 независимо от того, кто откат инициировал (self-revert по `C`, close с хоста, watchdog).
 
+### Передачи push/pull `GET /api/transfers` (`Hub/TransferTracker.cs`)
+
+Под management-токеном, `List<TransferInfo>` (`Id`, `Sz`, `Direction` Push/Pull, `What` —
+инструмент или путь, `TotalBytes` (null — неизвестен), `DoneBytes`, `BytesPerSecond` — средняя
+с начала, `StartedAt`, `State` Running/Done/Failed, `Note` — итог или причина, `FinishedAt`),
+новые сверху; enum'ы числами. Учёт in-memory, завершённые держатся 10 минут
+(`TransferTracker.KeepFinished`). `PushCoordinator`/`PullCoordinator` заводят передачу по
+`requestId` и **всегда** закрывают её в `finally` (исход по умолчанию — «прервано», чтобы
+исключение не оставило `Running` навсегда). Pull считает байты при приёме чанков; push — по
+отдаче файлов в `/tools/{tool}/file`: агент передаёт `requestId` параметром `req`
+(`ToolRoutes.Manifest/File(tool, …, requestId)`), манифест выставляет `TotalBytes`, файл
+отдаётся через `CountingReadStream`. Старый агент без `req` — раздача работает как раньше,
+передача закрывается итогом без байт. Повторный push уже доставленного — `Done` с `Note`
+«скачано 0, пропущено N». Клиент: `IHubApiClient.GetTransfersAsync` (404 старого hub → пустой
+список).
+
 ### Диагностика самого hub `/healthz` (`Hub/HealthApi.cs`)
+
+DTO `HealthzResponse` — в `SzDiag.Contracts` (Desk читает его через
+`IHubApiClient.GetHealthAsync`; null — hub не ответил).
 
 **Без токена** (`Program.cs` фильтрует токен-мидлварой только `HubRoutes.Path`, `/healthz` вне
 неё — сознательно новая неаутентифицированная поверхность, данных не отдаёт). Отвечает даже

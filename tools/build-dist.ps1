@@ -197,14 +197,15 @@ function Publish($project, $out) {
     Move-Item $staging $out
     Remove-Item $backup -Recurse -Force -ErrorAction SilentlyContinue
 }
-# Три компонента независимы (напр. hub может быть живым сервером и залоченным, пока мы
+# Компоненты независимы (напр. hub может быть живым сервером и залоченным, пока мы
 # правим только agent/cli) — сбой одного не должен мешать пересобрать остальные. Копим
-# ошибки и валимся с сводкой только в самом конце, после того как попробовали все три.
+# ошибки и валимся с сводкой только в самом конце, после того как попробовали все.
 $failed = @()
 $staleDirs = @()   # компоненты, оставшиеся на старом бинаре: их конфиг трогать нельзя
 foreach ($p in @(
     @{ Project = "src/SzDiag.Hub"; Out = "dist/host/hub" },
     @{ Project = "src/SzDiag.Cli"; Out = "dist/host/cli" },
+    @{ Project = "src/SzDiag.Desk"; Out = "dist/host/desk" },
     @{ Project = "src/SzDiag.Agent"; Out = "dist/client" }
 )) {
     try { Publish $p.Project $p.Out }
@@ -401,6 +402,18 @@ if ((Test-Path dist\host\cli) -and (Should-WriteConfig "dist/host/cli")) {
     Set-Content -Path dist\host\cli\appsettings.json -Value $cliCfg -Encoding utf8
 }
 
+# Desk — тот же hub и тот же токен, что у CLI: окно и szcli обязаны видеть одно и то же.
+$deskCfg = @"
+{
+  "HubBaseUrl": "http://localhost:$Port",
+  "ManagementToken": "$Token",
+  "KbRoot": "$kb"
+}
+"@
+if ((Test-Path dist\host\desk) -and (Should-WriteConfig "dist/host/desk")) {
+    Set-Content -Path dist\host\desk\appsettings.json -Value $deskCfg -Encoding utf8
+}
+
 # Явный -HubUrl (домен через Cloudflare Tunnel) главнее -HubIp: это постоянный адрес,
 # который работает из любой сети, тогда как IP годится только внутри LAN сервиса.
 $hubUrlValue = if (-not [string]::IsNullOrWhiteSpace($HubUrl)) { $HubUrl }
@@ -530,7 +543,7 @@ if ($failed.Count -gt 0) {
 } else {
     Write-Host "== Готово =="
 }
-Write-Host "Хост:   dist\host\   (start-hub.cmd, szcli.cmd)"
+Write-Host "Хост:   dist\host\   (start-hub.cmd, szcli.cmd, desk\SzDiag.Desk.exe)"
 Write-Host "Клиент: dist\client\ (SzDiag.Agent.exe + ключ + testsuite, updater-log.cmd)"
 Write-Host "Гайд:   docs\TESTING.md"
 Write-Host "Открой порт на хосте (от админа):"
