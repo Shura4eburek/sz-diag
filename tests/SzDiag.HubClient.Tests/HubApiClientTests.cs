@@ -1,11 +1,11 @@
 ﻿using System.Net;
 using System.Net.Http.Json;
 using System.Text;
-using SzDiag.Cli;
+using SzDiag.HubClient;
 using SzDiag.Contracts;
 using Xunit;
 
-namespace SzDiag.Cli.Tests;
+namespace SzDiag.HubClient.Tests;
 
 public class HubApiClientTests
 {

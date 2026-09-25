@@ -1,6 +1,6 @@
 ﻿using SzDiag.Contracts;
 
-namespace SzDiag.Cli;
+namespace SzDiag.HubClient;
 
 public interface IHubApiClient
 {

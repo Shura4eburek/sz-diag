@@ -2,7 +2,7 @@
 using System.Net.Http.Json;
 using SzDiag.Contracts;
 
-namespace SzDiag.Cli;
+namespace SzDiag.HubClient;
 
 public sealed class HubApiClient : IHubApiClient
 {
