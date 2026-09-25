@@ -256,6 +256,9 @@ public sealed class ClaudeSession
         {
             lock (_gate) _interrupt = null;
         }
+        // Пока шёл interrupt, очередь стояла (PumpQueueAsync ждёт _interrupt == null): то, что
+        // оператор отправил после «■», уходит сейчас, а не при следующей отправке.
+        _ = PumpQueueAsync();
         return back;
     }
 

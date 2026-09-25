@@ -126,6 +126,22 @@ public class ClaudeSessionTests : IDisposable
     }
 
     [Fact]
+    public async Task SendDuringInterrupt_SentAfterAbortedTurn()
+    {
+        // «■» и сразу «сделай вместо этого X»: X не должно повиснуть в очереди до следующей отправки.
+        var s = _h.Manager.Create("161432");
+        await s.SendAsync("считай до 400");
+        var stop = s.InterruptAsync();
+        await s.SendAsync("вместо этого X");
+        _h.Last.Emit(Aborted);
+        await stop.WaitAsync(TimeSpan.FromSeconds(5));
+
+        await WaitUntil(() => _h.Last.Written.Count == 3);
+        Assert.Equal("вместо этого X", UserText(_h.Last.Written[2]));
+        Assert.Empty(s.Queued);
+    }
+
+    [Fact]
     public async Task Interrupt_NoResult_StopsProcessAfterTimeout()
     {
         using var h = new SessionHarness(new SessionTimeouts(TimeSpan.FromSeconds(1), TimeSpan.FromMilliseconds(200)));
