@@ -1,0 +1,30 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:SzDiag.Desk.ViewModels.Inspector"
+             x:Class="SzDiag.Desk.Views.Inspector.SensorsTabView"
+             x:DataType="vm:SensorsTabViewModel">
+  <StackPanel Spacing="6">
+    <TextBlock Text="{Binding Status}" Classes="secondary" TextWrapping="Wrap" />
+    <Button Content="Запустить наблюдатель (sensors start)" Command="{Binding StartSensorsCommand}"
+            IsVisible="{Binding NotWriting}" HorizontalAlignment="Left" />
+    <StackPanel Spacing="3" IsVisible="{Binding HasData}">
+      <TextBlock Text="{Binding CpuText}" />
+      <TextBlock Text="{Binding GpuText}" />
+      <TextBlock Text="{Binding PowerText}" Classes="secondary" />
+      <TextBlock Text="{Binding VoltText}" Classes="secondary" />
+    </StackPanel>
+    <!-- Пустой график не рисуется (спека): ломаная из одной точки ничего не говорит. -->
+    <StackPanel Spacing="2" IsVisible="{Binding HasCpuLine}">
+      <TextBlock Classes="caps" Text="ТЕМПЕРАТУРА CPU" />
+      <Border Background="{StaticResource Bg.Panel}" CornerRadius="8" Padding="6" Width="272" HorizontalAlignment="Left">
+        <Polyline Points="{Binding CpuTempLine}" Stroke="{StaticResource Warn}" StrokeThickness="1.4" Height="56" Width="260" />
+      </Border>
+    </StackPanel>
+    <StackPanel Spacing="2" IsVisible="{Binding HasGpuLine}">
+      <TextBlock Classes="caps" Text="ТЕМПЕРАТУРА GPU" />
+      <Border Background="{StaticResource Bg.Panel}" CornerRadius="8" Padding="6" Width="272" HorizontalAlignment="Left">
+        <Polyline Points="{Binding GpuTempLine}" Stroke="{StaticResource Accent}" StrokeThickness="1.4" Height="56" Width="260" />
+      </Border>
+    </StackPanel>
+  </StackPanel>
+</UserControl>

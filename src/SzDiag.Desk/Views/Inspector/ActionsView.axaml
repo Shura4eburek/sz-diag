@@ -1,0 +1,57 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:SzDiag.Desk.ViewModels.Inspector"
+             x:Class="SzDiag.Desk.Views.Inspector.ActionsView"
+             x:DataType="vm:ActionsViewModel">
+  <ScrollViewer>
+    <StackPanel Spacing="10">
+      <!-- Подтверждение разрушительного действия: одно на всю вкладку, поверх кнопок. -->
+      <Border IsVisible="{Binding PendingConfirm, Converter={x:Static ObjectConverters.IsNotNull}}"
+              BorderBrush="{StaticResource Warn}" BorderThickness="1" Background="#1fff9f0a" CornerRadius="10" Padding="10,8">
+        <StackPanel Spacing="6">
+          <TextBlock Text="{Binding PendingConfirm}" TextWrapping="Wrap" />
+          <StackPanel Orientation="Horizontal" Spacing="8">
+            <Button Content="Да" Command="{Binding ConfirmCommand}" />
+            <Button Content="Нет" Command="{Binding CancelConfirmCommand}" />
+          </StackPanel>
+        </StackPanel>
+      </Border>
+
+      <StackPanel Spacing="10" IsEnabled="{Binding IsIdle}">
+        <StackPanel Spacing="4">
+          <TextBlock Classes="caps" Text="ДИАГНОСТИКА" />
+          <TextBox Text="{Binding DiagSections}" Watermark="секции через пробел (пусто — все)" />
+          <Button Content="diag run" Command="{Binding DiagRunCommand}" />
+        </StackPanel>
+        <StackPanel Spacing="4">
+          <TextBlock Classes="caps" Text="ПРОГОН" />
+          <TextBox Text="{Binding TestConfig}" Watermark="метка конфигурации (обязательно): EXPO 6000 / сток" />
+          <TextBox Text="{Binding TestFilter}" Watermark="фильтр тестов (необязательно)" />
+          <Button Content="test run" Command="{Binding TestRunCommand}" />
+        </StackPanel>
+        <StackPanel Spacing="4">
+          <TextBlock Classes="caps" Text="WINDOWS UPDATE" />
+          <StackPanel Orientation="Horizontal" Spacing="8">
+            <Button Content="freeze" Command="{Binding FreezeCommand}" />
+            <Button Content="unfreeze…" Command="{Binding UnfreezeCommand}" />
+          </StackPanel>
+        </StackPanel>
+        <StackPanel Spacing="4">
+          <TextBlock Classes="caps" Text="ЗАМЕТКА В ЖУРНАЛ" />
+          <TextBox Text="{Binding NoteText}" Watermark="свап БП, правка BIOS, осмотр…" AcceptsReturn="False" />
+          <Button Content="записать" Command="{Binding NoteCommand}" />
+        </StackPanel>
+        <StackPanel Spacing="4">
+          <TextBlock Classes="caps" Text="ЗАЯВКА" />
+          <Button Content="sz fetch (данные из ERP, несколько минут)" Command="{Binding SzFetchCommand}" />
+          <Button Content="close…" Command="{Binding CloseCommand}" />
+          <TextBox Text="{Binding CloseReason}" Watermark="причина для close --force" />
+          <Button Content="close --force…" Command="{Binding CloseForceCommand}" />
+        </StackPanel>
+      </StackPanel>
+
+      <Button Content="прервать команду" Command="{Binding CancelCommand}" IsVisible="{Binding Running}" HorizontalAlignment="Left" />
+      <SelectableTextBlock Text="{Binding Log}" FontFamily="{StaticResource MonoFont}" FontSize="11" TextWrapping="Wrap" />
+    </StackPanel>
+  </ScrollViewer>
+</UserControl>

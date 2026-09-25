@@ -4,8 +4,10 @@ using Avalonia.Markup.Xaml;
 using Avalonia.Threading;
 using SzDiag.Desk.Services;
 using SzDiag.Desk.ViewModels;
+using SzDiag.Desk.ViewModels.Inspector;
 using SzDiag.Desk.Views;
 using SzDiag.HubClient;
+using SzDiag.Kb;
 
 namespace SzDiag.Desk;
 
@@ -29,7 +31,13 @@ public partial class App : Application
             var claude = Task.Run(() => DeskClaudeHost.StartAsync(opts, AppContext.BaseDirectory)).GetAwaiter().GetResult();
             var chat = claude.Services(a => Dispatcher.UIThread.Post(a));
 
-            var vm = new MainViewModel(new HubPoller(api, TimeProvider.System), ui, TimeProvider.System, chat);
+            var szcli = new Func<string?>(() => claude.Szcli);
+            var kbRoot = Path.IsPathRooted(opts.KbRoot) ? opts.KbRoot : Path.Combine(AppContext.BaseDirectory, opts.KbRoot);
+            var tools = new DeskTools(api, new SzcliRunner(szcli), new KbPaths(kbRoot), a => Dispatcher.UIThread.Post(a));
+            var inspector = InspectorViewModel.Create(tools, TimeProvider.System);
+
+            var vm = new MainViewModel(new HubPoller(api, TimeProvider.System), ui, TimeProvider.System, chat,
+                inspector, new FreezeProbe(szcli));
             desktop.MainWindow = new MainWindow(vm);
             desktop.Exit += (_, _) =>
             {

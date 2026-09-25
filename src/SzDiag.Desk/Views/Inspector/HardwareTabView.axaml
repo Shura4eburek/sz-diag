@@ -1,0 +1,13 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:SzDiag.Desk.ViewModels.Inspector"
+             x:Class="SzDiag.Desk.Views.Inspector.HardwareTabView"
+             x:DataType="vm:HardwareTabViewModel">
+  <DockPanel>
+    <Button DockPanel.Dock="Top" Content="Снять заново" Command="{Binding ReloadCommand}"
+            IsEnabled="{Binding !Busy}" HorizontalAlignment="Left" Margin="0,0,0,8" />
+    <ScrollViewer>
+      <SelectableTextBlock Text="{Binding Text}" FontFamily="{StaticResource MonoFont}" FontSize="11" TextWrapping="Wrap" />
+    </ScrollViewer>
+  </DockPanel>
+</UserControl>

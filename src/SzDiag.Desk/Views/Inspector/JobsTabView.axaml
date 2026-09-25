@@ -1,0 +1,27 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:SzDiag.Desk.ViewModels.Inspector"
+             x:Class="SzDiag.Desk.Views.Inspector.JobsTabView"
+             x:DataType="vm:JobsTabViewModel">
+  <DockPanel>
+    <TextBlock DockPanel.Dock="Top" Text="{Binding Message}" Classes="secondary" TextWrapping="Wrap"
+               IsVisible="{Binding Message, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" Margin="0,0,0,6" />
+    <ListBox DockPanel.Dock="Top" ItemsSource="{Binding Rows}" SelectedItem="{Binding Selected}" MaxHeight="220"
+             Background="Transparent">
+      <ListBox.ItemTemplate>
+        <DataTemplate x:DataType="vm:JobRow">
+          <StackPanel Spacing="1">
+            <TextBlock Text="{Binding Id}" FontFamily="{StaticResource MonoFont}" FontWeight="SemiBold" />
+            <TextBlock Text="{Binding State}" Classes="secondary" TextWrapping="Wrap" />
+            <TextBlock Text="{Binding Script}" Classes="secondary" FontFamily="{StaticResource MonoFont}"
+                       TextTrimming="CharacterEllipsis"
+                       IsVisible="{Binding Script, Converter={x:Static ObjectConverters.IsNotNull}}" />
+          </StackPanel>
+        </DataTemplate>
+      </ListBox.ItemTemplate>
+    </ListBox>
+    <ScrollViewer Margin="0,8,0,0">
+      <SelectableTextBlock Text="{Binding Output}" FontFamily="{StaticResource MonoFont}" FontSize="11" TextWrapping="Wrap" />
+    </ScrollViewer>
+  </DockPanel>
+</UserControl>

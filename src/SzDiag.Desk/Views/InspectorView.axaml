@@ -2,27 +2,51 @@
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:vm="using:SzDiag.Desk.ViewModels"
              xmlns:v="using:SzDiag.Desk.Views"
+             xmlns:iv="using:SzDiag.Desk.Views.Inspector"
              x:Class="SzDiag.Desk.Views.InspectorView"
              x:DataType="vm:MainViewModel">
+  <UserControl.Styles>
+    <!-- 7 вкладок в 290 px: мелкий шрифт и перенос заголовков в две строки. -->
+    <Style Selector="TabItem">
+      <Setter Property="FontSize" Value="12" />
+      <Setter Property="MinHeight" Value="0" />
+      <Setter Property="Padding" Value="8,4" />
+    </Style>
+  </UserControl.Styles>
   <Panel>
     <TextBlock IsVisible="{Binding Selected, Converter={x:Static ObjectConverters.IsNull}}"
                Text="Выбери СЗ слева" Classes="secondary" HorizontalAlignment="Center" VerticalAlignment="Center" />
-    <StackPanel IsVisible="{Binding Selected, Converter={x:Static ObjectConverters.IsNotNull}}" Margin="12">
-      <!-- Вкладки «Сенсоры / Задачи / Журнал / Железо» и действия — часть 3 плана. -->
-      <TextBlock Classes="caps" Text="ОБЗОР" Margin="0,0,0,8" />
-      <Border Background="{StaticResource Bg.Panel}" CornerRadius="10" Padding="11">
-        <StackPanel Spacing="4">
-          <TextBlock Text="{Binding Selected.Sz}" FontWeight="SemiBold" FontSize="14" />
-          <TextBlock Text="{Binding Selected.Liveness, Converter={x:Static v:Converters.LivenessToText}}"
-                     Foreground="{Binding Selected.Liveness, Converter={x:Static v:Converters.LivenessToBrush}}" />
-          <TextBlock Classes="secondary" Text="{Binding Selected.Info.Hostname, StringFormat='хост: {0}'}" />
-          <TextBlock Classes="secondary" Text="{Binding Selected.Info.LanIp, StringFormat='LAN: {0}'}" />
-          <TextBlock Classes="secondary" Text="{Binding Selected.Info.AccessMode, StringFormat='доступ: {0}', TargetNullValue='доступ: direct'}" />
-          <TextBlock Classes="secondary" Text="{Binding Selected.BootTimeLocal, StringFormat='загрузка: {0:dd.MM HH:mm}'}" />
-          <TextBlock Classes="secondary" Text="{Binding Selected.RebootCount, StringFormat='вырубонов за сессию: {0}'}" />
-          <TextBlock Classes="secondary" TextWrapping="Wrap" Text="{Binding Selected.Info.Activity, StringFormat='занята: {0}'}" />
-        </StackPanel>
-      </Border>
-    </StackPanel>
+    <TabControl x:Name="InspectorTabs" Margin="8,6"
+                IsVisible="{Binding Selected, Converter={x:Static ObjectConverters.IsNotNull}}"
+                SelectedIndex="{Binding Inspector.SelectedIndex, FallbackValue=0}">
+      <TabControl.ItemsPanel>
+        <ItemsPanelTemplate>
+          <WrapPanel />
+        </ItemsPanelTemplate>
+      </TabControl.ItemsPanel>
+      <TabItem Header="Обзор">
+        <Border Background="{StaticResource Bg.Panel}" CornerRadius="10" Padding="11" Margin="0,6,0,0" VerticalAlignment="Top">
+          <StackPanel Spacing="4">
+            <TextBlock Text="{Binding Selected.Sz}" FontWeight="SemiBold" FontSize="14" />
+            <TextBlock Text="{Binding Selected.Liveness, Converter={x:Static v:Converters.LivenessToText}}"
+                       Foreground="{Binding Selected.Liveness, Converter={x:Static v:Converters.LivenessToBrush}}" />
+            <TextBlock Classes="secondary" Text="Windows Update заморожен — не забудь unfreeze" TextWrapping="Wrap"
+                       IsVisible="{Binding Selected.IsFrozen, FallbackValue=False}" />
+            <TextBlock Classes="secondary" Text="{Binding Selected.Info.Hostname, StringFormat='хост: {0}'}" />
+            <TextBlock Classes="secondary" Text="{Binding Selected.Info.LanIp, StringFormat='LAN: {0}'}" />
+            <TextBlock Classes="secondary" Text="{Binding Selected.Info.AccessMode, StringFormat='доступ: {0}', TargetNullValue='доступ: direct'}" />
+            <TextBlock Classes="secondary" Text="{Binding Selected.BootTimeLocal, StringFormat='загрузка: {0:dd.MM HH:mm}'}" />
+            <TextBlock Classes="secondary" Text="{Binding Selected.RebootCount, StringFormat='вырубонов за сессию: {0}'}" />
+            <TextBlock Classes="secondary" TextWrapping="Wrap" Text="{Binding Selected.Info.Activity, StringFormat='занята: {0}'}" />
+          </StackPanel>
+        </Border>
+      </TabItem>
+      <TabItem Header="Вырубоны"><iv:RebootsTabView DataContext="{Binding Inspector.Reboots}" Margin="0,6,0,0" /></TabItem>
+      <TabItem Header="Задачи"><iv:JobsTabView DataContext="{Binding Inspector.Jobs}" Margin="0,6,0,0" /></TabItem>
+      <TabItem Header="Сенсоры"><iv:SensorsTabView DataContext="{Binding Inspector.Sensors}" Margin="0,6,0,0" /></TabItem>
+      <TabItem Header="Журнал"><iv:JournalTabView DataContext="{Binding Inspector.Journal}" Margin="0,6,0,0" /></TabItem>
+      <TabItem Header="Железо"><iv:HardwareTabView DataContext="{Binding Inspector.Hardware}" Margin="0,6,0,0" /></TabItem>
+      <TabItem Header="Действия"><iv:ActionsView DataContext="{Binding Inspector.Actions}" Margin="0,6,0,0" /></TabItem>
+    </TabControl>
   </Panel>
 </UserControl>

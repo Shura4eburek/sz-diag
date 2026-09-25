@@ -29,6 +29,7 @@ public partial class MainWindow : Window
         Opened += (_, _) =>
         {
             _ = vm.Poller.RunAsync(_stop.Token);
+            _ = vm.Inspector?.RunLoopAsync(_stop.Token);
             _attention.Start();
         };
         Closed += (_, _) =>

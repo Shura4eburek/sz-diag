@@ -1,0 +1,13 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:SzDiag.Desk.ViewModels.Inspector"
+             x:Class="SzDiag.Desk.Views.Inspector.JournalTabView"
+             x:DataType="vm:JournalTabViewModel">
+  <DockPanel>
+    <TextBlock DockPanel.Dock="Top" Text="{Binding FilePath}" Classes="secondary" FontSize="10"
+               TextTrimming="CharacterEllipsis" Margin="0,0,0,6" />
+    <ScrollViewer x:Name="JournalScroll">
+      <SelectableTextBlock Text="{Binding Text}" FontFamily="{StaticResource MonoFont}" FontSize="11" TextWrapping="Wrap" />
+    </ScrollViewer>
+  </DockPanel>
+</UserControl>
