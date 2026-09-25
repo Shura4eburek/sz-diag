@@ -14,6 +14,11 @@ public sealed record ClaudeLaunch(string Executable, string WorkDir, string? Con
 {
     public const string PermissionTool = "mcp__desk__permission_prompt";
 
+    /// <summary>Инструменты обмена между сессиями — без карточки разрешения: они ничего не меняют,
+    /// а лимиты живых вопросов держит Desk (решение плана части 4). Одной строкой через запятую:
+    /// флаг вариадический и иначе проглотил бы следующие аргументы.</summary>
+    public const string PeerTools = "mcp__desk__peers,mcp__desk__ask_peer";
+
     /// <summary>Переменные, которыми Claude Code помечает свою сессию. Desk, запущенный из сессии
     /// Claude (dotnet run под Claude), иначе передал бы их детям: CHILD_SESSION выключает запись
     /// транскрипта (и --resume потом нечего продолжать), MESSAGING_SOCKET/TOKEN ведут в канал
@@ -36,6 +41,7 @@ public sealed record ClaudeLaunch(string Executable, string WorkDir, string? Con
             // в default — на каждый инструмент (спайк).
             "--permission-mode", PermissionMode,
             "--permission-prompt-tool", PermissionTool,
+            "--allowedTools", PeerTools,
             "--mcp-config", McpConfigPath,
             "--append-system-prompt", AppendSystemPrompt,
         };

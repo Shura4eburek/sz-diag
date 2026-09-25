@@ -23,6 +23,14 @@ public class ClaudeLaunchTests
     }
 
     [Fact]
+    public void Arguments_PeerToolsPreAllowed()
+    {
+        // Решение плана части 4: обмен между сессиями ничего не меняет, а лимиты держит Desk —
+        // карточка разрешения на каждый вопрос соседу была бы шумом.
+        Assert.Equal("mcp__desk__peers,mcp__desk__ask_peer", After(L().Arguments(), "--allowedTools"));
+    }
+
+    [Fact]
     public void Arguments_Resume() => Assert.Equal("sid-1", After(L("sid-1").Arguments(), "--resume"));
 
     [Fact]
