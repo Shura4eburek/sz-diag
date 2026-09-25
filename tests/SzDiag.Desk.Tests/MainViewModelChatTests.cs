@@ -67,6 +67,25 @@ public class MainViewModelChatTests : IDisposable
     }
 
     [Fact]
+    public async Task ArchivedSession_Continued_NotReArchivedByNextPoll()
+    {
+        // Живая проверка: сообщение из «АРХИВ» снимало архив, а следующий же опрос (СЗ в списке
+        // по-прежнему нет) архивировал сессию снова и останавливал только что запущенный процесс.
+        var vm = New();
+        vm.Apply(Snap(S("161432"), S("161501")));
+        _h.Services.Sessions.Create("161501");
+        vm.Apply(Snap(S("161432")));
+        var session = _h.Services.Sessions.Peek("161501")!;
+        Assert.Equal(SessionState.Archived, session.State);
+
+        await session.SendAsync("продолжим");
+        vm.Apply(Snap(S("161432")));
+
+        Assert.Equal(SessionState.Working, session.State);
+        Assert.False(_h.Last.Stopped);
+    }
+
+    [Fact]
     public void Apply_BeforeFirstSessionsPoll_ArchivesNothing()
     {
         // Первым может прийти опрос передач: пустой список СЗ тогда значит «ещё не знаю».

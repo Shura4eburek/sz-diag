@@ -122,7 +122,7 @@ public sealed partial class MainViewModel : ObservableObject
         // иначе первый же опрос передач отправил бы все сессии в архив.
         if (_chat is null || s.SessionsOkAt is null || s.IsStale) return;
         NoteMachineChanges(before);
-        ArchiveClosed(s);
+        ArchiveClosed(s, before.Keys);
         RefreshArchived();
         RefreshSessionBadges();
     }
@@ -149,11 +149,14 @@ public sealed partial class MainViewModel : ObservableObject
         }
     }
 
-    private void ArchiveClosed(HubSnapshot s)
+    /// <summary>В архив — только СЗ, которая была в списке и пропала (закрыли). Не «любая сессия,
+    /// чьей СЗ нет в списке»: иначе продолженный из архива разговор архивировался бы следующим же
+    /// опросом вместе с только что запущенным процессом (живая проверка части 2).</summary>
+    private void ArchiveClosed(HubSnapshot s, IEnumerable<string> wasLive)
     {
         var live = s.Sessions.Select(x => x.Sz).ToHashSet(StringComparer.Ordinal);
-        foreach (var r in _chat!.Sessions.Records)
-            if (!r.Archived && !live.Contains(r.Key) && _chat.Sessions.Get(r.Key) is { } session)
+        foreach (var key in wasLive)
+            if (!live.Contains(key) && _chat!.Sessions.Get(key) is { } session)
                 _ = session.ArchiveAsync();
     }
 
