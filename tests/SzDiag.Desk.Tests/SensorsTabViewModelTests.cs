@@ -85,6 +85,14 @@ public class SensorsTabViewModelTests
     }
 
     [Fact]
+    public async Task ClientTimeout_TaskCanceled_SaysAgentSilent()
+    {
+        var vm = New((_, _) => throw new TaskCanceledException());
+        await vm.RefreshAsync("161432", default);
+        Assert.Contains("агент не ответил", vm.Status);
+    }
+
+    [Fact]
     public void Sparkline_ScalesToBox_SkipsGaps()
     {
         var pts = Sparkline.Points(new double?[] { 10, null, 20, 30 }, 100, 50);

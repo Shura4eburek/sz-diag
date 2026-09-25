@@ -96,6 +96,32 @@ public class InspectorViewModelTests
     }
 
     [Fact]
+    public async Task TabThrowsCanceledWithoutSzSwitch_NextTickRetries()
+    {
+        // Отмена, которую не инициировал инспектор (таймаут клиента), не должна выглядеть как
+        // «выбрали другую СЗ»: вкладка остаётся в работе и опрашивается дальше.
+        var tab = new ThrowingTab();
+        var vm = new InspectorViewModel(new IInspectorTab?[] { null, tab }, _clock) { SelectedIndex = 1 };
+        vm.Select("161432");
+        _clock.Advance(TimeSpan.FromSeconds(5));
+        await vm.TickAsync();
+        Assert.Equal(2, tab.Calls);
+    }
+
+    private sealed class ThrowingTab : IInspectorTab
+    {
+        public int Calls { get; private set; }
+        public string Title => "throws";
+        public TimeSpan? Interval => TimeSpan.FromSeconds(3);
+        public Task RefreshAsync(string sz, CancellationToken ct)
+        {
+            Calls++;
+            throw new TaskCanceledException();
+        }
+        public void Clear() { }
+    }
+
+    [Fact]
     public void NoSz_NothingRefreshed()
     {
         var vm = New();

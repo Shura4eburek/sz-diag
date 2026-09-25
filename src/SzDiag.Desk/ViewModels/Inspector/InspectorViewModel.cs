@@ -74,7 +74,7 @@ public sealed partial class InspectorViewModel : ObservableObject
         {
             await tab.RefreshAsync(sz, _szCts.Token);
         }
-        catch (OperationCanceledException)
+        catch (OperationCanceledException) when (_szCts.IsCancellationRequested)
         {
             // Выбрали другую СЗ посреди обновления.
         }
@@ -86,5 +86,27 @@ public sealed partial class InspectorViewModel : ObservableObject
         {
             _inFlight.Remove(index);
         }
+    }
+
+    public RebootsTabViewModel? Reboots { get; private init; }
+    public JobsTabViewModel? Jobs { get; private init; }
+    public SensorsTabViewModel? Sensors { get; private init; }
+    public JournalTabViewModel? Journal { get; private init; }
+    public HardwareTabViewModel? Hardware { get; private init; }
+    public ActionsViewModel? Actions { get; private init; }
+
+    /// <summary>Порядок — как у вкладок в окне: Обзор, Вырубоны, Задачи, Сенсоры, Журнал, Железо, Действия.</summary>
+    public static InspectorViewModel Create(DeskTools tools, TimeProvider time)
+    {
+        var reboots = new RebootsTabViewModel(tools.Api);
+        var jobs = new JobsTabViewModel(tools.Api);
+        var sensors = new SensorsTabViewModel(tools.Api, tools.Szcli, time);
+        var journal = new JournalTabViewModel(tools.Kb, tools.Ui);
+        var hardware = new HardwareTabViewModel(tools.Szcli);
+        var actions = new ActionsViewModel(tools.Szcli);
+        return new InspectorViewModel(new IInspectorTab?[] { null, reboots, jobs, sensors, journal, hardware, actions }, time)
+        {
+            Reboots = reboots, Jobs = jobs, Sensors = sensors, Journal = journal, Hardware = hardware, Actions = actions,
+        };
     }
 }

@@ -61,7 +61,7 @@ public sealed partial class SensorsTabViewModel(IHubApiClient api, ISzcliRunner 
         {
             r = await api.ExecAsync(sz, Script, 15, ct);
         }
-        catch (TimeoutException)
+        catch (Exception ex) when (ex is TimeoutException || (ex is TaskCanceledException && !ct.IsCancellationRequested))
         {
             Status = "агент не ответил за 15 с — под нагрузкой exec глохнет; показаны прошлые данные";
             return;

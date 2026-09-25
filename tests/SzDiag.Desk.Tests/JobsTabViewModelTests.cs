@@ -69,6 +69,16 @@ public class JobsTabViewModelTests
     }
 
     [Fact]
+    public async Task ClientTimeout_TaskCanceled_SaysAgentSilent()
+    {
+        // Живая проверка: клиент hub рвёт запрос своим 30-секундным таймаутом — это
+        // TaskCanceledException, а не TimeoutException, и вкладка молча оставалась пустой.
+        var vm = new JobsTabViewModel(new FakeHubApi { Jobs = _ => throw new TaskCanceledException() });
+        await vm.RefreshAsync("161432", default);
+        Assert.Contains("агент не ответил", vm.Message);
+    }
+
+    [Fact]
     public async Task SzOffline_SaysSo()
     {
         var vm = new JobsTabViewModel(new FakeHubApi { Jobs = _ => null });

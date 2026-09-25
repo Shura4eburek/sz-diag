@@ -35,7 +35,7 @@ public sealed partial class JobsTabViewModel(IHubApiClient api) : ObservableObje
         {
             list = await api.ExecJobsAsync(sz, ct);
         }
-        catch (TimeoutException)
+        catch (Exception ex) when (ex is TimeoutException || (ex is TaskCanceledException && !ct.IsCancellationRequested))
         {
             Message = "агент не ответил — под нагрузкой exec глохнет; список на прошлый опрос";
             return;
@@ -78,7 +78,7 @@ public sealed partial class JobsTabViewModel(IHubApiClient api) : ObservableObje
             if (st is null) return;
             Output = CliXml.Decode(st.Tail) + (st.Error is { } e ? $"\n[ошибка: {e}]" : "");
         }
-        catch (TimeoutException)
+        catch (Exception ex) when (ex is TimeoutException || (ex is TaskCanceledException && !ct.IsCancellationRequested))
         {
             // Хвост тот же, что был: под нагрузкой это штатно.
         }
