@@ -56,8 +56,10 @@
                     CornerRadius="10" Padding="11,8">
               <StackPanel Spacing="6">
                 <TextBlock Text="{Binding Title}" FontWeight="SemiBold" />
-                <TextBlock Text="{Binding Summary}" FontFamily="{StaticResource MonoFont}" FontSize="11.5"
-                           TextWrapping="Wrap" />
+                <ScrollViewer MaxHeight="240">
+                  <SelectableTextBlock Text="{Binding Details}" FontFamily="{StaticResource MonoFont}" FontSize="11.5"
+                                       TextWrapping="Wrap" />
+                </ScrollViewer>
                 <StackPanel Orientation="Horizontal" Spacing="8" IsVisible="{Binding IsPending}">
                   <Button Content="Разрешить" Command="{Binding AllowCommand}" />
                   <Button Content="Отклонить" Command="{Binding DenyCommand}" />

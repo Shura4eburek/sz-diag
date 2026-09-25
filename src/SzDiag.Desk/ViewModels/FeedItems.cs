@@ -91,17 +91,23 @@ public sealed partial class PermissionFeedItem : FeedItemViewModel
     private readonly Action<string, bool> _answer;
     private bool _expired;
 
-    public PermissionFeedItem(string requestId, string toolName, string summary, Action<string, bool> answer)
+    public PermissionFeedItem(string requestId, string toolName, string summary, string details,
+        Action<string, bool> answer)
     {
         RequestId = requestId;
         ToolName = toolName;
         Summary = summary;
+        Details = details;
         _answer = answer;
     }
 
     public string RequestId { get; }
     public string ToolName { get; }
     public string Summary { get; }
+
+    /// <summary>Полный вход инструмента — то, что оператор на самом деле разрешает.</summary>
+    public string Details { get; }
+
     public string Title => $"Разрешить {ToolName}?";
 
     [ObservableProperty] [NotifyPropertyChangedFor(nameof(IsPending), nameof(ResultText))] private bool? _allowed;

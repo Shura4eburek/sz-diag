@@ -68,6 +68,22 @@ public class FeedBuilderTests
     }
 
     [Fact]
+    public void Permission_ShowsFullInput()
+    {
+        // Ревью I-5: опасное во второй строке команды не должно прятаться за « …».
+        var f = New();
+        f.Add(new PermissionAsked("r1", "PowerShell", J("""{"command":"Get-Date\nRemove-Item C:\\x -Recurse"}"""), null));
+        f.Add(new PermissionAsked("r2", "Write", J("""{"file_path":"C:\\a.txt","content":"строка 1\nстрока 2"}"""), null));
+        f.Add(new PermissionAsked("r3", "mcp__x__y", J("""{"q":"abc","n":2}"""), null));
+
+        var cards = f.Items.OfType<PermissionFeedItem>().ToList();
+        Assert.Contains("Remove-Item C:\\x -Recurse", cards[0].Details);
+        Assert.Contains("C:\\a.txt", cards[1].Details);
+        Assert.Contains("строка 2", cards[1].Details);
+        Assert.Contains("\"n\": 2", cards[2].Details);
+    }
+
+    [Fact]
     public void StalePermission_Expired()
     {
         var f = New();

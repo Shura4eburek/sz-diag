@@ -49,7 +49,8 @@ public sealed class FeedBuilder(Action<string, bool> answer, Action restart)
                 Items.Add(new NoteFeedItem(n.Text) { At = n.At });
                 break;
             case PermissionAsked p:
-                var item = new PermissionFeedItem(p.RequestId, p.ToolName, ToolSummary.For(p.ToolName, p.Input), answer) { At = p.At };
+                var item = new PermissionFeedItem(p.RequestId, p.ToolName, ToolSummary.For(p.ToolName, p.Input),
+                    ToolSummary.Details(p.ToolName, p.Input), answer) { At = p.At };
                 _permissions[p.RequestId] = item;
                 Items.Add(item);
                 break;
