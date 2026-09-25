@@ -43,10 +43,18 @@ public sealed class DeskClaudeHost : IAsyncDisposable
     public TokenLedger Tokens { get; }
     public SessionManager Sessions { get; }
 
-    public static async Task<DeskClaudeHost> StartAsync(DeskOptions o, string baseDir)
+    /// <summary>Обмен между сессиями (`peers`/`ask_peer`); null — Desk запущен без каталога соседей.</summary>
+    public PeerExchange? Peers { get; private set; }
+
+    /// <param name="peers">Каталог соседей поверх менеджера сессий: знает про СЗ, kb и железо — Desk, не ядро.</param>
+    public static async Task<DeskClaudeHost> StartAsync(DeskOptions o, string baseDir,
+        Func<SessionManager, IPeerDirectory>? peers = null)
     {
         var host = new DeskClaudeHost(o, baseDir);
-        await host.Mcp.StartAsync(host.Broker).ConfigureAwait(false);
+        if (peers is not null)
+            host.Peers = new PeerExchange(host.Sessions, peers(host.Sessions),
+                new PeerLimits(o.PeerLivePerHour, TimeSpan.FromMinutes(o.PeerTimeoutMinutes)), TimeProvider.System);
+        await host.Mcp.StartAsync(host.Broker, host.Peers).ConfigureAwait(false);
         var profiles = string.Join(", ", host.Profiles.Select(p => $"{p.Name} ({p.ConfigDir ?? "по умолчанию"})"));
         DeskLog.Write($"claude: {host.ClaudeExe ?? "не найден"}, каталог {host.WorkDir}, режим {host._permissionMode}, " +
                       $"профили: {(profiles.Length > 0 ? profiles : "не найдены")}, MCP {host.Mcp.BaseUrl}");
@@ -77,7 +85,7 @@ public sealed class DeskClaudeHost : IAsyncDisposable
             new TerminalLauncher(ClaudeExe, WorkDir,
                 key => Sessions.Records.FirstOrDefault(x => x.Key == key) is { } r ? ProfileFor(r) : null,
                 _runDir),
-            Profiles.Select(p => p.Name).ToList(), ui);
+            Profiles.Select(p => p.Name).ToList(), ui, Peers);
 
     /// <summary>szcli рядом с Desk в dist (`dist\host\desk` → `dist\host\szcli.cmd`), иначе в dist
     /// репозитория сессий; ни там ни там — null.</summary>

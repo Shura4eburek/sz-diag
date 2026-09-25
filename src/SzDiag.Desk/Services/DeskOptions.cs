@@ -23,6 +23,12 @@ public sealed class DeskOptions
     /// что не пропустил классификатор), `default` — карточка на каждый инструмент.</summary>
     public string PermissionMode { get; set; } = "auto";
 
+    /// <summary>Живых вопросов соседям в час на одну сессию (спека, «ask_peer»).</summary>
+    public int PeerLivePerHour { get; set; } = 20;
+
+    /// <summary>Сколько ждать ответа живой сессии соседа.</summary>
+    public int PeerTimeoutMinutes { get; set; } = 5;
+
     /// <summary>Конфиг рядом с exe, не от рабочего каталога (конвенция репо).</summary>
     public static DeskOptions Load()
     {

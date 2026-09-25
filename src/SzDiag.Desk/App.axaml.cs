@@ -28,12 +28,15 @@ public partial class App : Application
 
             // Старт и остановка ядра — на пуле потоков: блокирующее ожидание async-кода прямо на
             // UI-потоке Avalonia повесило бы окно дедлоком на его же SynchronizationContext.
-            var claude = Task.Run(() => DeskClaudeHost.StartAsync(opts, AppContext.BaseDirectory)).GetAwaiter().GetResult();
+            var kbRoot = Path.IsPathRooted(opts.KbRoot) ? opts.KbRoot : Path.Combine(AppContext.BaseDirectory, opts.KbRoot);
+            var kb = new KbPaths(kbRoot);
+            var hw = new HwProfileCache(api, TimeProvider.System);
+            var claude = Task.Run(() => DeskClaudeHost.StartAsync(opts, AppContext.BaseDirectory,
+                sessions => new SzPeerDirectory(kb, hw, sessions))).GetAwaiter().GetResult();
             var chat = claude.Services(a => Dispatcher.UIThread.Post(a));
 
             var szcli = new Func<string?>(() => claude.Szcli);
-            var kbRoot = Path.IsPathRooted(opts.KbRoot) ? opts.KbRoot : Path.Combine(AppContext.BaseDirectory, opts.KbRoot);
-            var tools = new DeskTools(api, new SzcliRunner(szcli), new KbPaths(kbRoot), a => Dispatcher.UIThread.Post(a));
+            var tools = new DeskTools(api, new SzcliRunner(szcli), kb, a => Dispatcher.UIThread.Post(a));
             var inspector = InspectorViewModel.Create(tools, TimeProvider.System);
 
             var vm = new MainViewModel(new HubPoller(api, TimeProvider.System), ui, TimeProvider.System, chat,
