@@ -403,11 +403,17 @@ if ((Test-Path dist\host\cli) -and (Should-WriteConfig "dist/host/cli")) {
 }
 
 # Desk — тот же hub и тот же токен, что у CLI: окно и szcli обязаны видеть одно и то же.
+# Сессии Claude работают из корня репозитория (CLAUDE.md, скиллы) и с профилем, под которым
+# собирали dist: на боксе его задаёт обёртка claude2.cmd, а Desk запускают из Проводника.
+$claudeWork = ("$root").Replace('\', '\\')
+$claudeCfg = ("$env:CLAUDE_CONFIG_DIR").Replace('\', '\\')
 $deskCfg = @"
 {
   "HubBaseUrl": "http://localhost:$Port",
   "ManagementToken": "$Token",
-  "KbRoot": "$kb"
+  "KbRoot": "$kb",
+  "ClaudeWorkDir": "$claudeWork",
+  "ClaudeConfigDir": "$claudeCfg"
 }
 "@
 if ((Test-Path dist\host\desk) -and (Should-WriteConfig "dist/host/desk")) {

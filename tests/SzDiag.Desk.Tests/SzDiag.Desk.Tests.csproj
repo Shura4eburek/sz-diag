@@ -24,6 +24,11 @@
     <ProjectReference Include="..\..\src\SzDiag.Desk\SzDiag.Desk.csproj" />
     <ProjectReference Include="..\..\src\SzDiag.HubClient\SzDiag.HubClient.csproj" />
     <ProjectReference Include="..\..\src\SzDiag.Contracts\SzDiag.Contracts.csproj" />
+    <ProjectReference Include="..\..\src\SzDiag.Claude\SzDiag.Claude.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Include="..\SzDiag.Claude.Tests\Fixtures\*.jsonl" Link="Fixtures\%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
 </Project>

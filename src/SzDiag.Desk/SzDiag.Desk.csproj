@@ -4,6 +4,7 @@
     <ProjectReference Include="..\SzDiag.Contracts\SzDiag.Contracts.csproj" />
     <ProjectReference Include="..\SzDiag.HubClient\SzDiag.HubClient.csproj" />
     <ProjectReference Include="..\SzDiag.Kb\SzDiag.Kb.csproj" />
+    <ProjectReference Include="..\SzDiag.Claude\SzDiag.Claude.csproj" />
   </ItemGroup>
 
   <ItemGroup>
