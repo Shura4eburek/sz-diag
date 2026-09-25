@@ -13,8 +13,9 @@ public interface ITerminalLauncher
 /// <summary>«Открыть в терминале»: `claude --resume` в Windows Terminal, без него — в обычной
 /// консоли. Через .cmd-файл, а не аргументами: у уже запущенного Windows Terminal новая вкладка
 /// получает окружение его процесса, и CLAUDE_CONFIG_DIR из Desk туда не доехал бы.</summary>
-public sealed class TerminalLauncher(string? claudeExe, string workDir, string? configDir, string scriptDir)
-    : ITerminalLauncher
+/// <param name="profileFor">Профиль сессии по ключу — тот, в чьём каталоге лежит разговор.</param>
+public sealed class TerminalLauncher(string? claudeExe, string workDir, Func<string, ClaudeProfile?> profileFor,
+    string scriptDir) : ITerminalLauncher
 {
     public static string Script(string claudeExe, string workDir, string? configDir, string sessionId)
     {
@@ -23,7 +24,9 @@ public sealed class TerminalLauncher(string? claudeExe, string workDir, string? 
         sb.Append("chcp 65001 >nul\r\n");
         // Маркеры сессии, из которой запущен Desk, — прочь (см. ClaudeLaunch.InheritedSessionMarkers).
         foreach (var name in ClaudeLaunch.InheritedSessionMarkers) sb.Append($"set \"{name}=\"\r\n");
-        if (!string.IsNullOrEmpty(configDir)) sb.Append($"set \"CLAUDE_CONFIG_DIR={configDir}\"\r\n");
+        // Профиль по умолчанию — переменная снимается: иначе терминал унаследовал бы профиль того,
+        // кто запустил Desk, и --resume искал бы разговор не в том каталоге.
+        sb.Append($"set \"CLAUDE_CONFIG_DIR={configDir}\"\r\n");
         sb.Append($"cd /d \"{workDir}\"\r\n");
         sb.Append($"\"{claudeExe}\" --resume {sessionId}\r\n");
         return sb.ToString();
@@ -31,7 +34,8 @@ public sealed class TerminalLauncher(string? claudeExe, string workDir, string? 
 
     public bool Open(string key, string sessionId)
     {
-        if (claudeExe is null) return false;
+        if (claudeExe is null || profileFor(key) is not { } profile) return false;
+        var configDir = profile.ConfigDir;
         string path;
         try
         {

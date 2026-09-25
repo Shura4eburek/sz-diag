@@ -25,6 +25,9 @@ public sealed partial class ChatViewModel : ObservableObject
     }
 
     public string Key => _session.Key;
+
+    /// <summary>Профиль Claude, в котором идёт разговор (показывается в шапке чата).</summary>
+    public string? Profile => _session.Profile;
     public FeedBuilder Feed { get; }
     public ObservableCollection<FeedItemViewModel> Items => Feed.Items;
 

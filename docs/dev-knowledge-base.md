@@ -376,14 +376,18 @@ staging) → `AgentLauncher.LaunchAndWait` (запуск `agent.exe` в насл
 ## Сессии Claude в Desk (`SzDiag.Claude` + `SzDiag.Desk`)
 
 **Запуск процесса** (`ClaudeLaunch`): `claude -p --input-format stream-json --output-format
-stream-json --verbose --permission-mode default --permission-prompt-tool mcp__desk__permission_prompt
+stream-json --verbose --permission-mode <auto|default> --permission-prompt-tool mcp__desk__permission_prompt
 --mcp-config run\<ключ>.mcp.json --append-system-prompt <SzBriefing.For(сз)> [--resume <id>]`,
-рабочий каталог — корень репо, stdin UTF-8 без BOM, `CLAUDE_CONFIG_DIR` из `ClaudeConfigDir`,
-маркеры родительской сессии (`ClaudeLaunch.InheritedSessionMarkers`) вычищаются. Процесс
+рабочий каталог — корень репо, stdin UTF-8 без BOM, маркеры родительской сессии
+(`ClaudeLaunch.InheritedSessionMarkers`) вычищаются. Режим — `PermissionMode` конфига Desk
+(`auto` по умолчанию). **Профиль** — `ClaudeProfiles.Discover(домашняя папка)`: каталоги `.claude*`
+с `.credentials.json` (`claude` = `~/.claude` без `CLAUDE_CONFIG_DIR`, `claude2` = `~/.claude2`);
+выбирается кнопкой при «Начать сессию», пишется в `SessionRecord.Profile` и закреплён за разговором
+(`DeskClaudeHost.ProfileFor`: пропавший с машины профиль — запуск невозможен, а не подмена). Процесс
 стартует при **первом сообщении**, не при открытии чата. Схема событий — итоги спайка
 (`docs/superpowers/specs/2026-09-25-desk-spike-notes.md`), фикстуры — `tests/SzDiag.Claude.Tests/Fixtures`.
 
-**Файлы рядом с exe Desk:** `desk-sessions.json` (реестр `ключ → session_id, CreatedAt, Archived`),
+**Файлы рядом с exe Desk:** `desk-sessions.json` (реестр `ключ → session_id, CreatedAt, Archived, Profile`),
 `desk-tokens.json` (токены и стоимость за локальные сутки), `sessions\<ключ>.jsonl` (журнал: сырой
 stream-json без служебных строк + строки `desk_user/desk_note/desk_permission_asked|answered/desk_crash`;
 лента после перезапуска Desk строится только из него), `run\<ключ>.mcp.json` (порт и токен MCP —
@@ -392,8 +396,10 @@ stream-json без служебных строк + строки `desk_user/desk_
 **Состояния** (`SessionState`): `Stopped` → первое сообщение → `Working` → `result` → `Idle`
 (следующее из очереди — снова `Working`); запрос разрешения — `WaitingPermission`; неожиданный
 выход процесса — `Crashed` (карточка с хвостом stderr, «перезапустить» шлёт очередь); `Archived` —
-СЗ пропала из `/api/sessions` (только переход «была → пропала» и только после удачного опроса
-списка СЗ), новое сообщение снимает архив и продолжает `--resume`. «■» — control-запрос
+СЗ пропала из `/api/sessions` (только переход «была → пропала», только после удачного опроса
+списка СЗ, только если её нет дольше `MainViewModel.ArchiveAfter` = 3 мин — рестарт hub на
+время опустошает список — и не посреди хода), новое сообщение снимает архив и продолжает
+`--resume`. «■» во время хода: то, что отправлено после «■», уходит сразу после прерванного хода. «■» — control-запрос
 `interrupt`; нет `result` за 10 с — процесс останавливается, очередь возвращается в поле ввода.
 
 **Разрешения:** `DeskMcpServer` (127.0.0.1, случайный порт, `X-Desk-Token` на запуск, stateless)

@@ -87,12 +87,17 @@ public sealed partial class MainViewModel : ObservableObject
         OnPropertyChanged(nameof(Title));
     }
 
-    /// <summary>«Начать сессию» — только руками: автозапуска нет (токены, спека).</summary>
+    /// <summary>Найденные профили Claude: на каждый — своя кнопка «Начать сессию».</summary>
+    public IReadOnlyList<string> Profiles => _chat?.Profiles ?? Array.Empty<string>();
+
+    /// <summary>«Начать сессию» — только руками: автозапуска нет (токены, спека). Профиль
+    /// записывается явно даже без выбора: иначе «по умолчанию» после появления нового профиля
+    /// сменилось бы, и --resume искал бы разговор не в том каталоге.</summary>
     [RelayCommand]
-    private void StartSession()
+    private void StartSession(string? profile)
     {
         if (_chat is null || Selected is null) return;
-        _chat.Sessions.Create(Selected.Sz);
+        _chat.Sessions.Create(Selected.Sz, profile ?? _chat.Profiles.FirstOrDefault());
         ActiveChat = ChatFor(Selected.Sz);
         RefreshSessionBadges();
     }

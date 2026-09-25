@@ -33,7 +33,7 @@ internal sealed class ChatHarness : IDisposable
         Transcripts = new TranscriptStore(Path.Combine(Dir, "sessions"));
         var sessions = new SessionManager(new SessionDeps(
             SessionIndex.Load(Path.Combine(Dir, "desk-sessions.json")), Transcripts, Tokens, Broker,
-            (key, resume) => new ClaudeLaunch("claude.exe", Dir, null, resume, "вводная " + key, "mcp.json"),
+            rec => new ClaudeLaunch("claude.exe", Dir, null, rec.SessionId, "вводная " + rec.Key, "mcp.json"),
             () =>
             {
                 var p = new FakeClaudeProcess();
@@ -41,7 +41,7 @@ internal sealed class ChatHarness : IDisposable
                 return p;
             },
             TimeProvider.System, SessionTimeouts.Default));
-        Services = new ChatServices(sessions, Broker, Tokens, Terminal, a => a());
+        Services = new ChatServices(sessions, Broker, Tokens, Terminal, new[] { "claude", "claude2" }, a => a());
     }
 
     public FakeClaudeProcess Last => Processes[^1];

@@ -5,9 +5,12 @@ namespace SzDiag.Claude;
 
 /// <summary>Всё, с чем запускается один процесс `claude` сессии.</summary>
 /// <param name="WorkDir">Корень репозитория sz-diag: там CLAUDE.md, .claude/settings.json, скиллы.</param>
-/// <param name="ConfigDir">CLAUDE_CONFIG_DIR — профиль (логин, память); null — унаследовать.</param>
+/// <param name="ConfigDir">CLAUDE_CONFIG_DIR — профиль (логин, память); null — профиль по умолчанию
+/// (~/.claude): переменная у процесса снимается, даже если она была у запустившего Desk.</param>
+/// <param name="PermissionMode">`auto` — как терминальный Claude, разрешения спрашиваются только на
+/// то, что классификатор не пропустил; `default` — карточка на каждый инструмент.</param>
 public sealed record ClaudeLaunch(string Executable, string WorkDir, string? ConfigDir, string? ResumeSessionId,
-    string AppendSystemPrompt, string McpConfigPath)
+    string AppendSystemPrompt, string McpConfigPath, string PermissionMode = "auto")
 {
     public const string PermissionTool = "mcp__desk__permission_prompt";
 
@@ -29,8 +32,9 @@ public sealed record ClaudeLaunch(string Executable, string WorkDir, string? Con
         var a = new List<string>
         {
             "-p", "--input-format", "stream-json", "--output-format", "stream-json", "--verbose",
-            // Без явного default у пользователя действует auto, и permission_prompt не зовётся вовсе (спайк).
-            "--permission-mode", "default",
+            // Режим задаётся явно: в auto permission_prompt зовётся только на отказ классификатора,
+            // в default — на каждый инструмент (спайк).
+            "--permission-mode", PermissionMode,
             "--permission-prompt-tool", PermissionTool,
             "--mcp-config", McpConfigPath,
             "--append-system-prompt", AppendSystemPrompt,
@@ -60,6 +64,7 @@ public sealed record ClaudeLaunch(string Executable, string WorkDir, string? Con
         foreach (var arg in Arguments()) psi.ArgumentList.Add(arg);
         foreach (var name in InheritedSessionMarkers) psi.Environment.Remove(name);
         if (ConfigDir is { Length: > 0 } dir) psi.Environment["CLAUDE_CONFIG_DIR"] = dir;
+        else psi.Environment.Remove("CLAUDE_CONFIG_DIR");
         return psi;
     }
 }

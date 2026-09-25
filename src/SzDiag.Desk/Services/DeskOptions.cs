@@ -15,9 +15,13 @@ public sealed class DeskOptions
     /// Пусто — вверх от exe до SzDiag.sln.</summary>
     public string ClaudeWorkDir { get; set; } = "";
 
-    /// <summary>CLAUDE_CONFIG_DIR для claude. На боксе профиль задаёт обёртка claude2.cmd, а не
-    /// переменная пользователя: без этого Desk из Проводника поднял бы claude с чужим профилем.</summary>
-    public string ClaudeConfigDir { get; set; } = "";
+    /// <summary>Где искать профили Claude (каталоги `.claude*` со входом); пусто — домашняя папка.
+    /// Профиль выбирается на заявку при «Начать сессию».</summary>
+    public string ClaudeHome { get; set; } = "";
+
+    /// <summary>Режим разрешений сессий: `auto` — как терминальный Claude (спрашивает только то,
+    /// что не пропустил классификатор), `default` — карточка на каждый инструмент.</summary>
+    public string PermissionMode { get; set; } = "auto";
 
     /// <summary>Конфиг рядом с exe, не от рабочего каталога (конвенция репо).</summary>
     public static DeskOptions Load()

@@ -34,11 +34,11 @@ public class ChatWindowSmokeTests
         using var _ = h;
         vm.Selected = vm.Items.Single();
 
-        Assert.True(w.FindControl<Button>("StartSessionButton")!.IsEffectivelyVisible);
+        Assert.True(w.FindControl<Control>("StartSessionPanel")!.IsEffectivelyVisible);
         Assert.False(w.FindControl<ChatView>("ChatPane")!.IsEffectivelyVisible);
 
         vm.StartSessionCommand.Execute(null);
-        Assert.False(w.FindControl<Button>("StartSessionButton")!.IsEffectivelyVisible);
+        Assert.False(w.FindControl<Control>("StartSessionPanel")!.IsEffectivelyVisible);
         Assert.True(w.FindControl<ChatView>("ChatPane")!.IsEffectivelyVisible);
         Assert.True(w.FindControl<Button>("TerminalButton")!.IsEffectivelyVisible);
     }

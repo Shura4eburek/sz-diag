@@ -250,6 +250,16 @@ public class ClaudeSessionTests : IDisposable
     }
 
     [Fact]
+    public async Task Profile_StoredAndPassedToLaunch()
+    {
+        var s = _h.Manager.Create("161432", "claude2");
+        await s.SendAsync("привет");
+        Assert.Equal("claude2", s.Profile);
+        Assert.Equal("claude2", _h.Launched.Single().Profile);
+        Assert.Equal("claude2", _h.Index.Get("161432")!.Profile);
+    }
+
+    [Fact]
     public void Create_Twice_SameSession()
         => Assert.Same(_h.Manager.Create("161432"), _h.Manager.Create("161432"));
 

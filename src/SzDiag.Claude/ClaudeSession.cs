@@ -7,13 +7,14 @@ public sealed record SessionTimeouts(TimeSpan StopGrace, TimeSpan InterruptWait)
     public static SessionTimeouts Default { get; } = new(TimeSpan.FromSeconds(5), TimeSpan.FromSeconds(10));
 }
 
-/// <param name="LaunchFor">(ключ, session_id для --resume) → параметры запуска; null — claude не найден.</param>
+/// <param name="LaunchFor">Запись реестра (ключ, session_id для --resume, профиль) → параметры
+/// запуска; null — claude не найден.</param>
 public sealed record SessionDeps(
     SessionIndex Index,
     TranscriptStore Transcripts,
     TokenLedger Tokens,
     PermissionBroker Broker,
-    Func<string, string?, ClaudeLaunch?> LaunchFor,
+    Func<SessionRecord, ClaudeLaunch?> LaunchFor,
     Func<IClaudeProcess> ProcessFactory,
     TimeProvider Time,
     SessionTimeouts Timeouts,
@@ -56,6 +57,9 @@ public sealed class ClaudeSession
     public TokenUsage Usage { get; private set; } = TokenUsage.Zero;
 
     public string? SessionId => _d.Index.Get(Key)?.SessionId;
+
+    /// <summary>Профиль Claude, закреплённый за сессией; null — по умолчанию.</summary>
+    public string? Profile => _d.Index.Get(Key)?.Profile;
 
     public IReadOnlyList<ClaudeEvent> History
     {
@@ -132,7 +136,7 @@ public sealed class ClaudeSession
 
     private bool TryStartLocked()
     {
-        var launch = _d.LaunchFor(Key, SessionId);
+        var launch = _d.LaunchFor(_d.Index.Get(Key) ?? new SessionRecord(Key, null, _d.Time.GetUtcNow(), false));
         if (launch is null)
         {
             CrashLocked(null, new[] { "claude не найден: укажи ClaudePath в appsettings.json Desk или добавь claude.exe в PATH" });

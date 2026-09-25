@@ -15,7 +15,7 @@ public class ClaudeLaunchTests
     {
         var a = L().Arguments();
         Assert.Equal(new[] { "-p", "--input-format", "stream-json", "--output-format", "stream-json", "--verbose" }, a.Take(6));
-        Assert.Equal("default", After(a, "--permission-mode"));
+        Assert.Equal("auto", After(a, "--permission-mode"));   // по умолчанию — как терминальный Claude
         Assert.Equal("mcp__desk__permission_prompt", After(a, "--permission-prompt-tool"));
         Assert.Equal("C:\\run\\161432.mcp.json", After(a, "--mcp-config"));
         Assert.Equal("вводная СЗ 161432", After(a, "--append-system-prompt"));
@@ -40,9 +40,40 @@ public class ClaudeLaunchTests
     }
 
     [Fact]
-    public void ToStartInfo_NoConfigDir_KeepsInherited()
-        => Assert.Equal(Environment.GetEnvironmentVariable("CLAUDE_CONFIG_DIR"),
-            L(configDir: null).ToStartInfo().Environment["CLAUDE_CONFIG_DIR"]);
+    public void Arguments_PermissionModeDefault_WhenAsked()
+        => Assert.Equal("default", After((L() with { PermissionMode = "default" }).Arguments(), "--permission-mode"));
+
+    [Fact]
+    public void ToStartInfo_NoConfigDir_IsDefaultProfile_EvenIfParentHasOne()
+    {
+        // Профиль выбирается на сессию: null — профиль по умолчанию (~/.claude), а не «что было
+        // у запустившего Desk» — иначе выбор «claude» из-под claude2 молча дал бы claude2.
+        Environment.SetEnvironmentVariable("CLAUDE_CONFIG_DIR", @"C:\чужой");
+        try { Assert.False(L(configDir: null).ToStartInfo().Environment.ContainsKey("CLAUDE_CONFIG_DIR")); }
+        finally { Environment.SetEnvironmentVariable("CLAUDE_CONFIG_DIR", null); }
+    }
+
+    [Fact]
+    public void Profiles_DiscoveredByCredentials()
+    {
+        var home = Path.Combine(Path.GetTempPath(), "szhome-" + Guid.NewGuid().ToString("N"));
+        try
+        {
+            foreach (var (dir, creds) in new[] { (".claude", true), (".claude2", true), (".claude-tg-bridge", false), ("other", true) })
+            {
+                Directory.CreateDirectory(Path.Combine(home, dir));
+                File.WriteAllText(Path.Combine(home, dir, creds ? ".credentials.json" : "settings.json"), "{}");
+            }
+
+            var found = ClaudeProfiles.Discover(home);
+
+            Assert.Equal(new[] { "claude", "claude2" }, found.Select(p => p.Name));
+            Assert.Null(found[0].ConfigDir);                                   // по умолчанию — без CLAUDE_CONFIG_DIR
+            Assert.Equal(Path.Combine(home, ".claude2"), found[1].ConfigDir);
+            Assert.Empty(ClaudeProfiles.Discover(Path.Combine(home, "нет")));
+        }
+        finally { Directory.Delete(home, true); }
+    }
 
     [Fact]
     public void ToStartInfo_StripsInheritedSessionMarkers()

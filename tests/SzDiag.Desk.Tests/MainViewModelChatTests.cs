@@ -53,6 +53,32 @@ public class MainViewModelChatTests : IDisposable
     }
 
     [Fact]
+    public void StartSession_ChosenProfile_RecordedAndShown()
+    {
+        var vm = New();
+        vm.Apply(Snap(S("161432")));
+        vm.Selected = vm.Items.Single();
+        Assert.Equal(new[] { "claude", "claude2" }, vm.Profiles);
+
+        vm.StartSessionCommand.Execute("claude2");
+
+        Assert.Equal("claude2", _h.Services.Sessions.Peek("161432")!.Profile);
+        Assert.Equal("claude2", vm.ActiveChat!.Profile);
+    }
+
+    [Fact]
+    public void StartSession_NoChoice_DefaultProfileRecorded()
+    {
+        // Без выбора — первый найденный профиль, и он записывается явно: иначе после появления
+        // нового профиля «по умолчанию» мог бы стать другим, и --resume не нашёл бы разговор.
+        var vm = New();
+        vm.Apply(Snap(S("161432")));
+        vm.Selected = vm.Items.Single();
+        vm.StartSessionCommand.Execute(null);
+        Assert.Equal("claude", _h.Services.Sessions.Peek("161432")!.Profile);
+    }
+
+    [Fact]
     public void SelectSzWithSession_ChatOpensItself()
     {
         _h.Services.Sessions.Create("161432");

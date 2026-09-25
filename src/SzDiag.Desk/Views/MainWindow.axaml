@@ -27,6 +27,11 @@
           <Grid ColumnDefinitions="*,Auto,Auto">
             <StackPanel Orientation="Horizontal" Spacing="10" VerticalAlignment="Center">
               <TextBlock Text="{Binding Title}" FontWeight="SemiBold" />
+              <Border IsVisible="{Binding ActiveChat.Profile, Converter={x:Static ObjectConverters.IsNotNull}, FallbackValue=False}"
+                      CornerRadius="5" Padding="6,1" Background="{StaticResource Bg.Panel}" VerticalAlignment="Center">
+                <TextBlock Text="{Binding ActiveChat.Profile, FallbackValue=''}" FontSize="10.5"
+                           Foreground="{StaticResource Text.Secondary}" />
+              </Border>
               <TextBlock Text="{Binding ActiveChat.StateText, FallbackValue=''}" Classes="secondary"
                          IsVisible="{Binding ActiveChat, Converter={x:Static ObjectConverters.IsNotNull}}" />
             </StackPanel>
@@ -45,8 +50,25 @@
         <Panel>
           <TextBlock Text="Выбери СЗ слева" Classes="secondary" IsVisible="{Binding ShowPlaceholder}"
                      HorizontalAlignment="Center" VerticalAlignment="Center" />
-          <Button x:Name="StartSessionButton" Content="Начать сессию Claude" IsVisible="{Binding CanStartSession}"
-                  Command="{Binding StartSessionCommand}" HorizontalAlignment="Center" VerticalAlignment="Center" />
+          <!-- Кнопка на каждый найденный профиль Claude: профиль закрепляется за разговором. -->
+          <StackPanel x:Name="StartSessionPanel" IsVisible="{Binding CanStartSession}" Spacing="8"
+                      HorizontalAlignment="Center" VerticalAlignment="Center">
+            <TextBlock Text="Начать сессию Claude" Classes="secondary" HorizontalAlignment="Center" />
+            <ItemsControl ItemsSource="{Binding Profiles}">
+              <ItemsControl.ItemsPanel>
+                <ItemsPanelTemplate>
+                  <StackPanel Orientation="Horizontal" Spacing="8" />
+                </ItemsPanelTemplate>
+              </ItemsControl.ItemsPanel>
+              <ItemsControl.ItemTemplate>
+                <DataTemplate x:DataType="x:String">
+                  <Button Content="{Binding}" MinWidth="110" HorizontalContentAlignment="Center"
+                          Command="{Binding $parent[Window].((vm:MainViewModel)DataContext).StartSessionCommand}"
+                          CommandParameter="{Binding}" />
+                </DataTemplate>
+              </ItemsControl.ItemTemplate>
+            </ItemsControl>
+          </StackPanel>
           <!-- Видимость — на обёртке: у ChatView свой DataContext (модель чата), а решает модель окна. -->
           <Border IsVisible="{Binding ActiveChat, Converter={x:Static ObjectConverters.IsNotNull}}">
             <v:ChatView x:Name="ChatPane" DataContext="{Binding ActiveChat}" />

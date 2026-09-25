@@ -4,7 +4,10 @@ namespace SzDiag.Claude;
 
 /// <param name="SessionId">session_id из первого init; до первого хода — null. При --resume он
 /// не меняется (спайк), поэтому хранится один раз.</param>
-public sealed record SessionRecord(string Key, string? SessionId, DateTimeOffset CreatedAt, bool Archived);
+/// <param name="Profile">Имя профиля Claude (<see cref="ClaudeProfile.Name"/>); null — по умолчанию.
+/// Закреплён за сессией: разговор лежит в каталоге профиля, и --resume из другого его не найдёт.</param>
+public sealed record SessionRecord(string Key, string? SessionId, DateTimeOffset CreatedAt, bool Archived,
+    string? Profile = null);
 
 /// <summary>Реестр `ключ → session_id` (`desk-sessions.json`). Битый файл — пустой реестр, а не
 /// падение окна: сессии можно начать заново, а разговоры остаются в профиле claude.</summary>

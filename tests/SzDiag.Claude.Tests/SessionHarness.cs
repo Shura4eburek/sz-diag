@@ -13,6 +13,9 @@ internal sealed class SessionHarness : IDisposable
     public SessionManager Manager { get; }
     public bool ClaudeFound { get; set; } = true;
 
+    /// <summary>Записи реестра, с которыми запрашивался запуск.</summary>
+    public List<SessionRecord> Launched { get; } = new();
+
     public SessionHarness(SessionTimeouts? timeouts = null)
     {
         Directory.CreateDirectory(Dir);
@@ -25,7 +28,11 @@ internal sealed class SessionHarness : IDisposable
     /// <summary>Ещё один менеджер над теми же файлами — «Desk перезапустили».</summary>
     public SessionManager New(SessionTimeouts? timeouts = null) => new(new SessionDeps(
         Index, Transcripts, Tokens, Broker,
-        (key, resume) => ClaudeFound ? new ClaudeLaunch("claude.exe", Dir, null, resume, "вводная " + key, "mcp.json") : null,
+        rec =>
+        {
+            Launched.Add(rec);
+            return ClaudeFound ? new ClaudeLaunch("claude.exe", Dir, null, rec.SessionId, "вводная " + rec.Key, "mcp.json") : null;
+        },
         () =>
         {
             var p = new FakeClaudeProcess();
