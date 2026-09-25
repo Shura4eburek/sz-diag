@@ -91,13 +91,18 @@ Claude Code в другом, `szcli sensors`/`reboots`/`exec --result` — ру�
          --append-system-prompt "<вводная>"
          --mcp-config <json с адресом /mcp/<ключ> и токеном>
          --permission-prompt-tool mcp__desk__permission_prompt
+         --permission-mode default
   ```
+  `--permission-mode default` обязателен: по умолчанию у пользователя режим `auto`, и в нём
+  `permission_prompt` не вызывается вовсе (спайк). В `--mcp-config` у сервера `desk` — поле
+  `timeout` (мс): без него `claude` обрывает тулзу после 300 с молчания, а разрешение ждёт
+  человека сколько угодно. См. [итоги спайка](2026-09-25-desk-spike-notes.md).
   Рабочий каталог — корень репозитория sz-diag (чтобы подхватились `CLAUDE.md`,
   `.claude/settings.json`, скиллы, память). Путь к `claude` — из конфига, по умолчанию
   поиск в `PATH`. Сообщения пользователя пишутся в stdin как NDJSON-строки; stdout читается
   построчно; stderr копится в кольцевой буфер (последние 200 строк) для диагностики падения.
 - **`StreamJsonParser`** — строка → типизированное событие: `SystemInit` (`session_id`,
-  модель, инструменты), `AssistantText`, `ToolUse`, `ToolResult`, `Result` (итог хода:
+  модель, инструменты; приходит **на каждый ход**, не раз на процесс), `AssistantText`, `ToolUse`, `ToolResult`, `Result` (итог хода:
   токены, стоимость, длительность), `Unknown` (сырой JSON — не теряется). Битая строка —
   пропуск + лог.
 - **`ClaudeSession`** — состояние одной сессии: `Idle` / `Working` / `WaitingPermission` /
@@ -173,8 +178,9 @@ CLI), `freeze`/`unfreeze`, заметка (`note`), `sz fetch`, `close` (с вы
 - **СЗ закрыта** — сессия → `Archived`; архив открывается на чтение, продолжение — `--resume`.
 - **Закрытие Desk** — stdin закрывается, процессы получают время на выход, потом kill.
 - **Запуск Desk** — сессии не поднимаются; процесс стартует с `--resume` при открытии чата.
-- **Стоп** — кнопка «■» прерывает текущий ход (control-запрос `interrupt` stream-json-
-  протокола; подтверждается спайком, см. этап 1).
+- **Стоп** — кнопка «■» прерывает текущий ход control-запросом `interrupt` stream-json-
+  протокола (подтверждено спайком: процесс остаётся жив, ход закрывается `result` с
+  `terminal_reason: aborted_streaming`, следующее сообщение идёт в тот же процесс).
 - **Кнопка «открыть в терминале»** — `wt claude --resume <session_id>` (процесс в Desk
   перед этим останавливается, чтобы не было двух писателей в одну сессию).
 
