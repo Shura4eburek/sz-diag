@@ -35,7 +35,7 @@ public sealed partial class ChatViewModel : ObservableObject
     [ObservableProperty] [NotifyPropertyChangedFor(nameof(CanStop), nameof(StateText))] private SessionState _state;
     [ObservableProperty] [NotifyPropertyChangedFor(nameof(HasQueue))] private int _queued;
 
-    public bool CanStop => State is SessionState.Working or SessionState.WaitingPermission;
+    public bool CanStop => State is SessionState.Working or SessionState.WaitingPermission or SessionState.AnsweringPeer;
     public bool HasQueue => Queued > 0;
 
     public string StateText => State switch
@@ -45,6 +45,7 @@ public sealed partial class ChatViewModel : ObservableObject
         SessionState.Idle => "готова",
         SessionState.Working => "работает…",
         SessionState.WaitingPermission => "ждёт разрешения",
+        SessionState.AnsweringPeer => "отвечает на вопрос соседней сессии…",
         SessionState.Crashed => "упала — см. карточку в ленте",
         _ => "архив — сообщение продолжит сессию",
     };

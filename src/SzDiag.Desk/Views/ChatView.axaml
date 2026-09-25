@@ -68,6 +68,12 @@
               </StackPanel>
             </Border>
           </DataTemplate>
+          <DataTemplate DataType="vm:PeerFeedItem">
+            <Border BorderBrush="{StaticResource Violet}" BorderThickness="1" CornerRadius="8" Padding="10,6"
+                    HorizontalAlignment="Left" MaxWidth="640">
+              <SelectableTextBlock Text="{Binding Title}" Foreground="{StaticResource Violet}" TextWrapping="Wrap" />
+            </Border>
+          </DataTemplate>
           <DataTemplate DataType="vm:NoteFeedItem">
             <TextBlock Text="{Binding Text}" Classes="secondary" HorizontalAlignment="Center"
                        TextAlignment="Center" TextWrapping="Wrap" />

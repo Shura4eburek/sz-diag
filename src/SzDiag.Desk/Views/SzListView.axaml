@@ -36,13 +36,15 @@
              Background="Transparent" Margin="6,0">
       <ListBox.ItemTemplate>
         <DataTemplate x:DataType="vm:SzItemViewModel">
-          <Grid ColumnDefinitions="Auto,*,Auto,Auto,Auto">
+          <Grid ColumnDefinitions="Auto,*,Auto,Auto,Auto,Auto,Auto">
             <Ellipse Width="7" Height="7" VerticalAlignment="Center" Margin="0,0,9,0"
                      Fill="{Binding Liveness, Converter={x:Static v:Converters.LivenessToBrush}}"
                      ToolTip.Tip="{Binding Liveness, Converter={x:Static v:Converters.LivenessToText}}" />
             <StackPanel Grid.Column="1">
               <TextBlock Text="{Binding Sz}" FontWeight="SemiBold" />
               <TextBlock Text="{Binding Subtitle}" Classes="secondary" TextTrimming="CharacterEllipsis" />
+              <TextBlock Text="{Binding HwLine}" Classes="secondary" FontSize="10"
+                         TextTrimming="CharacterEllipsis" IsVisible="{Binding HasHwLine}" />
             </StackPanel>
             <Border Grid.Column="2" IsVisible="{Binding HasReboots}" CornerRadius="5" Padding="6,1"
                     Background="#22ff453a" VerticalAlignment="Center">
@@ -51,7 +53,13 @@
             <TextBlock x:Name="FrozenBadge" Grid.Column="3" Text="🧊" FontSize="11" Margin="6,0,0,0"
                        VerticalAlignment="Center" IsVisible="{Binding IsFrozen}"
                        ToolTip.Tip="Windows Update заморожен — не забудь unfreeze до close" />
-            <Ellipse Grid.Column="4" Width="6" Height="6" Margin="7,0,0,0" VerticalAlignment="Center"
+            <TextBlock Grid.Column="4" Text="{Binding SimilarText}" FontSize="10" Margin="6,0,0,0"
+                       VerticalAlignment="Center" IsVisible="{Binding HasSimilar}"
+                       Foreground="{StaticResource Accent}" ToolTip.Tip="{Binding SimilarTip}" />
+            <TextBlock Grid.Column="5" Text="{Binding PeerText}" FontSize="10" Margin="6,0,0,0"
+                       VerticalAlignment="Center" IsVisible="{Binding HasPeer}"
+                       Foreground="{StaticResource Violet}" ToolTip.Tip="сессии переписываются (ask_peer)" />
+            <Ellipse Grid.Column="6" Width="6" Height="6" Margin="7,0,0,0" VerticalAlignment="Center"
                      IsVisible="{Binding HasSession}"
                      Fill="{Binding SessionState, Converter={x:Static v:Converters.SessionStateToBrush}}"
                      ToolTip.Tip="{Binding SessionState, Converter={x:Static v:Converters.SessionStateToText}}" />

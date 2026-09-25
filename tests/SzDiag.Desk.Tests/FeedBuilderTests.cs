@@ -11,6 +11,21 @@ public class FeedBuilderTests
 
     private FeedBuilder New() => new((id, allow) => _answers.Add((id, allow)), () => _restarts++);
 
+    [Fact]
+    public void PeerQuestion_VioletCard()
+    {
+        var b = New();
+        b.Add(new PeerQuestion("161501", "какой BIOS?"));
+        Assert.Equal("💬 от 161501: какой BIOS?", Assert.IsType<PeerFeedItem>(Assert.Single(b.Items)).Title);
+    }
+
+    [Fact]
+    public void AskPeer_ToolSummary()
+    {
+        var input = JsonDocument.Parse("""{"key":"161501","question":"какой BIOS?","live":true}""").RootElement;
+        Assert.Equal("161501 (живьём): какой BIOS?", ToolSummary.For("mcp__desk__ask_peer", input));
+    }
+
     private FeedBuilder From(string fixture)
     {
         var f = New();

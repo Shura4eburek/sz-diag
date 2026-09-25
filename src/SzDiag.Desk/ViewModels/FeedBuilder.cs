@@ -45,6 +45,9 @@ public sealed class FeedBuilder(Action<string, bool> answer, Action restart)
             case TurnResult { IsError: true } te:
                 Items.Add(new NoteFeedItem($"ход завершился ошибкой: {te.Text}") { At = te.At });
                 break;
+            case PeerQuestion q:
+                Items.Add(new PeerFeedItem(q.FromKey, q.Text) { At = q.At });
+                break;
             case DeskNote n:
                 Items.Add(new NoteFeedItem(n.Text) { At = n.At });
                 break;

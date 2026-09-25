@@ -26,6 +26,19 @@ public sealed partial class SzItemViewModel : ObservableObject
     /// <summary>Windows Update заморожен (бейдж 🧊): не забыть unfreeze до закрытия.</summary>
     [ObservableProperty] private bool _isFrozen;
 
+    /// <summary>CPU · плата · память — из профиля железа (снимается раз на boot).</summary>
+    [ObservableProperty] [NotifyPropertyChangedFor(nameof(HasHwLine))] private string _hwLine = "";
+    public bool HasHwLine => HwLine.Length > 0;
+
+    /// <summary>`≈&lt;СЗ&gt;` — похожая машина в работе (подсказка человеку; Claude видит то же через peers()).</summary>
+    [ObservableProperty] [NotifyPropertyChangedFor(nameof(HasSimilar))] private string _similarText = "";
+    [ObservableProperty] private string _similarTip = "";
+    public bool HasSimilar => SimilarText.Length > 0;
+
+    /// <summary>`💬&lt;СЗ&gt;` — сессии переписываются прямо сейчас (фиолетовая метка спеки).</summary>
+    [ObservableProperty] [NotifyPropertyChangedFor(nameof(HasPeer))] private string _peerText = "";
+    public bool HasPeer => PeerText.Length > 0;
+
     /// <summary>Boot-time в поясе бокса: агент шлёт его со смещением клиента, а в WinPE это
     /// Pacific — время «на 10 часов мимо» (бэклог п.90). CLI делает то же через ToLocalTime.</summary>
     public DateTimeOffset? BootTimeLocal => Info.BootTime?.ToLocalTime();

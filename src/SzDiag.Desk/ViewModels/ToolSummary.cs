@@ -9,6 +9,12 @@ public static class ToolSummary
 
     public static string For(string tool, JsonElement input)
     {
+        if (tool == "mcp__desk__ask_peer")
+        {
+            var live = input.ValueKind == JsonValueKind.Object && input.TryGetProperty("live", out var l) && l.ValueKind == JsonValueKind.True;
+            var text = $"{Prop(input, "key")}{(live ? " (живьём)" : "")}: {Prop(input, "question")}";
+            return text.Length <= Max ? text : text[..(Max - 1)] + "…";
+        }
         var raw = tool switch
         {
             "Bash" or "PowerShell" => Prop(input, "command"),

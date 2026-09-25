@@ -14,6 +14,7 @@ public sealed partial class MainViewModel : ObservableObject
     private readonly TimeProvider _time;
     private readonly ChatServices? _chat;
     private readonly FreezeProbe? _freeze;
+    private readonly HwProfileCache? _hw;
     private readonly Dictionary<string, ChatViewModel> _chats = new(StringComparer.Ordinal);
 
     /// <summary>Сколько СЗ должна отсутствовать в списке hub, чтобы её сессия ушла в архив:
@@ -24,10 +25,11 @@ public sealed partial class MainViewModel : ObservableObject
     private readonly Dictionary<string, DateTimeOffset> _missingSince = new(StringComparer.Ordinal);
 
     public MainViewModel(HubPoller poller, DeskUiState ui, TimeProvider time, ChatServices? chat = null,
-        InspectorViewModel? inspector = null, FreezeProbe? freeze = null)
+        InspectorViewModel? inspector = null, FreezeProbe? freeze = null, HwProfileCache? hw = null)
     {
         Inspector = inspector;
         _freeze = freeze;
+        _hw = hw;
         Poller = poller;
         _ui = ui;
         _time = time;
@@ -36,6 +38,7 @@ public sealed partial class MainViewModel : ObservableObject
         if (chat is null) return;
         chat.Tokens.Changed += () => chat.Ui(UpdateTokens);
         chat.Broker.Requested += _ => chat.Ui(() => AttentionNeeded?.Invoke());
+        if (chat.Peers is { } peers) peers.Changed += () => chat.Ui(RefreshSessionBadges);
         UpdateTokens();
     }
 
@@ -134,6 +137,11 @@ public sealed partial class MainViewModel : ObservableObject
         if (selectedSz is not null && Items.All(i => i.Sz != selectedSz)) Selected = null;
         if (_freeze is not null)
             foreach (var item in Items) item.IsFrozen = _freeze.IsFrozen(item.Sz);
+        if (_hw is not null)
+        {
+            if (s.SessionsOkAt is not null && !s.IsStale) _ = _hw.Update(s.Sessions);
+            RefreshHardware();
+        }
         // ⚡N выбранной СЗ вырос — вкладка вырубонов перечитывается сама.
         if (Selected is { } sel && before.TryGetValue(sel.Sz, out var was) && sel.RebootCount > was.RebootCount)
             Inspector?.OnRebootCountChanged();
@@ -197,7 +205,7 @@ public sealed partial class MainViewModel : ObservableObject
                 _missingSince.Remove(key);
                 continue;
             }
-            if (session.State is SessionState.Working or SessionState.WaitingPermission) continue;
+            if (session.State is SessionState.Working or SessionState.WaitingPermission or SessionState.AnsweringPeer) continue;
             _missingSince.Remove(key);
             _ = session.ArchiveAsync();
         }
@@ -217,6 +225,37 @@ public sealed partial class MainViewModel : ObservableObject
     {
         if (_chat is null) return;
         foreach (var item in Items) item.SessionState = _chat.Sessions.Peek(item.Sz)?.State;
+        var active = _chat.Peers?.Active ?? Array.Empty<(string From, string To)>();
+        foreach (var item in Items)
+        {
+            var other = active.Where(a => a.From == item.Sz).Select(a => a.To)
+                .Concat(active.Where(a => a.To == item.Sz).Select(a => a.From)).FirstOrDefault();
+            item.PeerText = other is null ? "" : $"💬{other}";
+        }
+    }
+
+    /// <summary>Строка железа и `≈`: похожая — живая СЗ из списка, у которой совпал CPU, плата или
+    /// профиль памяти целиком.</summary>
+    private void RefreshHardware()
+    {
+        var profiles = Items.Select(i => (i.Sz, P: _hw!.Get(i.Sz))).Where(x => x.P is not null).ToList();
+        foreach (var item in Items)
+        {
+            var mine = _hw!.Get(item.Sz);
+            item.HwLine = mine?.Line ?? "";
+            var similar = mine is null
+                ? new List<(string Sz, IReadOnlyList<string> Why)>()
+                : profiles.Where(x => x.Sz != item.Sz)
+                    .Select(x => (x.Sz, Why: HwProfile.Similarity(mine, x.P!)))
+                    .Where(x => x.Why.Count > 0).ToList();
+            item.SimilarText = similar.Count switch
+            {
+                0 => "",
+                1 => $"≈{similar[0].Sz}",
+                _ => $"≈{similar[0].Sz} +{similar.Count - 1}",
+            };
+            item.SimilarTip = string.Join("\n", similar.Select(x => $"{x.Sz}: {string.Join(", ", x.Why)}"));
+        }
     }
 
     private void UpdateTokens()

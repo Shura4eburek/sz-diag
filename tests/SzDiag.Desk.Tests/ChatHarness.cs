@@ -24,6 +24,8 @@ internal sealed class ChatHarness : IDisposable
     public TokenLedger Tokens { get; }
     public TranscriptStore Transcripts { get; }
     public FakeTerminal Terminal { get; } = new();
+    public FakePeerDirectory PeerDir { get; } = new();
+    public PeerExchange Peers { get; }
     public ChatServices Services { get; }
 
     public ChatHarness()
@@ -41,7 +43,8 @@ internal sealed class ChatHarness : IDisposable
                 return p;
             },
             TimeProvider.System, SessionTimeouts.Default));
-        Services = new ChatServices(sessions, Broker, Tokens, Terminal, new[] { "claude", "claude2" }, a => a());
+        Peers = new PeerExchange(sessions, PeerDir, PeerLimits.Default, TimeProvider.System);
+        Services = new ChatServices(sessions, Broker, Tokens, Terminal, new[] { "claude", "claude2" }, a => a(), Peers);
     }
 
     public FakeClaudeProcess Last => Processes[^1];

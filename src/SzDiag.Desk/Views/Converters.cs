@@ -47,6 +47,7 @@ public static class Converters
     {
         SessionState.Working => Res("Accent"),
         SessionState.WaitingPermission => Res("Warn"),
+        SessionState.AnsweringPeer => Res("Violet"),
         SessionState.Crashed => Res("Bad"),
         _ => Res("Text.Tertiary"),
     });
@@ -55,6 +56,7 @@ public static class Converters
     {
         SessionState.Working => "Claude работает",
         SessionState.WaitingPermission => "Claude ждёт разрешения",
+        SessionState.AnsweringPeer => "Claude отвечает соседней сессии",
         SessionState.Crashed => "сессия упала",
         SessionState.Idle => "сессия готова",
         _ => "сессия остановлена",

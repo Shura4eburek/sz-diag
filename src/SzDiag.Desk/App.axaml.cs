@@ -40,7 +40,7 @@ public partial class App : Application
             var inspector = InspectorViewModel.Create(tools, TimeProvider.System);
 
             var vm = new MainViewModel(new HubPoller(api, TimeProvider.System), ui, TimeProvider.System, chat,
-                inspector, new FreezeProbe(szcli));
+                inspector, new FreezeProbe(szcli), hw);
             desktop.MainWindow = new MainWindow(vm);
             desktop.Exit += (_, _) =>
             {

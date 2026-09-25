@@ -24,6 +24,12 @@ public sealed class NoteFeedItem(string text) : FeedItemViewModel
     public string Text { get; } = text;
 }
 
+/// <summary>Вопрос соседней сессии: ответ на него — обычные реплики этого хода.</summary>
+public sealed class PeerFeedItem(string from, string text) : FeedItemViewModel
+{
+    public string Title { get; } = $"💬 от {from}: {text}";
+}
+
 public sealed class RawFeedItem(string type, string raw) : FeedItemViewModel
 {
     public string Title { get; } = $"raw · {type}";
