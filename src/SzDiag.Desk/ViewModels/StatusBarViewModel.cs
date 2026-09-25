@@ -1,4 +1,6 @@
+using System.Globalization;
 using CommunityToolkit.Mvvm.ComponentModel;
+using SzDiag.Claude;
 using SzDiag.Desk.Services;
 
 namespace SzDiag.Desk.ViewModels;
@@ -12,6 +14,7 @@ public sealed partial class StatusBarViewModel : ObservableObject
     [ObservableProperty] private bool _hubOk;
     [ObservableProperty] private string _hubText = "hub …";
     [ObservableProperty] private string? _staleText;
+    [ObservableProperty] private string? _tokensText;
 
     public void Apply(HubSnapshot s, DateTimeOffset now)
     {
@@ -47,5 +50,14 @@ public sealed partial class StatusBarViewModel : ObservableObject
         var plus = v.IndexOf('+');
         if (plus >= 0 && v.Length > plus + 8) v = v[..(plus + 8)];
         return v;
+    }
+
+    public static string FormatTokens(TokenUsage u, decimal cost)
+    {
+        var t = u.Total;
+        var n = t >= 1_000_000 ? (t / 1_000_000d).ToString("0.0", CultureInfo.InvariantCulture) + "M"
+            : t >= 1_000 ? (t / 1_000d).ToString("0.0", CultureInfo.InvariantCulture) + "K"
+            : t.ToString(CultureInfo.InvariantCulture);
+        return $"токены сегодня: {n} · ${cost.ToString("0.00", CultureInfo.InvariantCulture)}";
     }
 }

@@ -1,4 +1,5 @@
 using CommunityToolkit.Mvvm.ComponentModel;
+using SzDiag.Claude;
 using SzDiag.Contracts;
 using SzDiag.HubClient;
 
@@ -16,6 +17,11 @@ public sealed partial class SzItemViewModel : ObservableObject
     [ObservableProperty] [NotifyPropertyChangedFor(nameof(HasReboots))] private int _rebootCount;
 
     public bool HasReboots => RebootCount > 0;
+
+    /// <summary>Состояние сессии Claude этой СЗ (точка на карточке); null — сессии нет.</summary>
+    [ObservableProperty] [NotifyPropertyChangedFor(nameof(HasSession))] private SessionState? _sessionState;
+
+    public bool HasSession => SessionState is not null;
 
     /// <summary>Boot-time в поясе бокса: агент шлёт его со смещением клиента, а в WinPE это
     /// Pacific — время «на 10 часов мимо» (бэклог п.90). CLI делает то же через ToLocalTime.</summary>
