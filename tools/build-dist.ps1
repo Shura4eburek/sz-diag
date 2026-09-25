@@ -195,6 +195,16 @@ function Publish($project, $out) {
                   "Закрой процесс и запусти сборку ещё раз. Старая версия в $out цела."
         }
     }
+    # Всё, чего нет в свежей публикации, — данные рядом с exe (Desk: реестр и журналы сессий,
+    # счётчик токенов; hub: known_hosts, logs, pulled). Без переноса пересборка dist молча
+    # стирала их: на 160176 Desk потерял ленту и связку с разговором Claude (бэклог п.268).
+    if (Test-Path $backup) {
+        foreach ($item in Get-ChildItem $backup -Force) {
+            if (-not (Test-Path (Join-Path $staging $item.Name))) {
+                Copy-Item $item.FullName (Join-Path $staging $item.Name) -Recurse -Force
+            }
+        }
+    }
     Move-Item $staging $out
     Remove-Item $backup -Recurse -Force -ErrorAction SilentlyContinue
 }
