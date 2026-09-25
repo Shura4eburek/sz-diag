@@ -20,6 +20,17 @@ public class StatusBarViewModelTests
     }
 
     [Fact]
+    public void Healthy_RealVersionString_Shortened()
+    {
+        // `/api/version` отдаёт готовую строку для `szcli --version` — в статусбар она влезает
+        // только без повторного «hub», полного sha и даты сборки.
+        var vm = new StatusBarViewModel();
+        vm.Apply(HubSnapshot.Empty with { Health = H(), SessionsOkAt = Now,
+            HubVersion = "hub 1.0.0+81e1fdb6018bab6053eee6a7a29aa0a7b5816ed5, сборка 2026-07-24 16:10" }, Now);
+        Assert.Equal("hub 1.0.0+81e1fdb · ok", vm.HubText);
+    }
+
+    [Fact]
     public void Stale_ShowsLastDataTime()
     {
         var vm = new StatusBarViewModel();

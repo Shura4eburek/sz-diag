@@ -1,0 +1,41 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:SzDiag.Desk.ViewModels"
+             xmlns:v="using:SzDiag.Desk.Views"
+             x:Class="SzDiag.Desk.Views.SzListView"
+             x:DataType="vm:MainViewModel">
+  <DockPanel>
+    <TextBlock DockPanel.Dock="Top" Classes="caps" Margin="14,12,14,6"
+               Text="{Binding Items.Count, StringFormat='ЗАЯВКИ · {0}'}" />
+    <ListBox x:Name="List" ItemsSource="{Binding Items}" SelectedItem="{Binding Selected}"
+             Background="Transparent" Margin="6,0">
+      <ListBox.Styles>
+        <Style Selector="ListBoxItem">
+          <Setter Property="CornerRadius" Value="8" />
+          <Setter Property="Padding" Value="10,8" />
+          <Setter Property="Margin" Value="0,1" />
+        </Style>
+        <Style Selector="ListBoxItem:selected /template/ ContentPresenter">
+          <Setter Property="Background" Value="{StaticResource Bg.Selected}" />
+        </Style>
+      </ListBox.Styles>
+      <ListBox.ItemTemplate>
+        <DataTemplate x:DataType="vm:SzItemViewModel">
+          <Grid ColumnDefinitions="Auto,*,Auto">
+            <Ellipse Width="7" Height="7" VerticalAlignment="Center" Margin="0,0,9,0"
+                     Fill="{Binding Liveness, Converter={x:Static v:Converters.LivenessToBrush}}"
+                     ToolTip.Tip="{Binding Liveness, Converter={x:Static v:Converters.LivenessToText}}" />
+            <StackPanel Grid.Column="1">
+              <TextBlock Text="{Binding Sz}" FontWeight="SemiBold" />
+              <TextBlock Text="{Binding Subtitle}" Classes="secondary" TextTrimming="CharacterEllipsis" />
+            </StackPanel>
+            <Border Grid.Column="2" IsVisible="{Binding HasReboots}" CornerRadius="5" Padding="6,1"
+                    Background="#22ff453a" VerticalAlignment="Center">
+              <TextBlock Text="{Binding RebootCount, StringFormat='⚡{0}'}" FontSize="10" Foreground="#ff6b61" />
+            </Border>
+          </Grid>
+        </DataTemplate>
+      </ListBox.ItemTemplate>
+    </ListBox>
+  </DockPanel>
+</UserControl>

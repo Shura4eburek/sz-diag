@@ -37,6 +37,7 @@ public sealed class HubPoller(IHubApiClient api, TimeProvider time)
         }
         catch (Exception ex) when (!ct.IsCancellationRequested)
         {
+            DeskLog.Write($"опрос {kind}: {ex.Message}");
             // Ошибку считаем только по списку СЗ: он главный признак «hub жив». Передачи и
             // здоровье падают вместе с ним и сами по себе статус не переключают.
             if (kind == PollKind.Sessions)

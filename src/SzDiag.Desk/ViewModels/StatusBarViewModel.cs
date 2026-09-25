@@ -24,7 +24,7 @@ public sealed partial class StatusBarViewModel : ObservableObject
         }
 
         StaleText = null;
-        var version = s.HubVersion ?? "?";
+        var version = ShortVersion(s.HubVersion);
         if (s.Health is { PendingWorkItemCount: >= StarvationQueue } h)
         {
             HubOk = false;
@@ -33,5 +33,19 @@ public sealed partial class StatusBarViewModel : ObservableObject
         }
         HubOk = true;
         HubText = $"hub {version} · ok";
+    }
+
+    /// <summary>`/api/version` отдаёт строку для `szcli --version` целиком («hub 1.0.0+&lt;sha&gt;,
+    /// сборка …»): в статусбар — только номер и короткий sha.</summary>
+    private static string ShortVersion(string? raw)
+    {
+        if (string.IsNullOrWhiteSpace(raw)) return "?";
+        var v = raw.Trim();
+        if (v.StartsWith("hub ", StringComparison.Ordinal)) v = v[4..];
+        var comma = v.IndexOf(',');
+        if (comma >= 0) v = v[..comma];
+        var plus = v.IndexOf('+');
+        if (plus >= 0 && v.Length > plus + 8) v = v[..(plus + 8)];
+        return v;
     }
 }
