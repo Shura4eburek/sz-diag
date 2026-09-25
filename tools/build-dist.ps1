@@ -451,10 +451,12 @@ if ((Test-Path dist\client) -and (Should-WriteConfig "dist/client")) {
 }
 
 # 4. Удобные лаунчеры на хосте (single-quoted here-string — литералы)
+# exe — полным путём: при NoDefaultCurrentDirectoryInExePath=1 (его ставит окружение Claude Code, а
+# Desk, запущенный оттуда, передаёт дальше) cmd не ищет голое имя в текущей папке — код 9009.
 $startHub = @'
 @echo off
 cd /d "%~dp0hub"
-SzDiag.Hub.exe
+"%~dp0hub\SzDiag.Hub.exe"
 pause
 '@
 Set-Content -Path dist\host\start-hub.cmd -Value $startHub -Encoding ascii
