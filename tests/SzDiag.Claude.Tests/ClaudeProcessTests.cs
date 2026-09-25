@@ -50,6 +50,23 @@ public class ClaudeProcessTests
     }
 
     [Fact]
+    public async Task OrphanHoldingPipes_ExitAndStopStillComplete()
+    {
+        // cmd уходит сразу, а запущенный через start /b ping наследует его stdout/stderr и держит
+        // пайпы ещё 8 с. Выход процесса не должен ждать EOF: иначе «■» и закрытие Desk висят,
+        // пока жив осиротевший внук (ревью I-4).
+        var p = new ClaudeProcess();
+        var exited = new TaskCompletionSource<int?>();
+        p.Exited += c => exited.TrySetResult(c);
+        p.Start(Psi("cmd.exe", "/d", "/c", "start /b ping -n 8 127.0.0.1 >nul & exit 0"));
+
+        await exited.Task.WaitAsync(TimeSpan.FromSeconds(4));
+        var sw = Stopwatch.StartNew();
+        await p.StopAsync(TimeSpan.FromMilliseconds(300));
+        Assert.True(sw.Elapsed < TimeSpan.FromSeconds(4), $"остановка заняла {sw.Elapsed}");
+    }
+
+    [Fact]
     public async Task Stop_KillsProcessThatIgnoresStdin()
     {
         var p = new ClaudeProcess();
