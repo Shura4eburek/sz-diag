@@ -32,6 +32,12 @@ public sealed class HubPoller(IHubApiClient api, TimeProvider time)
                     var health = await api.GetHealthAsync(ct);
                     var version = health is null ? Current.HubVersion : await api.GetHubVersionAsync(ct);
                     Update(s => s with { Health = health, HubVersion = version });
+                    if (health is not null)
+                    {
+                        // Отдельно и без влияния на «hub жив»: /api/status — детали, старый hub его не знает.
+                        var status = await api.GetStatusAsync(ct);
+                        Update(s => s with { Status = status });
+                    }
                     break;
             }
         }

@@ -13,6 +13,9 @@ public static class Converters
     private static IBrush Res(string key)
         => Application.Current!.TryGetResource(key, null, out var v) && v is IBrush b ? b : Brushes.Gray;
 
+    public static readonly IValueConverter WarnToBrush =
+        new FuncValueConverter<bool, IBrush>(w => w ? Res("Warn") : Res("Text.Secondary"));
+
     /// <summary>Точка статуса СЗ. «Нет связи» — оранжевым, не красным: уверенно «вырубон» по
     /// одному молчанию heartbeat не говорим (бэклог п.42); красный — только сломанный откат.</summary>
     public static readonly IValueConverter LivenessToBrush = new FuncValueConverter<SzLivenessState, IBrush>(s => s switch

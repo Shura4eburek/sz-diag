@@ -13,7 +13,8 @@ public sealed record HubSnapshot(
     string? HubVersion,
     DateTimeOffset? SessionsOkAt,
     string? Error,
-    int Failures)
+    int Failures,
+    HubStatus? Status = null)
 {
     public static HubSnapshot Empty { get; } =
         new(Array.Empty<SessionInfo>(), Array.Empty<TransferInfo>(), null, null, null, null, 0);

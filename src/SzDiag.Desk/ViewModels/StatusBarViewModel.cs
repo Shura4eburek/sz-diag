@@ -1,6 +1,7 @@
 using System.Globalization;
 using CommunityToolkit.Mvvm.ComponentModel;
 using SzDiag.Claude;
+using SzDiag.Contracts;
 using SzDiag.Desk.Services;
 
 namespace SzDiag.Desk.ViewModels;
@@ -15,9 +16,12 @@ public sealed partial class StatusBarViewModel : ObservableObject
     [ObservableProperty] private string _hubText = "hub …";
     [ObservableProperty] private string? _staleText;
     [ObservableProperty] private string? _tokensText;
+    [ObservableProperty] private string? _detailsText;
+    [ObservableProperty] private bool _detailsWarn;
 
     public void Apply(HubSnapshot s, DateTimeOffset now)
     {
+        (DetailsText, DetailsWarn) = FormatDetails(s.Status);
         if (s.IsStale)
         {
             HubOk = false;
@@ -50,6 +54,31 @@ public sealed partial class StatusBarViewModel : ObservableObject
         var plus = v.IndexOf('+');
         if (plus >= 0 && v.Length > plus + 8) v = v[..(plus + 8)];
         return v;
+    }
+
+    /// <summary>Пакет агента, последний бэкап kb, туннель. Предупреждение — когда kb не уехал в
+    /// remote или туннель не держится: оба случая иначе видны только в консоли hub.</summary>
+    public static (string? Text, bool Warn) FormatDetails(HubStatus? s)
+    {
+        if (s is null) return (null, false);
+        var parts = new List<string>();
+        var warn = false;
+        if (!string.IsNullOrEmpty(s.AgentPackageVersion)) parts.Add($"агент {s.AgentPackageVersion}");
+
+        var kb = s.KbBackup;
+        if (!kb.Enabled) parts.Add("kb: бэкап выключен");
+        else if (kb.LastRunAt is null) parts.Add("kb: бэкапа ещё не было");
+        else if (kb.Outcome is "Pushed" or "NoChanges") parts.Add($"kb {kb.LastRunAt.Value.ToLocalTime():HH:mm} ✓");
+        else if (kb.Outcome == "CommittedNotPushed") { parts.Add("kb: не выгружен в remote"); warn = true; }
+        else { parts.Add("kb: бэкап упал"); warn = true; }
+
+        switch (s.Tunnel.State)
+        {
+            case TunnelStates.Running: parts.Add("туннель ✓"); break;
+            case TunnelStates.NotFound: parts.Add("туннель: нет cloudflared"); warn = true; break;
+            case TunnelStates.Restarting: parts.Add("туннель ✗ перезапуск"); warn = true; break;
+        }
+        return (string.Join(" · ", parts), warn);
     }
 
     public static string FormatTokens(TokenUsage u, decimal cost)

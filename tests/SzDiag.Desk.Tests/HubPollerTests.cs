@@ -102,4 +102,18 @@ public class HubPollerTests
         for (var i = 0; i < 10; i++) await p.PollOnceAsync(PollKind.Sessions, default);
         Assert.Equal(TimeSpan.FromSeconds(30), p.NextDelay(PollKind.Sessions));
     }
+
+    [Fact]
+    public async Task Poll_Health_AlsoFetchesStatus()
+    {
+        var status = new HubStatus("v1", new KbBackupStatus(false, null, null, null), new TunnelStatus(TunnelStates.Off, null));
+        var api = new FakeHubApi
+        {
+            Health = () => new HealthzResponse(30, 1, 1, 1, 1, 0, DateTimeOffset.UtcNow),
+            Status = () => status,
+        };
+        var p = new HubPoller(api, new Clock());
+        await p.PollOnceAsync(PollKind.Health, default);
+        Assert.Same(status, p.Current.Status);
+    }
 }

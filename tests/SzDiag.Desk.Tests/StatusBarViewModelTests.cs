@@ -50,4 +50,57 @@ public class StatusBarViewModelTests
         Assert.False(vm.HubOk);
         Assert.Contains("очередь 500", vm.HubText);
     }
+
+    private static HubStatus St(KbBackupStatus kb, string tunnel = TunnelStates.Off, string? agent = "76a6189")
+        => new(agent, kb, new TunnelStatus(tunnel, null));
+
+    [Fact]
+    public void Details_NoStatus_Hidden()
+    {
+        var (text, warn) = StatusBarViewModel.FormatDetails(null);
+        Assert.Null(text);
+        Assert.False(warn);
+    }
+
+    [Fact]
+    public void Details_AgentKbTunnel()
+    {
+        var (text, warn) = StatusBarViewModel.FormatDetails(
+            St(new KbBackupStatus(true, Now, "Pushed", "ok"), TunnelStates.Running));
+        Assert.StartsWith("агент 76a6189 · kb ", text);
+        Assert.Contains("✓", text);
+        Assert.EndsWith("· туннель ✓", text);
+        Assert.False(warn);
+    }
+
+    [Theory]
+    [InlineData(false, null, "kb: бэкап выключен", false)]
+    [InlineData(true, null, "kb: бэкапа ещё не было", false)]
+    [InlineData(true, "CommittedNotPushed", "kb: не выгружен в remote", true)]
+    [InlineData(true, "Failed", "kb: бэкап упал", true)]
+    public void Details_KbStates(bool enabled, string? outcome, string expected, bool expectedWarn)
+    {
+        var (text, warn) = StatusBarViewModel.FormatDetails(
+            St(new KbBackupStatus(enabled, outcome is null ? null : Now, outcome, null), agent: null));
+        Assert.Equal(expected, text);
+        Assert.Equal(expectedWarn, warn);
+    }
+
+    [Fact]
+    public void Details_TunnelDown_Warns()
+    {
+        var (text, warn) = StatusBarViewModel.FormatDetails(
+            St(new KbBackupStatus(false, null, null, null), TunnelStates.Restarting, agent: null));
+        Assert.EndsWith("туннель ✗ перезапуск", text);
+        Assert.True(warn);
+    }
+
+    [Fact]
+    public void Apply_SetsDetails()
+    {
+        var vm = new StatusBarViewModel();
+        vm.Apply(HubSnapshot.Empty with { SessionsOkAt = Now, HubVersion = "1.14",
+            Status = St(new KbBackupStatus(false, null, null, null)) }, Now);
+        Assert.Equal("агент 76a6189 · kb: бэкап выключен", vm.DetailsText);
+    }
 }
