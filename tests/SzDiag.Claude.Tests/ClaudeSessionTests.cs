@@ -84,6 +84,28 @@ public class ClaudeSessionTests : IDisposable
         Assert.Equal(SessionState.Idle, s.State);
     }
 
+    private static string ResultWithCost(decimal cost) =>
+        $$$"""{"type":"result","subtype":"success","is_error":false,"session_id":"s","result":"ok","total_cost_usd":{{{cost.ToString(System.Globalization.CultureInfo.InvariantCulture)}}},"usage":{"input_tokens":1,"output_tokens":1,"cache_read_input_tokens":0,"cache_creation_input_tokens":0}}""";
+
+    [Fact]
+    public async Task Cost_IsCumulativePerProcess_LedgerGetsDelta()
+    {
+        // Живой прогон: total_cost_usd в result копится за жизнь процесса (0.136 → 0.289 → 0.441),
+        // usage — за ход. Складывать стоимость как есть — завышать счётчик квадратично.
+        var s = _h.Manager.Create("161432");
+        await s.SendAsync("раз");
+        _h.Last.Emit(ResultWithCost(0.10m));
+        await s.SendAsync("два");
+        _h.Last.Emit(ResultWithCost(0.25m));
+        Assert.Equal(0.25m, _h.Tokens.CostToday);
+
+        await s.StopAsync();                          // новый процесс — отсчёт стоимости заново
+        await s.SendAsync("три");
+        _h.Last.Emit(ResultWithCost(0.05m));
+        Assert.Equal(0.30m, _h.Tokens.CostToday);
+        Assert.Equal(6, _h.Tokens.Today.Total);       // usage — за ход, складывается как есть
+    }
+
     [Fact]
     public async Task Interrupt_WritesControlRequest_ReturnsQueue()
     {

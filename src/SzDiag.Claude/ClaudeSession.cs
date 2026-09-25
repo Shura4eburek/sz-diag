@@ -32,6 +32,10 @@ public sealed class ClaudeSession
     private readonly HashSet<string> _permissions = new(StringComparer.Ordinal);
     private IClaudeProcess? _process;
     private bool _stopping;
+
+    /// <summary>total_cost_usd последнего result текущего процесса: он накопительный за жизнь
+    /// процесса (живой прогон: 0.136 → 0.289 → 0.441), а в счётчик дня идёт только прирост.</summary>
+    private decimal _processCost;
     private bool _archiving;
     private TaskCompletionSource<bool>? _interrupt;
     private Action<ClaudeEvent>? _listener;
@@ -148,6 +152,7 @@ public sealed class ClaudeSession
         }
         _process = p;
         _stopping = false;
+        _processCost = 0m;
         return true;
     }
 
@@ -174,7 +179,8 @@ public sealed class ClaudeSession
                         break;
                     case TurnResult r:
                         Usage = Usage.Add(r.Usage);
-                        _d.Tokens.Add(r.Usage, r.CostUsd);
+                        _d.Tokens.Add(r.Usage, Math.Max(0m, r.CostUsd - _processCost));
+                        _processCost = Math.Max(_processCost, r.CostUsd);
                         State = SessionState.Idle;
                         turnEnded = true;
                         break;
