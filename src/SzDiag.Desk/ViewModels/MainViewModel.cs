@@ -14,6 +14,13 @@ public sealed partial class MainViewModel : ObservableObject
     private readonly ChatServices? _chat;
     private readonly Dictionary<string, ChatViewModel> _chats = new(StringComparer.Ordinal);
 
+    /// <summary>Сколько СЗ должна отсутствовать в списке hub, чтобы её сессия ушла в архив:
+    /// после рестарта hub список пуст, пока агенты не переподключатся (ревью I-2).</summary>
+    public static readonly TimeSpan ArchiveAfter = TimeSpan.FromMinutes(3);
+
+    /// <summary>С какого момента СЗ, бывшая в списке, в нём отсутствует.</summary>
+    private readonly Dictionary<string, DateTimeOffset> _missingSince = new(StringComparer.Ordinal);
+
     public MainViewModel(HubPoller poller, DeskUiState ui, TimeProvider time, ChatServices? chat = null)
     {
         Poller = poller;
@@ -122,7 +129,7 @@ public sealed partial class MainViewModel : ObservableObject
         // иначе первый же опрос передач отправил бы все сессии в архив.
         if (_chat is null || s.SessionsOkAt is null || s.IsStale) return;
         NoteMachineChanges(before);
-        ArchiveClosed(s, before.Keys);
+        ArchiveClosed(s, before.Keys, now);
         RefreshArchived();
         RefreshSessionBadges();
     }
@@ -149,15 +156,32 @@ public sealed partial class MainViewModel : ObservableObject
         }
     }
 
-    /// <summary>В архив — только СЗ, которая была в списке и пропала (закрыли). Не «любая сессия,
-    /// чьей СЗ нет в списке»: иначе продолженный из архива разговор архивировался бы следующим же
-    /// опросом вместе с только что запущенным процессом (живая проверка части 2).</summary>
-    private void ArchiveClosed(HubSnapshot s, IEnumerable<string> wasLive)
+    /// <summary>В архив — только СЗ, которая была в списке и пропала (закрыли), и только если её
+    /// нет дольше <see cref="ArchiveAfter"/>: рестарт hub на минуту опустошает список целиком
+    /// (ревью I-2). Идущий ход не рубим — архив ждёт его конца. Не «любая сессия без СЗ в списке»:
+    /// иначе продолженный из архива разговор архивировался бы следующим же опросом.</summary>
+    private void ArchiveClosed(HubSnapshot s, IEnumerable<string> wasLive, DateTimeOffset now)
     {
         var live = s.Sessions.Select(x => x.Sz).ToHashSet(StringComparer.Ordinal);
         foreach (var key in wasLive)
-            if (!live.Contains(key) && _chat!.Sessions.Get(key) is { } session)
-                _ = session.ArchiveAsync();
+            if (!live.Contains(key)) _missingSince.TryAdd(key, now);
+        foreach (var key in _missingSince.Keys.ToList())
+        {
+            if (live.Contains(key))
+            {
+                _missingSince.Remove(key);
+                continue;
+            }
+            if (now - _missingSince[key] < ArchiveAfter) continue;
+            if (_chat!.Sessions.Get(key) is not { } session)
+            {
+                _missingSince.Remove(key);
+                continue;
+            }
+            if (session.State is SessionState.Working or SessionState.WaitingPermission) continue;
+            _missingSince.Remove(key);
+            _ = session.ArchiveAsync();
+        }
     }
 
     private void RefreshArchived()

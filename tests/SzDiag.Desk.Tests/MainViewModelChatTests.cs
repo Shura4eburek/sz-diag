@@ -14,7 +14,17 @@ public class MainViewModelChatTests : IDisposable
 
     private sealed class Clock : TimeProvider
     {
-        public override DateTimeOffset GetUtcNow() => Now;
+        public DateTimeOffset At = Now;
+        public override DateTimeOffset GetUtcNow() => At;
+    }
+
+    private readonly Clock _clock = new();
+
+    /// <summary>СЗ пропала из списка hub — и прошло достаточно, чтобы это был не рестарт hub.</summary>
+    private void AfterArchiveDelay(MainViewModel vm, HubSnapshot snap)
+    {
+        _clock.At += MainViewModel.ArchiveAfter;
+        vm.Apply(snap);
     }
 
     private static SessionInfo S(string sz, SessionStatus st = SessionStatus.Online, int reboots = 0)
@@ -23,7 +33,7 @@ public class MainViewModelChatTests : IDisposable
     private static HubSnapshot Snap(params SessionInfo[] s) => HubSnapshot.Empty with { Sessions = s, SessionsOkAt = Now };
 
     private MainViewModel New()
-        => new(new HubPoller(new FakeHubApi(), new Clock()), new DeskUiState(), new Clock(), _h.Services);
+        => new(new HubPoller(new FakeHubApi(), _clock), new DeskUiState(), _clock, _h.Services);
 
     [Fact]
     public void SelectSzWithoutSession_CanStart_StartOpensChat()
@@ -60,6 +70,8 @@ public class MainViewModelChatTests : IDisposable
         _h.Services.Sessions.Create("161501");
 
         vm.Apply(Snap(S("161432")));
+        Assert.NotEqual(SessionState.Archived, _h.Services.Sessions.Peek("161501")!.State);   // ещё рано
+        AfterArchiveDelay(vm, Snap(S("161432")));
 
         Assert.Equal(SessionState.Archived, _h.Services.Sessions.Peek("161501")!.State);
         Assert.Equal("161501", Assert.Single(vm.Archived).Key);
@@ -75,6 +87,7 @@ public class MainViewModelChatTests : IDisposable
         vm.Apply(Snap(S("161432"), S("161501")));
         _h.Services.Sessions.Create("161501");
         vm.Apply(Snap(S("161432")));
+        AfterArchiveDelay(vm, Snap(S("161432")));
         var session = _h.Services.Sessions.Peek("161501")!;
         Assert.Equal(SessionState.Archived, session.State);
 
@@ -83,6 +96,43 @@ public class MainViewModelChatTests : IDisposable
 
         Assert.Equal(SessionState.Working, session.State);
         Assert.False(_h.Last.Stopped);
+    }
+
+    [Fact]
+    public async Task HubRestart_ListEmptyBriefly_SessionKeepsWorking()
+    {
+        // Ревью I-2: после рестарта hub первый опрос пуст, пока агенты не переподключились.
+        // Архивировать по нему — значит убить текущие ходы на всех заявках.
+        var vm = New();
+        vm.Apply(Snap(S("161432")));
+        var session = _h.Services.Sessions.Create("161432");
+        await session.SendAsync("работай");
+
+        vm.Apply(Snap());
+        _clock.At += TimeSpan.FromMinutes(1);
+        vm.Apply(Snap());
+        vm.Apply(Snap(S("161432")));
+        _clock.At += MainViewModel.ArchiveAfter;
+        vm.Apply(Snap(S("161432")));
+
+        Assert.Equal(SessionState.Working, session.State);
+        Assert.False(_h.Last.Stopped);
+    }
+
+    [Fact]
+    public async Task ClosedSz_WorkingSession_ArchivedOnlyAfterTurnEnds()
+    {
+        var vm = New();
+        vm.Apply(Snap(S("161432"), S("161501")));
+        var session = _h.Services.Sessions.Create("161501");
+        await session.SendAsync("работай");
+        vm.Apply(Snap(S("161432")));
+        AfterArchiveDelay(vm, Snap(S("161432")));
+        Assert.Equal(SessionState.Working, session.State);   // ход не рубим
+
+        _h.Last.Emit(Fixture.Line("simple-turn.jsonl", e => e is TurnResult));
+        vm.Apply(Snap(S("161432")));
+        Assert.Equal(SessionState.Archived, session.State);
     }
 
     [Fact]
@@ -104,6 +154,7 @@ public class MainViewModelChatTests : IDisposable
         vm.Apply(Snap(S("161432"), S("161501")));
         _h.Services.Sessions.Create("161501");
         vm.Apply(Snap(S("161432")));
+        AfterArchiveDelay(vm, Snap(S("161432")));
         vm.Selected = vm.Items.Single();
 
         vm.SelectedArchived = vm.Archived.Single();
