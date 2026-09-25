@@ -74,5 +74,7 @@ public class DeskClaudeHostTests : IAsyncLifetime
         Assert.Contains("cd /d \"C:\\repo\"", s);
         Assert.Contains("\"C:\\bin\\claude.exe\" --resume sid-1", s);
         Assert.DoesNotContain("CLAUDE_CONFIG_DIR", TerminalLauncher.Script("C:\\bin\\claude.exe", "C:\\repo", null, "sid-1"));
+        // Маркеры сессии, из которой запущен Desk, в терминал не протекают.
+        Assert.All(SzDiag.Claude.ClaudeLaunch.InheritedSessionMarkers, name => Assert.Contains($"set \"{name}=\"", s));
     }
 }

@@ -1,6 +1,7 @@
 using System.ComponentModel;
 using System.Diagnostics;
 using System.Text;
+using SzDiag.Claude;
 
 namespace SzDiag.Desk.Services;
 
@@ -20,6 +21,8 @@ public sealed class TerminalLauncher(string? claudeExe, string workDir, string? 
         var sb = new StringBuilder();
         sb.Append("@echo off\r\n");
         sb.Append("chcp 65001 >nul\r\n");
+        // Маркеры сессии, из которой запущен Desk, — прочь (см. ClaudeLaunch.InheritedSessionMarkers).
+        foreach (var name in ClaudeLaunch.InheritedSessionMarkers) sb.Append($"set \"{name}=\"\r\n");
         if (!string.IsNullOrEmpty(configDir)) sb.Append($"set \"CLAUDE_CONFIG_DIR={configDir}\"\r\n");
         sb.Append($"cd /d \"{workDir}\"\r\n");
         sb.Append($"\"{claudeExe}\" --resume {sessionId}\r\n");

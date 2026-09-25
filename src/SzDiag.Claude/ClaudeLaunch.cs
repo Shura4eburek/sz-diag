@@ -11,6 +11,17 @@ public sealed record ClaudeLaunch(string Executable, string WorkDir, string? Con
 {
     public const string PermissionTool = "mcp__desk__permission_prompt";
 
+    /// <summary>Переменные, которыми Claude Code помечает свою сессию. Desk, запущенный из сессии
+    /// Claude (dotnet run под Claude), иначе передал бы их детям: CHILD_SESSION выключает запись
+    /// транскрипта (и --resume потом нечего продолжать), MESSAGING_SOCKET/TOKEN ведут в канал
+    /// чужой сессии. Профиль (CLAUDE_CONFIG_DIR) маркером не считается.</summary>
+    public static readonly IReadOnlyList<string> InheritedSessionMarkers = new[]
+    {
+        "CLAUDECODE", "CLAUDE_CODE_CHILD_SESSION", "CLAUDE_CODE_ENTRYPOINT", "CLAUDE_CODE_EXECPATH",
+        "CLAUDE_CODE_MESSAGING_SOCKET", "CLAUDE_CODE_MESSAGING_TOKEN", "CLAUDE_CODE_SESSION_ATTENDED",
+        "CLAUDE_CODE_SESSION_ID", "CLAUDE_CODE_SSE_PORT", "CLAUDE_PID", "CLAUDE_EFFORT",
+    };
+
     private static readonly UTF8Encoding Utf8 = new(encoderShouldEmitUTF8Identifier: false);
 
     public IReadOnlyList<string> Arguments()
@@ -47,6 +58,7 @@ public sealed record ClaudeLaunch(string Executable, string WorkDir, string? Con
             StandardErrorEncoding = Utf8,
         };
         foreach (var arg in Arguments()) psi.ArgumentList.Add(arg);
+        foreach (var name in InheritedSessionMarkers) psi.Environment.Remove(name);
         if (ConfigDir is { Length: > 0 } dir) psi.Environment["CLAUDE_CONFIG_DIR"] = dir;
         return psi;
     }

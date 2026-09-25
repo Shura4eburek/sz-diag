@@ -45,6 +45,27 @@ public class ClaudeLaunchTests
             L(configDir: null).ToStartInfo().Environment["CLAUDE_CONFIG_DIR"]);
 
     [Fact]
+    public void ToStartInfo_StripsInheritedSessionMarkers()
+    {
+        // Живая проверка: Desk, запущенный из сессии Claude Code, передавал детям её маркеры —
+        // CLAUDE_CODE_CHILD_SESSION выключал запись транскрипта, а MESSAGING_SOCKET/TOKEN вели
+        // в канал чужой сессии.
+        Environment.SetEnvironmentVariable("CLAUDE_CODE_CHILD_SESSION", "1");
+        Environment.SetEnvironmentVariable("CLAUDE_CODE_MESSAGING_TOKEN", "x");
+        try
+        {
+            var env = L().ToStartInfo().Environment;
+            Assert.All(ClaudeLaunch.InheritedSessionMarkers, name => Assert.False(env.ContainsKey(name), name));
+            Assert.Equal("C:\\cfg", env["CLAUDE_CONFIG_DIR"]);   // профиль — не маркер, остаётся
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable("CLAUDE_CODE_CHILD_SESSION", null);
+            Environment.SetEnvironmentVariable("CLAUDE_CODE_MESSAGING_TOKEN", null);
+        }
+    }
+
+    [Fact]
     public void ToStartInfo_StdinUtf8WithoutBom()
     {
         // BOM в начале stdin сломал бы разбор первой же строки у claude.
