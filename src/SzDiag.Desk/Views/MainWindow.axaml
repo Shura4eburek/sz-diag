@@ -24,10 +24,17 @@
       <DockPanel x:Name="CenterPane" Grid.Column="1">
         <Border DockPanel.Dock="Top" BorderBrush="{StaticResource Line}" BorderThickness="0,0,0,1"
                 Padding="16,8,12,8">
-          <Grid ColumnDefinitions="*,Auto">
-            <TextBlock Text="{Binding Selected.Sz, FallbackValue='SzDiag'}" FontWeight="SemiBold"
-                       VerticalAlignment="Center" />
-            <ToggleButton x:Name="InspectorToggle" Grid.Column="1" Classes="icon"
+          <Grid ColumnDefinitions="*,Auto,Auto">
+            <StackPanel Orientation="Horizontal" Spacing="10" VerticalAlignment="Center">
+              <TextBlock Text="{Binding Title}" FontWeight="SemiBold" />
+              <TextBlock Text="{Binding ActiveChat.StateText, FallbackValue=''}" Classes="secondary"
+                         IsVisible="{Binding ActiveChat, Converter={x:Static ObjectConverters.IsNotNull}}" />
+            </StackPanel>
+            <Button x:Name="TerminalButton" Grid.Column="1" Content="открыть в терминале" Margin="0,0,8,0"
+                    ToolTip.Tip="claude --resume в Windows Terminal; процесс в Desk при этом останавливается"
+                    Command="{Binding ActiveChat.OpenInTerminalCommand, FallbackValue={x:Null}}"
+                    IsVisible="{Binding ActiveChat, Converter={x:Static ObjectConverters.IsNotNull}}" />
+            <ToggleButton x:Name="InspectorToggle" Grid.Column="2" Classes="icon"
                           IsChecked="{Binding IsInspectorOpen}" ToolTip.Tip="Инспектор СЗ">
               <Path Data="M1.5,2.5 H14.5 V13.5 H1.5 Z M10,2.5 V13.5" Stroke="{Binding $parent[ToggleButton].Foreground}"
                     StrokeThickness="1.4" Width="16" Height="16" Stretch="None" />
@@ -35,9 +42,16 @@
           </Grid>
         </Border>
         <v:TransfersView DockPanel.Dock="Bottom" IsVisible="{Binding HasTransfers}" />
-        <!-- Чат сессии Claude — часть 2 плана. -->
-        <TextBlock Text="Сессии Claude появятся в следующей версии" Classes="secondary"
-                   HorizontalAlignment="Center" VerticalAlignment="Center" />
+        <Panel>
+          <TextBlock Text="Выбери СЗ слева" Classes="secondary" IsVisible="{Binding ShowPlaceholder}"
+                     HorizontalAlignment="Center" VerticalAlignment="Center" />
+          <Button x:Name="StartSessionButton" Content="Начать сессию Claude" IsVisible="{Binding CanStartSession}"
+                  Command="{Binding StartSessionCommand}" HorizontalAlignment="Center" VerticalAlignment="Center" />
+          <!-- Видимость — на обёртке: у ChatView свой DataContext (модель чата), а решает модель окна. -->
+          <Border IsVisible="{Binding ActiveChat, Converter={x:Static ObjectConverters.IsNotNull}}">
+            <v:ChatView x:Name="ChatPane" DataContext="{Binding ActiveChat}" />
+          </Border>
+        </Panel>
       </DockPanel>
       <Border x:Name="InspectorPane" Grid.Column="2" Width="290" Background="{StaticResource Bg.TitleBar}"
               BorderBrush="{StaticResource Line}" BorderThickness="1,0,0,0"

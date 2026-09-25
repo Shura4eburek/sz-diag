@@ -2,6 +2,7 @@ using System.Globalization;
 using Avalonia;
 using Avalonia.Data.Converters;
 using Avalonia.Media;
+using SzDiag.Claude;
 using SzDiag.Contracts;
 using SzDiag.HubClient;
 
@@ -35,5 +36,24 @@ public static class Converters
         TransferState.Done => Res("Ok"),
         TransferState.Failed => Res("Bad"),
         _ => Res("Accent"),
+    });
+
+    /// <summary>Точка сессии на карточке СЗ: работает — акцент, ждёт разрешения — оранжевый,
+    /// упала — красный, остальное — третий план.</summary>
+    public static readonly IValueConverter SessionStateToBrush = new FuncValueConverter<SessionState?, IBrush>(s => s switch
+    {
+        SessionState.Working => Res("Accent"),
+        SessionState.WaitingPermission => Res("Warn"),
+        SessionState.Crashed => Res("Bad"),
+        _ => Res("Text.Tertiary"),
+    });
+
+    public static readonly IValueConverter SessionStateToText = new FuncValueConverter<SessionState?, string>(s => s switch
+    {
+        SessionState.Working => "Claude работает",
+        SessionState.WaitingPermission => "Claude ждёт разрешения",
+        SessionState.Crashed => "сессия упала",
+        SessionState.Idle => "сессия готова",
+        _ => "сессия остановлена",
     });
 }

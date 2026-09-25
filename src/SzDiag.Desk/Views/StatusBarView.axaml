@@ -3,13 +3,17 @@
              xmlns:vm="using:SzDiag.Desk.ViewModels"
              x:Class="SzDiag.Desk.Views.StatusBarView"
              x:DataType="vm:StatusBarViewModel">
-  <StackPanel Orientation="Horizontal" Spacing="18" Margin="14,0" VerticalAlignment="Center">
-    <StackPanel Orientation="Horizontal" Spacing="6">
-      <Ellipse Width="7" Height="7" Fill="{StaticResource Ok}" IsVisible="{Binding HubOk}" />
-      <Ellipse Width="7" Height="7" Fill="{StaticResource Bad}" IsVisible="{Binding !HubOk}" />
-      <TextBlock Text="{Binding HubText}" Classes="secondary" />
+  <Grid ColumnDefinitions="*,Auto" Margin="14,0" VerticalAlignment="Center">
+    <StackPanel Orientation="Horizontal" Spacing="18">
+      <StackPanel Orientation="Horizontal" Spacing="6">
+        <Ellipse Width="7" Height="7" Fill="{StaticResource Ok}" IsVisible="{Binding HubOk}" />
+        <Ellipse Width="7" Height="7" Fill="{StaticResource Bad}" IsVisible="{Binding !HubOk}" />
+        <TextBlock Text="{Binding HubText}" Classes="secondary" />
+      </StackPanel>
+      <TextBlock Text="{Binding StaleText}" Classes="secondary" Foreground="{StaticResource Warn}"
+                 IsVisible="{Binding StaleText, Converter={x:Static ObjectConverters.IsNotNull}}" />
     </StackPanel>
-    <TextBlock Text="{Binding StaleText}" Classes="secondary" Foreground="{StaticResource Warn}"
-               IsVisible="{Binding StaleText, Converter={x:Static ObjectConverters.IsNotNull}}" />
-  </StackPanel>
+    <TextBlock Grid.Column="1" Text="{Binding TokensText}" Classes="secondary"
+               IsVisible="{Binding TokensText, Converter={x:Static ObjectConverters.IsNotNull}}" />
+  </Grid>
 </UserControl>
