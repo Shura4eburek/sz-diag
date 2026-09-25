@@ -31,6 +31,15 @@ public class ClaudeLaunchTests
     }
 
     [Fact]
+    public void OnlyDeskMcp_NoProfileConnectors()
+    {
+        // Бэклог п.266 (160176): коннекторы профиля (Supabase, Drive, IBKR…) грузились в каждую
+        // сессию заявки, и кэш промпта между ходами терялся — «ОК» стоил $0.29.
+        Assert.Contains("--strict-mcp-config", L().Arguments());
+        Assert.Equal("false", L().ToStartInfo().Environment["ENABLE_CLAUDEAI_MCP_SERVERS"]);
+    }
+
+    [Fact]
     public void Arguments_Resume() => Assert.Equal("sid-1", After(L("sid-1").Arguments(), "--resume"));
 
     [Fact]

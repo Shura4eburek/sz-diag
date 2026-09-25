@@ -11,9 +11,14 @@ public sealed partial class ChatViewModel : ObservableObject
     private readonly ClaudeSession _session;
     private readonly ITerminalLauncher _terminal;
     private readonly Action<Action> _ui;
+    private readonly TimeProvider _time;
+    private DateTimeOffset _busySince;
+    private ITimer? _ticker;
 
-    public ChatViewModel(ClaudeSession session, PermissionBroker broker, ITerminalLauncher terminal, Action<Action> ui)
+    public ChatViewModel(ClaudeSession session, PermissionBroker broker, ITerminalLauncher terminal, Action<Action> ui,
+        TimeProvider? time = null)
     {
+        _time = time ?? TimeProvider.System;
         _session = session;
         _terminal = terminal;
         _ui = ui;
@@ -37,6 +42,46 @@ public sealed partial class ChatViewModel : ObservableObject
 
     public bool CanStop => State is SessionState.Working or SessionState.WaitingPermission or SessionState.AnsweringPeer;
     public bool HasQueue => Queued > 0;
+
+    /// <summary>Идёт ход — строка внизу ленты с таймером. «работает…» мелким шрифтом в шапке
+    /// оператор не заметил и решил, что Claude не отвечает (бэклог п.267, СЗ 160176).</summary>
+    public bool IsBusy => CanStop;
+
+    public string BusyText => IsBusy
+        ? $"{BusyWhat} {(int)Math.Max(0, (_time.GetUtcNow() - _busySince).TotalSeconds)} с"
+        : "";
+
+    private string BusyWhat => State switch
+    {
+        SessionState.WaitingPermission => "Claude ждёт твоего разрешения…",
+        SessionState.AnsweringPeer => "Claude отвечает соседней сессии…",
+        _ => "Claude работает…",
+    };
+
+    /// <summary>Раз в секунду, пока идёт ход: обновить таймер.</summary>
+    public void Tick() => OnPropertyChanged(nameof(BusyText));
+
+    partial void OnStateChanged(SessionState oldValue, SessionState newValue)
+    {
+        var was = IsBusyState(oldValue);
+        var now = IsBusyState(newValue);
+        // Таймер — от начала хода: ожидание разрешения внутри хода его не сбрасывает.
+        if (now && !was)
+        {
+            _busySince = _time.GetUtcNow();
+            _ticker ??= _time.CreateTimer(_ => _ui(Tick), null, TimeSpan.FromSeconds(1), TimeSpan.FromSeconds(1));
+        }
+        else if (!now && was)
+        {
+            _ticker?.Dispose();
+            _ticker = null;
+        }
+        OnPropertyChanged(nameof(IsBusy));
+        OnPropertyChanged(nameof(BusyText));
+    }
+
+    private static bool IsBusyState(SessionState s)
+        => s is SessionState.Working or SessionState.WaitingPermission or SessionState.AnsweringPeer;
 
     public string StateText => State switch
     {

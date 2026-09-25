@@ -43,6 +43,10 @@ public sealed record ClaudeLaunch(string Executable, string WorkDir, string? Con
             "--permission-prompt-tool", PermissionTool,
             "--allowedTools", PeerTools,
             "--mcp-config", McpConfigPath,
+            // Только MCP-сервер Desk: серверы и коннекторы профиля (Supabase, Drive, IBKR…) заявке
+            // не нужны, а их списки инструментов между ходами «плавали» — кэш промпта терялся, и
+            // любое сообщение стоило ~$0.29 (бэклог п.266, СЗ 160176).
+            "--strict-mcp-config",
             "--append-system-prompt", AppendSystemPrompt,
         };
         if (ResumeSessionId is { Length: > 0 } id)
@@ -69,6 +73,8 @@ public sealed record ClaudeLaunch(string Executable, string WorkDir, string? Con
         };
         foreach (var arg in Arguments()) psi.ArgumentList.Add(arg);
         foreach (var name in InheritedSessionMarkers) psi.Environment.Remove(name);
+        // claude.ai-коннекторы приходят мимо --mcp-config — выключаются отдельно (бэклог п.266).
+        psi.Environment["ENABLE_CLAUDEAI_MCP_SERVERS"] = "false";
         if (ConfigDir is { Length: > 0 } dir) psi.Environment["CLAUDE_CONFIG_DIR"] = dir;
         else psi.Environment.Remove("CLAUDE_CONFIG_DIR");
         return psi;

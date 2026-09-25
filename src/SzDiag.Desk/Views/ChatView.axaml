@@ -22,7 +22,8 @@
       </StackPanel>
     </Border>
     <ScrollViewer x:Name="FeedScroll">
-      <ItemsControl ItemsSource="{Binding Items}" Margin="18,14">
+      <StackPanel>
+      <ItemsControl ItemsSource="{Binding Items}" Margin="18,14,18,0">
         <ItemsControl.ItemsPanel>
           <ItemsPanelTemplate>
             <StackPanel Spacing="8" />
@@ -96,6 +97,10 @@
           </DataTemplate>
         </ItemsControl.DataTemplates>
       </ItemsControl>
+      <!-- Идёт ход: видно в ленте, а не только словом в шапке (бэклог п.267). -->
+      <TextBlock Text="{Binding BusyText}" IsVisible="{Binding IsBusy}" Margin="18,8,18,14"
+                 Foreground="{StaticResource Accent}" FontStyle="Italic" />
+      </StackPanel>
     </ScrollViewer>
   </DockPanel>
 </UserControl>

@@ -49,7 +49,8 @@ internal sealed class ChatHarness : IDisposable
 
     public FakeClaudeProcess Last => Processes[^1];
 
-    public ChatViewModel Chat(string key) => new(Services.Sessions.Create(key), Broker, Terminal, a => a());
+    public ChatViewModel Chat(string key, TimeProvider? time = null)
+        => new(Services.Sessions.Create(key), Broker, Terminal, a => a(), time);
 
     public void Dispose()
     {

@@ -32,6 +32,27 @@ public class ChatViewModelTests : IDisposable
     }
 
     [Fact]
+    public async Task Busy_LineWithTurnTimer_UntilResult()
+    {
+        // Бэклог п.267 (160176): «работает…» мелким шрифтом в шапке оператор не заметил и решил,
+        // что Claude не отвечает. Строка в ленте с таймером хода видна сразу.
+        var clock = new ManualClock();
+        var vm = _h.Chat("161432", clock);
+        Assert.False(vm.IsBusy);
+
+        await Send(vm, "проверь SMART");
+        Assert.True(vm.IsBusy);
+        Assert.Equal("Claude работает… 0 с", vm.BusyText);
+
+        clock.Advance(TimeSpan.FromSeconds(12));
+        vm.Tick();
+        Assert.Equal("Claude работает… 12 с", vm.BusyText);
+
+        _h.Last.Emit(Fixture.Line("simple-turn.jsonl", e => e is TurnResult));
+        Assert.False(vm.IsBusy);
+    }
+
+    [Fact]
     public async Task EmptyDraft_NotSent()
     {
         var vm = _h.Chat("161432");
