@@ -1,17 +1,16 @@
 using System.Globalization;
 using Avalonia;
 using CommunityToolkit.Mvvm.ComponentModel;
-using CommunityToolkit.Mvvm.Input;
 using SzDiag.Contracts;
-using SzDiag.Desk.Services;
 using SzDiag.HubClient;
 
 namespace SzDiag.Desk.ViewModels.Inspector;
 
 /// <summary>Живые сенсоры из CSV `lhmmon`: последний отсчёт и ломаные температур по хвосту.
-/// Синхронный exec раз в 5 с и только пока вкладка открыта: под полной нагрузкой он может не
-/// ответить — тогда остаются прежние значения, а статус говорит об этом прямо.</summary>
-public sealed partial class SensorsTabViewModel(IHubApiClient api, ISzcliRunner szcli, TimeProvider time)
+/// Синхронный exec раз в 15 с и только пока вкладка открыта: слот синхронного exec у агента
+/// один, и чаще опрашивать — значит отбирать его у оператора. Под полной нагрузкой exec может
+/// не ответить или прийти «занят» — тогда остаются прежние значения, а статус говорит об этом прямо.</summary>
+public sealed partial class SensorsTabViewModel(IHubApiClient api, TimeProvider time)
     : ObservableObject, IInspectorTab
 {
     public const int TailRows = 120;
@@ -25,7 +24,11 @@ public sealed partial class SensorsTabViewModel(IHubApiClient api, ISzcliRunner 
     private DateTimeOffset _lastChangeAt;
 
     public string Title => "Сенсоры";
-    public TimeSpan? Interval => TimeSpan.FromSeconds(5);
+    public TimeSpan? Interval => TimeSpan.FromSeconds(15);
+
+    /// <summary>Чем запускать `lhmmon`. Не `szcli sensors start`: тот пишет свой CSV в ProgramData,
+    /// а вкладка читает CSV `lhmmon`.</summary>
+    public string StartHint => $"запусти lhmmon: szcli exec {_sz ?? "<СЗ>"} -f tools\\recipes\\client\\start-sensors.ps1";
 
     [ObservableProperty] private string _status = "";
     [ObservableProperty] private bool _notWriting;
@@ -55,7 +58,7 @@ public sealed partial class SensorsTabViewModel(IHubApiClient api, ISzcliRunner 
 
     public async Task RefreshAsync(string sz, CancellationToken ct)
     {
-        _sz = sz;
+        if (_sz != sz) { _sz = sz; OnPropertyChanged(nameof(StartHint)); }
         ExecResult? r;
         try
         {
@@ -74,6 +77,14 @@ public sealed partial class SensorsTabViewModel(IHubApiClient api, ISzcliRunner 
         if (r is null)
         {
             Status = "СЗ не на связи";
+            return;
+        }
+        // «Занят» (единственный слот синхронного exec держит другая команда) и таймаут скрипта
+        // приходят пустым StdOut — это не «сенсоры не пишутся»: прошлые данные остаются.
+        if (r.TimedOut || r.ExitCode != 0 || string.IsNullOrWhiteSpace(r.StdOut))
+        {
+            var why = r.TimedOut ? "не уложился в 15 с" : (string.IsNullOrWhiteSpace(r.StdErr) ? "пустой ответ" : r.StdErr.Trim());
+            Status = $"агент не отдал сенсоры ({why}); показаны прошлые данные";
             return;
         }
         if (r.StdOut.Contains(NoCsvMarker, StringComparison.Ordinal))
@@ -115,15 +126,6 @@ public sealed partial class SensorsTabViewModel(IHubApiClient api, ISzcliRunner 
 
     private static string F(double? v, string unit, string format = "0.#")
         => v is { } x ? x.ToString(format, CultureInfo.InvariantCulture) + unit : "—";
-
-    [RelayCommand]
-    private async Task StartSensors()
-    {
-        if (_sz is not { } sz) return;
-        Status = "запускаю наблюдатель (szcli sensors start)…";
-        var res = await szcli.RunAsync(new[] { "sensors", "start", sz }, CancellationToken.None);
-        Status = res.ExitCode == 0 ? "наблюдатель запущен — данные появятся через несколько секунд" : res.Output;
-    }
 
     public void Clear()
     {

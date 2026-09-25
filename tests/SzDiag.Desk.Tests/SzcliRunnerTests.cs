@@ -48,6 +48,21 @@ public class SzcliRunnerTests : IDisposable
     }
 
     [Fact]
+    public async Task ExeWontStart_ResultNotCrash()
+    {
+        // Ревью I-5: Process.Start бросает Win32Exception (антивирус, битый exe) — команда из
+        // окна не должна ронять Desk.
+        var dir = Path.Combine(_dir, "broken");
+        Directory.CreateDirectory(Path.Combine(dir, "cli"));
+        File.WriteAllText(Path.Combine(dir, "szcli.cmd"), "@echo off");
+        File.WriteAllText(Path.Combine(dir, "cli", "SzDiag.Cli.exe"), "это не exe");
+
+        var r = await new SzcliRunner(() => Path.Combine(dir, "szcli.cmd")).RunAsync(new[] { "list" }, default);
+        Assert.Equal(SzcliRunner.NotFound, r.ExitCode);
+        Assert.Contains("не запустился", r.Output);
+    }
+
+    [Fact]
     public void StripAnsi_RemovesEscapes()
         => Assert.Equal("СЗ 161432 ok", SzcliRunner.StripAnsi("\u001b[32mСЗ 161432\u001b[0m ok"));
 

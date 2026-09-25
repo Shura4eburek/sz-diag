@@ -16,7 +16,7 @@ public class SensorsTabViewModelTests
     private static ExecResult Out(string stdout) => new("r", 0, stdout, "");
 
     private SensorsTabViewModel New(Func<string, string, ExecResult?> exec)
-        => new(new FakeHubApi { Exec = exec }, _szcli, _clock);
+        => new(new FakeHubApi { Exec = exec }, _clock);
 
     [Fact]
     public async Task Refresh_LatestValues_AndCharts()
@@ -38,17 +38,42 @@ public class SensorsTabViewModelTests
     }
 
     [Fact]
-    public async Task NoCsv_NotWriting_OffersStart()
+    public async Task NoCsv_NotWriting_SaysHowToStartLhmmon()
     {
+        // Ревью I-2: `szcli sensors start` пишет свой CSV в ProgramData, а вкладка читает lhmmon —
+        // кнопка запускала не тот наблюдатель. Вместо неё — подсказка, чем запускать lhmmon.
         var vm = New((_, _) => Out(SensorsTabViewModel.NoCsvMarker));
         await vm.RefreshAsync("161432", default);
         Assert.True(vm.NotWriting);
         Assert.False(vm.HasData);
         Assert.Contains("сенсоры не пишутся", vm.Status);
-
-        await vm.StartSensorsCommand.ExecuteAsync(null);
-        Assert.Equal(new[] { "sensors", "start", "161432" }, _szcli.Calls.Single());
+        Assert.Contains("start-sensors.ps1", vm.StartHint);
     }
+
+    [Theory]
+    [InlineData(-1, false, "агент уже выполняет команду")]
+    [InlineData(0, true, "")]
+    public async Task AgentBusyOrTimedOut_KeepsData_NotStale(int exitCode, bool timedOut, string stderr)
+    {
+        // Ревью I-1: у агента один слот синхронного exec — «занят» и таймаут приходят пустым
+        // StdOut, и это не «сенсоры не пишутся».
+        var busy = false;
+        var vm = New((_, _) => busy
+            ? new ExecResult("r", exitCode, "", stderr, TimedOut: timedOut)
+            : Out(Csv(("2026-09-25 12:00:00", 70, 60))));
+        await vm.RefreshAsync("161432", default);
+        busy = true;
+        await vm.RefreshAsync("161432", default);
+
+        Assert.True(vm.HasData);
+        Assert.False(vm.NotWriting);
+        Assert.Contains("70 °C", vm.CpuText);
+        Assert.Contains("агент", vm.Status);
+    }
+
+    [Fact]
+    public void Interval_15s_SparesSyncExecSlot()
+        => Assert.Equal(TimeSpan.FromSeconds(15), ((IInspectorTab)New((_, _) => null)).Interval);
 
     [Fact]
     public async Task SameLastRowFor30sOfHostTime_NotWriting()

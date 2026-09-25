@@ -79,6 +79,49 @@ public class JobsTabViewModelTests
     }
 
     [Fact]
+    public async Task LateOutput_OfPreviousSz_Dropped()
+    {
+        // Ревью I-4: хвост задачи СЗ A, пришедший после переключения на B, не пишется во вкладку B.
+        var api = new FakeHubApi
+        {
+            Jobs = sz => sz == "161432" ? Listing(List) : Listing("фоновых задач нет"),
+            JobStatus = (sz, id) => new ExecJobStatus("r", id, true, null, $"вывод {sz}/{id}", DateTimeOffset.Now, 10),
+        };
+        var vm = new JobsTabViewModel(api);
+        await vm.RefreshAsync("161432", default);
+        api.JobStatusGate = new TaskCompletionSource();
+        vm.Selected = vm.Rows[0];
+
+        vm.Clear();
+        await vm.RefreshAsync("161501", default);
+        api.JobStatusGate.SetResult();
+        await Task.Delay(50);
+
+        Assert.Equal("", vm.Output);
+    }
+
+    [Fact]
+    public async Task SelectedJobVanished_OutputCleared()
+    {
+        var list = List;
+        var api = new FakeHubApi
+        {
+            Jobs = _ => Listing(list),
+            JobStatus = (_, id) => new ExecJobStatus("r", id, true, null, $"вывод {id}", DateTimeOffset.Now, 10),
+        };
+        var vm = new JobsTabViewModel(api);
+        await vm.RefreshAsync("161432", default);
+        vm.Selected = vm.Rows[0];
+        await vm.RefreshAsync("161432", default);
+        Assert.Equal("вывод a1b2c3", vm.Output);
+
+        list = "d4e5f6  завершена (exit 0), старт 25.09 11:00:00, вывода 12 б";
+        await vm.RefreshAsync("161432", default);
+        Assert.Null(vm.Selected);
+        Assert.Equal("", vm.Output);
+    }
+
+    [Fact]
     public async Task SzOffline_SaysSo()
     {
         var vm = new JobsTabViewModel(new FakeHubApi { Jobs = _ => null });

@@ -60,6 +60,7 @@ public sealed partial class JobsTabViewModel(IHubApiClient api) : ObservableObje
         _reselecting = false;
         Message = rows.Count == 0 ? "фоновых задач нет" : "";
         if (Selected is { } s) await LoadOutputAsync(s, ct);
+        else Output = "";   // выбранная задача пропала из списка — её хвост больше не к месту
     }
 
     partial void OnSelectedChanged(JobRow? value)
@@ -75,7 +76,8 @@ public sealed partial class JobsTabViewModel(IHubApiClient api) : ObservableObje
         try
         {
             var st = await api.ExecStatusAsync(sz, job.Id, OutputTail, ct);
-            if (st is null) return;
+            // Ответ мог прийти после переключения СЗ или выбора другой задачи — он уже чужой.
+            if (st is null || _sz != sz || Selected?.Id != job.Id) return;
             Output = CliXml.Decode(st.Tail) + (st.Error is { } e ? $"\n[ошибка: {e}]" : "");
         }
         catch (Exception ex) when (ex is TimeoutException || (ex is TaskCanceledException && !ct.IsCancellationRequested))

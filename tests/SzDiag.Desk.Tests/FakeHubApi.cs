@@ -15,6 +15,9 @@ public sealed class FakeHubApi : IHubApiClient
     public Func<string, string, ExecJobStatus?> JobStatus { get; set; } = (_, _) => null;
     public Func<string, string, ExecResult?> Exec { get; set; } = (_, _) => null;
 
+    /// <summary>Не null — ExecStatusAsync ждёт, пока тест не отпустит (поздний ответ).</summary>
+    public TaskCompletionSource? JobStatusGate { get; set; }
+
     public Task<IReadOnlyList<SessionInfo>> GetSessionsAsync(CancellationToken ct = default) => Task.FromResult(Sessions());
     public Task<IReadOnlyList<TransferInfo>> GetTransfersAsync(CancellationToken ct = default) => Task.FromResult(Transfers());
     public Task<HealthzResponse?> GetHealthAsync(CancellationToken ct = default) => Task.FromResult(Health());
@@ -22,8 +25,11 @@ public sealed class FakeHubApi : IHubApiClient
     public Task<HubStatus?> GetStatusAsync(CancellationToken ct = default) => Task.FromResult(Status());
     public Task<RebootTimeline?> GetRebootsAsync(string sz, CancellationToken ct = default) => Task.FromResult(Reboots(sz));
     public Task<ExecJobStatus?> ExecJobsAsync(string sz, CancellationToken ct = default) => Task.FromResult(Jobs(sz));
-    public Task<ExecJobStatus?> ExecStatusAsync(string sz, string jobId, int tailLines, CancellationToken ct = default)
-        => Task.FromResult(JobStatus(sz, jobId));
+    public async Task<ExecJobStatus?> ExecStatusAsync(string sz, string jobId, int tailLines, CancellationToken ct = default)
+    {
+        if (JobStatusGate is { } gate) await gate.Task;
+        return JobStatus(sz, jobId);
+    }
     public Task<ExecResult?> ExecAsync(string sz, string script, int? timeoutSeconds = null, CancellationToken ct = default,
         bool detached = false, bool isolated = false, bool asSystem = false) => Task.FromResult(Exec(sz, script));
 

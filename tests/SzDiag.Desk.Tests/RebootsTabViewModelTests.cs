@@ -60,10 +60,12 @@ public class RebootsTabViewModelTests
     }
 
     [Fact]
-    public void RefreshOnReboot_NoInterval()
+    public void RefreshOnReboot_AndEvery30s()
     {
+        // Ревью I-3: ⚡N растёт только на отказах — ребут кнопкой, сон и события, влитые из журнала
+        // клиента позже, иначе не видны до смены СЗ. Запрос — только SQLite hub, exec не трогает.
         IInspectorTab tab = new RebootsTabViewModel(new FakeHubApi());
         Assert.True(tab.RefreshOnReboot);
-        Assert.Null(tab.Interval);
+        Assert.Equal(TimeSpan.FromSeconds(30), tab.Interval);
     }
 }

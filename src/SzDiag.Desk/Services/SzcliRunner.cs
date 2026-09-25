@@ -58,7 +58,17 @@ public sealed partial class SzcliRunner(Func<string?> szcliCmd) : ISzcliRunner
         // Spectre при NO_COLOR не пишет ESC-последовательности — в окне им не место.
         psi.Environment["NO_COLOR"] = "1";
 
-        using var p = Process.Start(psi)!;
+        Process p;
+        try
+        {
+            p = Process.Start(psi)!;
+        }
+        catch (Exception ex) when (ex is System.ComponentModel.Win32Exception or InvalidOperationException)
+        {
+            // Битый/заблокированный антивирусом exe — ответ в окне, а не падение Desk.
+            return new SzcliResult(NotFound, $"szcli не запустился: {ex.Message}");
+        }
+        using var _ = p;
         var stdout = p.StandardOutput.ReadToEndAsync();
         var stderr = p.StandardError.ReadToEndAsync();
         try

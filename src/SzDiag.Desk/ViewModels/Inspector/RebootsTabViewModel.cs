@@ -12,7 +12,7 @@ public sealed record RebootRow(string When, string Kind, string Detail, bool IsF
 public sealed partial class RebootsTabViewModel(IHubApiClient api) : ObservableObject, IInspectorTab
 {
     public string Title => "Вырубоны";
-    public TimeSpan? Interval => null;
+    public TimeSpan? Interval => TimeSpan.FromSeconds(30);   // hub шлёт ⚡ только на провалы, штатный ребут — нет
     public bool RefreshOnReboot => true;
 
     public ObservableCollection<RebootRow> Rows { get; } = new();

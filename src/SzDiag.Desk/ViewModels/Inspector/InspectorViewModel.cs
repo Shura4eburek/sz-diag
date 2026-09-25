@@ -100,7 +100,7 @@ public sealed partial class InspectorViewModel : ObservableObject
     {
         var reboots = new RebootsTabViewModel(tools.Api);
         var jobs = new JobsTabViewModel(tools.Api);
-        var sensors = new SensorsTabViewModel(tools.Api, tools.Szcli, time);
+        var sensors = new SensorsTabViewModel(tools.Api, time);
         var journal = new JournalTabViewModel(tools.Kb, tools.Ui);
         var hardware = new HardwareTabViewModel(tools.Szcli);
         var actions = new ActionsViewModel(tools.Szcli);

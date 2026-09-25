@@ -5,8 +5,8 @@
              x:DataType="vm:SensorsTabViewModel">
   <StackPanel Spacing="6">
     <TextBlock Text="{Binding Status}" Classes="secondary" TextWrapping="Wrap" />
-    <Button Content="Запустить наблюдатель (sensors start)" Command="{Binding StartSensorsCommand}"
-            IsVisible="{Binding NotWriting}" HorizontalAlignment="Left" />
+    <SelectableTextBlock Text="{Binding StartHint}" IsVisible="{Binding NotWriting}"
+                         Classes="secondary" TextWrapping="Wrap" />
     <StackPanel Spacing="3" IsVisible="{Binding HasData}">
       <TextBlock Text="{Binding CpuText}" />
       <TextBlock Text="{Binding GpuText}" />
