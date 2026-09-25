@@ -19,6 +19,26 @@ public class MainViewModelTests
     private static MainViewModel New() => new(new HubPoller(new FakeHubApi(), new Clock()), new DeskUiState(), new Clock());
 
     [Fact]
+    public void Overview_TransfersOfSelectedSzOnly()
+    {
+        // Макет «Обзора»: прогресс передачи своей СЗ (push occt 17 МБ/с 412/690 МБ).
+        var vm = New();
+        vm.Apply(HubSnapshot.Empty with
+        {
+            Sessions = new[] { S("161432"), S("161501") },
+            SessionsOkAt = Now,
+            Transfers = new[]
+            {
+                new TransferInfo("r1", "161432", TransferDirection.Push, "occt", 100, 50, 10, Now, TransferState.Running),
+                new TransferInfo("r2", "161501", TransferDirection.Pull, "dmp", 100, 10, 10, Now, TransferState.Running),
+            },
+        });
+        vm.Selected = vm.Items.Single(i => i.Sz == "161432");
+        Assert.Equal("r1", Assert.Single(vm.SelectedTransfers).Id);
+        Assert.True(vm.HasSelectedTransfers);
+    }
+
+    [Fact]
     public void Apply_AddsItemsSortedBySz()
     {
         var vm = New();

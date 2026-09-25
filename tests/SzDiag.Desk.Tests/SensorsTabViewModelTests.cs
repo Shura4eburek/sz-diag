@@ -38,6 +38,27 @@ public class SensorsTabViewModelTests
     }
 
     [Fact]
+    public void Script_NewestOfLhmmonAndLightObserver()
+    {
+        // Живая заявка 160176: Claude запустил `szcli sensors start` (CSV в ProgramData), а вкладка
+        // читала только CSV lhmmon и писала «не пишутся». Читаем свежайший из двух.
+        var s = SensorsTabViewModel.ScriptFor("160176");
+        Assert.Contains(SensorPaths.LhmCsv, s);
+        Assert.Contains(SensorPaths.LightDir, s);
+        Assert.Contains("160176-*.csv", s);
+    }
+
+    [Fact]
+    public async Task Source_ShownInStatus()
+    {
+        var vm = New((_, _) => Out($"{SensorsTabViewModel.SourceMarker} C:\\ProgramData\\szdiag\\sensors\\160176-20260925-192555.csv\n"
+                                   + Csv(("2026-09-25 19:26:00", 70, 60))));
+        await vm.RefreshAsync("160176", default);
+        Assert.True(vm.HasData);
+        Assert.Contains("160176-20260925-192555.csv", vm.Status);
+    }
+
+    [Fact]
     public async Task NoCsv_NotWriting_SaysHowToStartLhmmon()
     {
         // Ревью I-2: `szcli sensors start` пишет свой CSV в ProgramData, а вкладка читает lhmmon —
@@ -76,7 +97,7 @@ public class SensorsTabViewModelTests
         => Assert.Equal(TimeSpan.FromSeconds(15), ((IInspectorTab)New((_, _) => null)).Interval);
 
     [Fact]
-    public async Task SameLastRowFor30sOfHostTime_NotWriting()
+    public async Task SameLastRowFor35sOfHostTime_NotWriting()
     {
         // Время строк — по часам клиента (в WinPE сдвинуто на пояс): «не пишутся» считаем по
         // часам бокса — последняя строка не менялась 30 с.
@@ -85,7 +106,7 @@ public class SensorsTabViewModelTests
         await vm.RefreshAsync("161432", default);
         Assert.False(vm.NotWriting);
 
-        _clock.Advance(TimeSpan.FromSeconds(31));
+        _clock.Advance(TimeSpan.FromSeconds(36));   // лёгкий наблюдатель пишет раз в 10 с
         await vm.RefreshAsync("161432", default);
         Assert.True(vm.NotWriting);
         Assert.True(vm.HasData);

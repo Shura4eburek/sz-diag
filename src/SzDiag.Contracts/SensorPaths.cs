@@ -5,4 +5,7 @@ namespace SzDiag.Contracts;
 public static class SensorPaths
 {
     public const string LhmCsv = @"C:\OCCT\sensors.csv";
+
+    /// <summary>Каталог CSV лёгкого наблюдателя `szcli sensors start` (`&lt;СЗ&gt;-&lt;время&gt;.csv`).</summary>
+    public const string LightDir = @"C:\ProgramData\szdiag\sensors";
 }

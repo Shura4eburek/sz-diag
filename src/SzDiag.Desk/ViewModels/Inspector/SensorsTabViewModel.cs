@@ -17,7 +17,10 @@ public sealed partial class SensorsTabViewModel(IHubApiClient api, TimeProvider 
     public const double ChartWidth = 260;
     public const double ChartHeight = 56;
     public const string NoCsvMarker = "SZDIAG_NO_CSV";
-    public static readonly TimeSpan StaleAfter = TimeSpan.FromSeconds(30);
+    public const string SourceMarker = "SZDIAG_SRC";
+
+    /// <summary>Лёгкий наблюдатель пишет раз в 10 с — «не пишутся» только после трёх пропусков.</summary>
+    public static readonly TimeSpan StaleAfter = TimeSpan.FromSeconds(35);
 
     private string? _sz;
     private DateTime? _lastSampleTime;
@@ -26,9 +29,10 @@ public sealed partial class SensorsTabViewModel(IHubApiClient api, TimeProvider 
     public string Title => "Сенсоры";
     public TimeSpan? Interval => TimeSpan.FromSeconds(15);
 
-    /// <summary>Чем запускать `lhmmon`. Не `szcli sensors start`: тот пишет свой CSV в ProgramData,
-    /// а вкладка читает CSV `lhmmon`.</summary>
-    public string StartHint => $"запусти lhmmon: szcli exec {_sz ?? "<СЗ>"} -f tools\\recipes\\client\\start-sensors.ps1";
+    /// <summary>Чем запускать наблюдатель: вкладка читает любой из двух.</summary>
+    public string StartHint =>
+        $"запусти наблюдатель: szcli sensors start {_sz ?? "<СЗ>"} (лёгкий) или lhmmon: " +
+        $"szcli exec {_sz ?? "<СЗ>"} -f tools\\recipes\\client\\start-sensors.ps1";
 
     [ObservableProperty] private string _status = "";
     [ObservableProperty] private bool _notWriting;
@@ -43,12 +47,17 @@ public sealed partial class SensorsTabViewModel(IHubApiClient api, TimeProvider 
     public bool HasCpuLine => CpuTempLine.Count > 1;
     public bool HasGpuLine => GpuTempLine.Count > 1;
 
-    /// <summary>Шапка + хвост CSV. Шапка нужна парсеру (по ней он узнаёт формат), а в коротком
-    /// файле хвост её уже содержит — второй раз не отдаём.</summary>
-    internal static string Script => $$"""
+    /// <summary>Свежайший из двух CSV — `lhmmon` и лёгкого наблюдателя `szcli sensors start`
+    /// (на 160176 Claude запустил второй, а вкладка читала только первый и писала «не пишутся»).
+    /// Первой строкой — какой файл взят, дальше шапка + хвост: шапка нужна парсеру (по ней он
+    /// узнаёт формат), а в коротком файле хвост её уже содержит — второй раз не отдаём.</summary>
+    public static string ScriptFor(string sz) => $$"""
         $ErrorActionPreference = 'SilentlyContinue'
-        $p = '{{SensorPaths.LhmCsv}}'
-        if (-not (Test-Path $p)) { '{{NoCsvMarker}}'; return }
+        $c = @(Get-Item '{{SensorPaths.LhmCsv}}') + @(Get-ChildItem '{{SensorPaths.LightDir}}' -Filter '{{sz}}-*.csv')
+        $f = $c | Where-Object { $_ } | Sort-Object LastWriteTime -Descending | Select-Object -First 1
+        if (-not $f) { '{{NoCsvMarker}}'; return }
+        $p = $f.FullName
+        '{{SourceMarker}} ' + $p
         $head = Get-Content $p -TotalCount 1
         $tail = @(Get-Content $p -Tail {{TailRows}})
         if ($tail.Count -gt 0 -and $tail[0] -eq $head) { $tail = $tail | Select-Object -Skip 1 }
@@ -62,7 +71,7 @@ public sealed partial class SensorsTabViewModel(IHubApiClient api, TimeProvider 
         ExecResult? r;
         try
         {
-            r = await api.ExecAsync(sz, Script, 15, ct);
+            r = await api.ExecAsync(sz, ScriptFor(sz), 15, ct);
         }
         catch (Exception ex) when (ex is TimeoutException || (ex is TaskCanceledException && !ct.IsCancellationRequested))
         {
@@ -91,11 +100,19 @@ public sealed partial class SensorsTabViewModel(IHubApiClient api, TimeProvider 
         {
             NotWriting = true;
             HasData = false;
-            Status = $"сенсоры не пишутся: нет {SensorPaths.LhmCsv}";
+            Status = $"сенсоры не пишутся: нет CSV ни lhmmon ({SensorPaths.LhmCsv}), ни szcli sensors ({SensorPaths.LightDir})";
             return;
         }
 
-        var samples = SensorReport.ParseAny(r.StdOut).Samples;
+        var body = r.StdOut;
+        var source = "";
+        if (body.StartsWith(SourceMarker, StringComparison.Ordinal))
+        {
+            var nl = body.IndexOf('\n');
+            source = Path.GetFileName((nl < 0 ? body : body[..nl])[SourceMarker.Length..].Trim());
+            body = nl < 0 ? "" : body[(nl + 1)..];
+        }
+        var samples = SensorReport.ParseAny(body).Samples;
         if (samples.Count == 0)
         {
             NotWriting = true;
@@ -121,7 +138,8 @@ public sealed partial class SensorsTabViewModel(IHubApiClient api, TimeProvider 
         GpuTempLine = Sparkline.Points(samples.Select(s => s.GpuTempC).ToList(), ChartWidth, ChartHeight);
         Status = NotWriting
             ? $"сенсоры не пишутся: последняя строка не менялась {(int)(now - _lastChangeAt).TotalSeconds} с"
-            : $"последняя строка {last.Time:HH:mm:ss} (часы клиента), отсчётов в хвосте: {samples.Count}";
+            : $"последняя строка {last.Time:HH:mm:ss} (часы клиента), отсчётов в хвосте: {samples.Count}" +
+              (source.Length > 0 ? $" · {source}" : "");
     }
 
     private static string F(double? v, string unit, string format = "0.#")

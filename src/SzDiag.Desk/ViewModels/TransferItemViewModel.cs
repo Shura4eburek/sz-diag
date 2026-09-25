@@ -5,9 +5,10 @@ namespace SzDiag.Desk.ViewModels;
 
 public sealed partial class TransferItemViewModel : ObservableObject
 {
-    public TransferItemViewModel(TransferInfo t) { Id = t.Id; Update(t); }
+    public TransferItemViewModel(TransferInfo t) { Id = t.Id; Sz = t.Sz; Update(t); }
 
     public string Id { get; }
+    public string Sz { get; }
 
     [ObservableProperty] private string _title = "";
     [ObservableProperty] private double? _percent;

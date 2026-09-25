@@ -7,7 +7,34 @@
     <Button DockPanel.Dock="Top" Content="Снять заново" Command="{Binding ReloadCommand}"
             IsEnabled="{Binding !Busy}" HorizontalAlignment="Left" Margin="0,0,0,8" />
     <ScrollViewer>
-      <SelectableTextBlock Text="{Binding Text}" FontFamily="{StaticResource MonoFont}" FontSize="11" TextWrapping="Wrap" />
+      <StackPanel Spacing="6">
+        <TextBlock Text="{Binding Text}" Classes="secondary" TextWrapping="Wrap"
+                   IsVisible="{Binding Text, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
+        <!-- «Ключ» мелко над «значением»: в 290 px две колонки рвали длинные значения (PNPDeviceID). -->
+        <ItemsControl ItemsSource="{Binding Sections}">
+          <ItemsControl.ItemTemplate>
+            <DataTemplate x:DataType="vm:HwSection">
+              <Border Background="{StaticResource Bg.Panel}" CornerRadius="10" Padding="10,8" Margin="0,0,0,8">
+                <StackPanel Spacing="4">
+                  <TextBlock Classes="caps" Text="{Binding Title}" IsVisible="{Binding HasTitle}" TextWrapping="Wrap" />
+                  <ItemsControl ItemsSource="{Binding Rows}">
+                    <ItemsControl.ItemTemplate>
+                      <DataTemplate x:DataType="vm:HwRow">
+                        <StackPanel Margin="0,2">
+                          <TextBlock Text="{Binding Key}" Classes="secondary" FontSize="10.5" IsVisible="{Binding HasKey}" />
+                          <SelectableTextBlock Text="{Binding Value}" TextWrapping="Wrap" FontSize="12" />
+                        </StackPanel>
+                      </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                  </ItemsControl>
+                </StackPanel>
+              </Border>
+            </DataTemplate>
+          </ItemsControl.ItemTemplate>
+        </ItemsControl>
+        <TextBlock Text="{Binding Stderr, StringFormat='скрипт паспорта: {0}'}" IsVisible="{Binding HasStderr}"
+                   Classes="secondary" FontSize="10.5" TextWrapping="Wrap" />
+      </StackPanel>
     </ScrollViewer>
   </DockPanel>
 </UserControl>

@@ -1,4 +1,5 @@
 using CommunityToolkit.Mvvm.ComponentModel;
+using CommunityToolkit.Mvvm.Input;
 using SzDiag.Desk.Services;
 
 namespace SzDiag.Desk.ViewModels.Inspector;
@@ -27,6 +28,10 @@ public sealed partial class InspectorViewModel : ObservableObject
     public IInspectorTab? Current => SelectedIndex >= 0 && SelectedIndex < _tabs.Count ? _tabs[SelectedIndex] : null;
 
     partial void OnSelectedIndexChanged(int value) => _ = RefreshIfDueAsync();
+
+    /// <summary>Быстрые кнопки «Обзора» ведут на вкладку (индекс строкой — из XAML).</summary>
+    [RelayCommand]
+    private void OpenTab(string index) => SelectedIndex = int.Parse(index, System.Globalization.CultureInfo.InvariantCulture);
 
     public void Select(string? sz)
     {

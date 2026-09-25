@@ -25,21 +25,72 @@
         </ItemsPanelTemplate>
       </TabControl.ItemsPanel>
       <TabItem Header="Обзор">
-        <Border Background="{StaticResource Bg.Panel}" CornerRadius="10" Padding="11" Margin="0,6,0,0" VerticalAlignment="Top">
-          <StackPanel Spacing="4">
-            <TextBlock Text="{Binding Selected.Sz}" FontWeight="SemiBold" FontSize="14" />
-            <TextBlock Text="{Binding Selected.Liveness, Converter={x:Static v:Converters.LivenessToText}}"
-                       Foreground="{Binding Selected.Liveness, Converter={x:Static v:Converters.LivenessToBrush}}" />
-            <TextBlock Classes="secondary" Text="Windows Update заморожен — не забудь unfreeze" TextWrapping="Wrap"
-                       IsVisible="{Binding Selected.IsFrozen, FallbackValue=False}" />
-            <TextBlock Classes="secondary" Text="{Binding Selected.Info.Hostname, StringFormat='хост: {0}'}" />
-            <TextBlock Classes="secondary" Text="{Binding Selected.Info.LanIp, StringFormat='LAN: {0}'}" />
-            <TextBlock Classes="secondary" Text="{Binding Selected.Info.AccessMode, StringFormat='доступ: {0}', TargetNullValue='доступ: direct'}" />
-            <TextBlock Classes="secondary" Text="{Binding Selected.BootTimeLocal, StringFormat='загрузка: {0:dd.MM HH:mm}'}" />
-            <TextBlock Classes="secondary" Text="{Binding Selected.RebootCount, StringFormat='вырубонов за сессию: {0}'}" />
-            <TextBlock Classes="secondary" TextWrapping="Wrap" Text="{Binding Selected.Info.Activity, StringFormat='занята: {0}'}" />
+        <!-- Сводка по макету B v2: состояние и железо, ⚡, последние сенсоры, передачи, быстрые действия.
+             Сам «Обзор» exec к клиенту не шлёт: сенсоры — последние снятые вкладкой «Сенсоры». -->
+        <ScrollViewer Margin="0,6,0,0">
+          <StackPanel Spacing="8">
+            <Border Background="{StaticResource Bg.Panel}" CornerRadius="10" Padding="11">
+              <StackPanel Spacing="4">
+                <Grid ColumnDefinitions="*,Auto">
+                  <TextBlock Text="{Binding Selected.Sz}" FontWeight="SemiBold" FontSize="14" />
+                  <Border Grid.Column="1" IsVisible="{Binding Selected.HasReboots, FallbackValue=False}" CornerRadius="5"
+                          Padding="6,1" Background="#22ff453a" VerticalAlignment="Center">
+                    <TextBlock Text="{Binding Selected.RebootCount, StringFormat='⚡{0}'}" FontSize="11" Foreground="#ff6b61" />
+                  </Border>
+                </Grid>
+                <TextBlock Text="{Binding Selected.Liveness, Converter={x:Static v:Converters.LivenessToText}}"
+                           Foreground="{Binding Selected.Liveness, Converter={x:Static v:Converters.LivenessToBrush}}" />
+                <TextBlock Text="{Binding Selected.HwLine}" TextWrapping="Wrap" IsVisible="{Binding Selected.HasHwLine, FallbackValue=False}" />
+                <TextBlock Classes="secondary" TextWrapping="Wrap" Text="{Binding Selected.Info.Activity, StringFormat='занята: {0}'}"
+                           IsVisible="{Binding Selected.Info.Activity, Converter={x:Static StringConverters.IsNotNullOrEmpty}, FallbackValue=False}" />
+                <TextBlock Foreground="{StaticResource Warn}" Text="🧊 Windows Update заморожен — не забудь unfreeze" TextWrapping="Wrap"
+                           IsVisible="{Binding Selected.IsFrozen, FallbackValue=False}" />
+                <TextBlock Classes="secondary" Text="{Binding Selected.Info.Hostname, StringFormat='хост: {0}'}" />
+                <TextBlock Classes="secondary" Text="{Binding Selected.Info.AccessMode, StringFormat='доступ: {0}', TargetNullValue='доступ: direct'}" />
+                <TextBlock Classes="secondary" Text="{Binding Selected.Info.LanIp, StringFormat='LAN: {0}'}"
+                           IsVisible="{Binding Selected.Info.LanIp, Converter={x:Static StringConverters.IsNotNullOrEmpty}, FallbackValue=False}" />
+                <TextBlock Classes="secondary" Text="{Binding Selected.BootTimeLocal, StringFormat='загрузка: {0:dd.MM HH:mm}'}" />
+                <TextBlock Classes="secondary" Text="{Binding Selected.Info.LastRebootAt, StringFormat='последний вырубон: {0:dd.MM HH:mm}'}"
+                           IsVisible="{Binding Selected.HasReboots, FallbackValue=False}" />
+              </StackPanel>
+            </Border>
+            <Border Background="{StaticResource Bg.Panel}" CornerRadius="10" Padding="11"
+                    IsVisible="{Binding Inspector.Sensors.HasData, FallbackValue=False}">
+              <StackPanel Spacing="3">
+                <TextBlock Classes="caps" Text="СЕНСОРЫ" />
+                <TextBlock Text="{Binding Inspector.Sensors.CpuText}" />
+                <TextBlock Text="{Binding Inspector.Sensors.GpuText}" />
+                <TextBlock Text="{Binding Inspector.Sensors.Status}" Classes="secondary" FontSize="10.5" TextWrapping="Wrap" />
+              </StackPanel>
+            </Border>
+            <ItemsControl ItemsSource="{Binding SelectedTransfers}" IsVisible="{Binding HasSelectedTransfers}">
+              <ItemsControl.ItemTemplate>
+                <DataTemplate x:DataType="vm:TransferItemViewModel">
+                  <Border Background="{StaticResource Bg.Panel}" CornerRadius="10" Padding="11,8" Margin="0,0,0,6">
+                    <StackPanel Spacing="4">
+                      <TextBlock Text="{Binding Title}" FontFamily="{StaticResource MonoFont}" FontSize="11.5" TextTrimming="CharacterEllipsis" />
+                      <TextBlock Text="{Binding Detail}" Classes="secondary" />
+                      <ProgressBar Height="5" MinHeight="5" CornerRadius="3" Minimum="0" Maximum="100"
+                                   Value="{Binding Percent, TargetNullValue=0}"
+                                   IsIndeterminate="{Binding Percent, Converter={x:Static ObjectConverters.IsNull}}"
+                                   Foreground="{Binding State, Converter={x:Static v:Converters.TransferStateToBrush}}"
+                                   Background="{StaticResource Line}" />
+                    </StackPanel>
+                  </Border>
+                </DataTemplate>
+              </ItemsControl.ItemTemplate>
+            </ItemsControl>
+            <!-- Быстрые действия: diag/test run/заметка/close требуют ввода — ведут на «Действия». -->
+            <WrapPanel ItemSpacing="6" LineSpacing="6">
+              <Button Content="diag" Command="{Binding Inspector.OpenTabCommand}" CommandParameter="6" />
+              <Button Content="test run" Command="{Binding Inspector.OpenTabCommand}" CommandParameter="6" />
+              <Button Content="🧊 freeze" Command="{Binding Inspector.Actions.FreezeCommand}" />
+              <Button Content="заметка" Command="{Binding Inspector.OpenTabCommand}" CommandParameter="6" />
+              <Button Content="сенсоры" Command="{Binding Inspector.OpenTabCommand}" CommandParameter="3" />
+              <Button Content="close…" Command="{Binding Inspector.OpenTabCommand}" CommandParameter="6" />
+            </WrapPanel>
           </StackPanel>
-        </Border>
+        </ScrollViewer>
       </TabItem>
       <TabItem Header="Вырубоны"><iv:RebootsTabView DataContext="{Binding Inspector.Reboots}" Margin="0,6,0,0" /></TabItem>
       <TabItem Header="Задачи"><iv:JobsTabView DataContext="{Binding Inspector.Jobs}" Margin="0,6,0,0" /></TabItem>

@@ -51,6 +51,18 @@ public sealed partial class MainViewModel : ObservableObject
     public ObservableCollection<SzItemViewModel> Items { get; } = new();
     public ObservableCollection<ArchivedItemViewModel> Archived { get; } = new();
     public ObservableCollection<TransferItemViewModel> Transfers { get; } = new();
+
+    /// <summary>Передачи выбранной СЗ — для «Обзора» (макет: push occt 17 МБ/с 412/690 МБ).</summary>
+    public ObservableCollection<TransferItemViewModel> SelectedTransfers { get; } = new();
+
+    [ObservableProperty] private bool _hasSelectedTransfers;
+
+    private void RefreshSelectedTransfers()
+    {
+        CollectionSync.Sync(SelectedTransfers, Transfers.Where(t => t.Sz == Selected?.Sz), t => t.Id, vm => vm.Id,
+            t => t, (_, _) => { });
+        HasSelectedTransfers = SelectedTransfers.Count > 0;
+    }
     public StatusBarViewModel Status { get; } = new();
 
     /// <summary>Пришёл запрос разрешения — окно мигает в панели задач.</summary>
@@ -74,6 +86,7 @@ public sealed partial class MainViewModel : ObservableObject
     partial void OnSelectedChanged(SzItemViewModel? value)
     {
         Inspector?.Select(value?.Sz);
+        RefreshSelectedTransfers();
         if (value is not null) SelectedArchived = null;
         ActiveChat = value is not null ? ChatFor(value.Sz)
             : SelectedArchived is not null ? ChatFor(SelectedArchived.Key)
@@ -151,6 +164,7 @@ public sealed partial class MainViewModel : ObservableObject
         CollectionSync.Sync(Transfers, s.Transfers, t => t.Id, vm => vm.Id,
             t => new TransferItemViewModel(t), (vm, t) => vm.Update(t));
         HasTransfers = Transfers.Count > 0;
+        RefreshSelectedTransfers();
 
         Status.Apply(s, now);
         UpdateLimits();   // окно могло сброситься — «сброшен» без нового хода

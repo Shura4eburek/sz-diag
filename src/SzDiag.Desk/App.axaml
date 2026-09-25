@@ -12,7 +12,14 @@
     </ResourceDictionary>
   </Application.Resources>
   <Application.Styles>
-    <FluentTheme />
+    <!-- Акцент — свой, а не цвет Windows: у оператора системный акцент красный, и выделение,
+         фокус и подчёркивание вкладки выглядели ошибкой (160176). -->
+    <FluentTheme>
+      <FluentTheme.Palettes>
+        <ColorPaletteResources x:Key="Dark" Accent="#0a84ff" />
+        <ColorPaletteResources x:Key="Light" Accent="#0a84ff" />
+      </FluentTheme.Palettes>
+    </FluentTheme>
     <StyleInclude Source="avares://SzDiag.Desk/Theme/Controls.axaml" />
   </Application.Styles>
 </Application>

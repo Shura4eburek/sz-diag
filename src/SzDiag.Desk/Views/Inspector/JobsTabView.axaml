@@ -4,6 +4,8 @@
              x:Class="SzDiag.Desk.Views.Inspector.JobsTabView"
              x:DataType="vm:JobsTabViewModel">
   <DockPanel>
+    <TextBlock DockPanel.Dock="Top" Classes="secondary" TextWrapping="Wrap" Margin="0,0,0,6" FontSize="11"
+               Text="Фоновые задачи агента на клиенте (exec --detach): прогоны, наблюдатели, долгие скрипты — то, что крутится без окна и переживает нагрузку. Выбери задачу — ниже хвост её вывода." />
     <TextBlock DockPanel.Dock="Top" Text="{Binding Message}" Classes="secondary" TextWrapping="Wrap"
                IsVisible="{Binding Message, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" Margin="0,0,0,6" />
     <ListBox DockPanel.Dock="Top" ItemsSource="{Binding Rows}" SelectedItem="{Binding Selected}" MaxHeight="220"
