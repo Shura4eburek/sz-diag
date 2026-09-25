@@ -182,4 +182,46 @@ public class PushEndToEndTests : IClassFixture<WebApplicationFactory<Program>>, 
         }
         try { if (File.Exists(_dbPath)) File.Delete(_dbPath); } catch { }
     }
+
+    private async Task<List<TransferInfo>> TransfersAsync()
+        => (await Cli().GetFromJsonAsync<List<TransferInfo>>(TransferRoutes.List))!;
+
+    [Fact]
+    public async Task Push_ReportsTransferWithBytes()
+    {
+        await using var agent = await ConnectAgentAsync("160710", _clientDir);
+
+        var resp = await Cli().PostAsJsonAsync("/api/sessions/160710/push", new PushCommandRequest("occt"));
+        resp.EnsureSuccessStatusCode();
+
+        var t = Assert.Single(await TransfersAsync(), x => x.Sz == "160710");
+        var expected = new FileInfo(Path.Combine(_toolsRoot, "occt", "OCCTCmd.exe")).Length
+                     + new FileInfo(Path.Combine(_toolsRoot, "occt", "schedules", "long.json")).Length;
+        Assert.Equal(TransferDirection.Push, t.Direction);
+        Assert.Equal("occt", t.What);
+        Assert.Equal(TransferState.Done, t.State);
+        Assert.Equal(expected, t.TotalBytes);
+        Assert.Equal(expected, t.DoneBytes);
+    }
+
+    [Fact]
+    public async Task Push_Repeat_TransferDoneWithSkippedNote()
+    {
+        // Повтор уже доставленного: байт не приходит вовсе — передача не должна висеть на 0 %.
+        await using var agent = await ConnectAgentAsync("160711", _clientDir);
+        (await Cli().PostAsJsonAsync("/api/sessions/160711/push", new PushCommandRequest("occt"))).EnsureSuccessStatusCode();
+        (await Cli().PostAsJsonAsync("/api/sessions/160711/push", new PushCommandRequest("occt"))).EnsureSuccessStatusCode();
+
+        var latest = (await TransfersAsync()).Where(x => x.Sz == "160711").OrderByDescending(x => x.StartedAt).First();
+        Assert.Equal(TransferState.Done, latest.State);
+        Assert.Equal(0, latest.DoneBytes);
+        Assert.Contains("пропущено 2", latest.Note);
+    }
+
+    [Fact]
+    public async Task Transfers_RequiresManagementToken()
+    {
+        var resp = await _factory.CreateClient().GetAsync(TransferRoutes.List);
+        Assert.Equal(HttpStatusCode.Unauthorized, resp.StatusCode);
+    }
 }

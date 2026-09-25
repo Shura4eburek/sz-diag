@@ -177,6 +177,10 @@ public static class ManagementApi
         group.MapGet("/tools", (ToolCatalog catalog) => Results.Ok(
             new ToolCatalogInfo(catalog.Root, Directory.Exists(catalog.Root), catalog.List())));
 
+        // Прогресс push/pull для Desk (спека 2026-09-25): учёт на hub, поэтому видны и передачи,
+        // запущенные через szcli.
+        group.MapGet("/transfers", (TransferTracker transfers) => Results.Ok(transfers.Snapshot()));
+
         // План расписания OCCT из раздачи, а не из репозитория (бэклог п.124/#60, СЗ 161346):
         // `deploy/occt/*.json` в репо и `Hub.ToolsRoot/occt/*.json` на боксе молча расходились
         // (5+5 минут против заявленных 90+90) — печатать план имеет смысл только по тому, что

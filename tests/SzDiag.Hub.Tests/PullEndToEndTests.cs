@@ -163,4 +163,31 @@ public class PullEndToEndTests : IClassFixture<WebApplicationFactory<Program>>, 
         }
         try { if (File.Exists(_dbPath)) File.Delete(_dbPath); } catch { }
     }
+
+    [Fact]
+    public async Task Pull_ReportsTransferWithReceivedBytes()
+    {
+        File.WriteAllBytes(Path.Combine(_clientDir, "big.dmp"), Bytes(10_000));
+        await using var agent = await ConnectAgentAsync("160712");
+
+        var resp = await Cli().PostAsJsonAsync("/api/sessions/160712/pull",
+            new PullCommandRequest(Path.Combine(_clientDir, "big.dmp")));
+        resp.EnsureSuccessStatusCode();
+
+        var list = await Cli().GetFromJsonAsync<List<TransferInfo>>(TransferRoutes.List);
+        var t = Assert.Single(list!, x => x.Sz == "160712");
+        Assert.Equal(TransferDirection.Pull, t.Direction);
+        Assert.Equal(TransferState.Done, t.State);
+        Assert.Equal(10_000, t.DoneBytes);
+    }
+
+    [Fact]
+    public async Task Pull_UnknownSz_NoTransferLeftRunning()
+    {
+        var resp = await Cli().PostAsJsonAsync("/api/sessions/999999/pull", new PullCommandRequest("C:\\x"));
+        Assert.Equal(System.Net.HttpStatusCode.NotFound, resp.StatusCode);
+
+        var list = await Cli().GetFromJsonAsync<List<TransferInfo>>(TransferRoutes.List);
+        Assert.DoesNotContain(list!, x => x.State == TransferState.Running);
+    }
 }

@@ -38,7 +38,7 @@ public sealed class PushCommandHandler
         try
         {
             var manifest = await _http.GetFromJsonAsync<ToolManifest>(
-                ToolRoutes.Manifest(request.Tool), ct);
+                ToolRoutes.Manifest(request.Tool, request.RequestId), ct);
             if (manifest is null || manifest.Files.Count == 0)
                 return new PushResult(request.RequestId, target, 0, 0, 0,
                     $"hub не отдал состав инструмента '{request.Tool}'");
@@ -63,7 +63,7 @@ public sealed class PushCommandHandler
                 }
 
                 Directory.CreateDirectory(Path.GetDirectoryName(path)!);
-                await DownloadAsync(request.Tool, file, path, ct);
+                await DownloadAsync(request.Tool, request.RequestId, file, path, ct);
 
                 var actual = Sha256Of(path);
                 if (!actual.Equals(file.Sha256, StringComparison.OrdinalIgnoreCase))
@@ -87,9 +87,9 @@ public sealed class PushCommandHandler
     }
 
     /// <summary>Качает файл в целевой путь потоком — OCCT почти 300 МБ, в память такое не берём.</summary>
-    private async Task DownloadAsync(string tool, ToolFile file, string path, CancellationToken ct)
+    private async Task DownloadAsync(string tool, string requestId, ToolFile file, string path, CancellationToken ct)
     {
-        using var resp = await _http.GetAsync(ToolRoutes.File(tool, file.Path),
+        using var resp = await _http.GetAsync(ToolRoutes.File(tool, file.Path, requestId),
             HttpCompletionOption.ResponseHeadersRead, ct);
         resp.EnsureSuccessStatusCode();
 

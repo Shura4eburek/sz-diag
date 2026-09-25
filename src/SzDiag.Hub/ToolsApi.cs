@@ -27,20 +27,24 @@ public static class ToolsApi
 
         group.MapGet("/list", (ToolCatalog catalog) => Results.Ok(catalog.List()));
 
-        group.MapGet("/{tool}/manifest", (string tool, ToolCatalog catalog) =>
+        group.MapGet("/{tool}/manifest", (string tool, string? req, ToolCatalog catalog, TransferTracker transfers) =>
         {
             var manifest = catalog.Manifest(tool);
-            return manifest is null ? Results.NotFound() : Results.Ok(manifest);
+            if (manifest is null) return Results.NotFound();
+            if (req is not null) transfers.SetTotal(req, manifest.TotalBytes);
+            return Results.Ok(manifest);
         });
 
-        group.MapGet("/{tool}/file", (string tool, string path, ToolCatalog catalog) =>
+        group.MapGet("/{tool}/file", (string tool, string path, string? req, ToolCatalog catalog,
+            TransferTracker transfers) =>
         {
             var full = catalog.ResolveFile(tool, path);
             // 404 и на «нет файла», и на попытку выйти за папку инструмента: подсказывать,
             // что путь существует, но запрещён, незачем.
-            return full is null
-                ? Results.NotFound()
-                : Results.File(full, "application/octet-stream", Path.GetFileName(full));
+            if (full is null) return Results.NotFound();
+            Stream body = File.OpenRead(full);
+            if (req is not null) body = new CountingReadStream(body, n => transfers.Add(req, n));
+            return Results.File(body, "application/octet-stream", Path.GetFileName(full));
         });
     }
 }

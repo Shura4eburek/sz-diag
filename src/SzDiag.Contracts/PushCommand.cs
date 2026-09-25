@@ -52,12 +52,18 @@ public static class ToolRoutes
     public const string Prefix = "/tools";
     public const string ListRoute = "/tools/list";
 
-    /// <summary>Манифест инструмента: <c>/tools/{tool}/manifest</c>.</summary>
-    public static string Manifest(string tool) => $"{Prefix}/{tool}/manifest";
+    /// <summary>Манифест инструмента: <c>/tools/{tool}/manifest</c>. <paramref name="requestId"/>
+    /// привязывает запрос к передаче (прогресс в `/api/transfers`); старый агент его не шлёт —
+    /// раздача работает как раньше, просто без прогресса.</summary>
+    public static string Manifest(string tool, string? requestId = null)
+        => $"{Prefix}/{tool}/manifest{Req(requestId, first: true)}";
 
     /// <summary>Файл инструмента: <c>/tools/{tool}/file?path=...</c>.</summary>
-    public static string File(string tool, string relativePath)
-        => $"{Prefix}/{tool}/file?path={Uri.EscapeDataString(relativePath)}";
+    public static string File(string tool, string relativePath, string? requestId = null)
+        => $"{Prefix}/{tool}/file?path={Uri.EscapeDataString(relativePath)}{Req(requestId, first: false)}";
+
+    private static string Req(string? requestId, bool first)
+        => requestId is null ? "" : $"{(first ? '?' : '&')}req={Uri.EscapeDataString(requestId)}";
 }
 
 /// <summary>Лимиты доставки.</summary>

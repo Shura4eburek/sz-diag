@@ -30,14 +30,16 @@ public sealed class PullCoordinator
     private readonly int _timeoutSeconds;
     private readonly ConcurrentDictionary<string, Session> _pending = new();
     private readonly ConcurrentDictionary<string, DateTimeOffset> _acked = new();
+    private readonly TransferTracker? _transfers;
 
     public PullCoordinator(SessionRegistry registry, IAgentCommandSender sender, string root,
-        int timeoutSeconds = PullLimits.TimeoutSeconds)
+        int timeoutSeconds = PullLimits.TimeoutSeconds, TransferTracker? transfers = null)
     {
         _registry = registry;
         _sender = sender;
         _root = root;
         _timeoutSeconds = timeoutSeconds;
+        _transfers = transfers;
     }
 
     public int PendingCount => _pending.Count;
@@ -63,6 +65,8 @@ public sealed class PullCoordinator
         var dir = Path.Combine(ResolveRoot(), sz, sub);
         var session = new Session { Sz = sz, Dir = dir };
         _pending[requestId] = session;
+        _transfers?.Start(requestId, sz, TransferDirection.Pull, path);
+        string? transferError = "прервано";
         try
         {
             await _sender.SendPullAsync(connId,
@@ -77,14 +81,17 @@ public sealed class PullCoordinator
                       "но не закончил — вероятно, задавлен нагрузкой или застрял чанк-канал"
                     : $"агент СЗ {sz} не принял команду забора за {wait.TotalSeconds:N0} с " +
                       "(heartbeat при этом может идти — он отдельным лёгким путём)";
+                transferError = hint;
                 throw new TimeoutException(hint);
             }
 
             var result = await session.Done.Task;
+            transferError = result.Error;
             return Materialize(session, result);
         }
         finally
         {
+            _transfers?.Finish(requestId, transferError);
             _pending.TryRemove(requestId, out _);
             _acked.TryRemove(requestId, out _);
             CloseStreams(session);
@@ -118,6 +125,7 @@ public sealed class PullCoordinator
         });
 
         stream.Write(chunk.Data, 0, chunk.Data.Length);
+        _transfers?.Add(chunk.RequestId, chunk.Data.Length);
         if (chunk.Last) stream.Flush();
         return true;
     }
