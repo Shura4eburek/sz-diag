@@ -40,6 +40,14 @@ public class ClaudeLaunchTests
     }
 
     [Fact]
+    public void FixedThinkingBudget_KeepsPromptCache()
+    {
+        // Бэклог п.266: с thinking по умолчанию `claude -p` на Opus [1m] теряет кэш сообщений на
+        // каждом ходе (~33k записи, $0.27 за «ОК»); с фиксированным бюджетом — $0.01–0.02 за ход.
+        Assert.Equal("16000", L().ToStartInfo().Environment["MAX_THINKING_TOKENS"]);
+    }
+
+    [Fact]
     public void Arguments_Resume() => Assert.Equal("sid-1", After(L("sid-1").Arguments(), "--resume"));
 
     [Fact]

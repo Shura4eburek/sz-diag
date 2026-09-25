@@ -19,6 +19,12 @@ public sealed record ClaudeLaunch(string Executable, string WorkDir, string? Con
     /// флаг вариадический и иначе проглотил бы следующие аргументы.</summary>
     public const string PeerTools = "mcp__desk__peers,mcp__desk__ask_peer";
 
+    /// <summary>Фиксированный бюджет thinking. С настройкой по умолчанию `claude -p` на Opus [1m]
+    /// между ходами меняет параметры thinking, и API выбрасывает кэш сообщений: каждый ход заново
+    /// пишет ~33k токенов ($0.27 за «ОК»). С фиксированным бюджетом ход — $0.01–0.02, thinking
+    /// работает (эксперимент бэклога п.266, 25.09).</summary>
+    public const string MaxThinkingTokens = "16000";
+
     /// <summary>Переменные, которыми Claude Code помечает свою сессию. Desk, запущенный из сессии
     /// Claude (dotnet run под Claude), иначе передал бы их детям: CHILD_SESSION выключает запись
     /// транскрипта (и --resume потом нечего продолжать), MESSAGING_SOCKET/TOKEN ведут в канал
@@ -75,6 +81,7 @@ public sealed record ClaudeLaunch(string Executable, string WorkDir, string? Con
         foreach (var name in InheritedSessionMarkers) psi.Environment.Remove(name);
         // claude.ai-коннекторы приходят мимо --mcp-config — выключаются отдельно (бэклог п.266).
         psi.Environment["ENABLE_CLAUDEAI_MCP_SERVERS"] = "false";
+        psi.Environment["MAX_THINKING_TOKENS"] = MaxThinkingTokens;
         if (ConfigDir is { Length: > 0 } dir) psi.Environment["CLAUDE_CONFIG_DIR"] = dir;
         else psi.Environment.Remove("CLAUDE_CONFIG_DIR");
         return psi;
