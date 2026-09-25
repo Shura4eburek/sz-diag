@@ -48,6 +48,15 @@ public sealed class HubApiClient : IHubApiClient
         return await resp.Content.ReadFromJsonAsync<List<TransferInfo>>(cts.Token) ?? new();
     }
 
+    public async Task<HubStatus?> GetStatusAsync(CancellationToken ct = default)
+    {
+        using var cts = Short(ct);
+        using var resp = await _http.GetAsync(HubStatusRoutes.Status, cts.Token);
+        if (resp.StatusCode == HttpStatusCode.NotFound) return null;
+        resp.EnsureSuccessStatusCode();
+        return await resp.Content.ReadFromJsonAsync<HubStatus>(cts.Token);
+    }
+
     public async Task<HealthzResponse?> GetHealthAsync(CancellationToken ct = default)
     {
         using var cts = Short(ct);

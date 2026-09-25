@@ -2,7 +2,7 @@ using System.Text;
 using System.Text.RegularExpressions;
 using System.Xml.Linq;
 
-namespace SzDiag.Cli;
+namespace SzDiag.HubClient;
 
 /// <summary>Разбор CLIXML — формата, в котором PowerShell отдаёт stderr при перенаправлённом
 /// выводе. На экране это выглядит как

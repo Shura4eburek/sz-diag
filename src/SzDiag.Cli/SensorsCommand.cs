@@ -346,7 +346,7 @@ public static class SensorsCommand
     private static string LhmTaskName(string sz) => $"szdiag-lhm-{sz}";
 
     /// <summary>CSV, в который лог lhmmon пишет по факту у рецепта (`start-sensors.ps1`).</summary>
-    private const string LhmCsvPath = @"C:\OCCT\sensors.csv";
+    private const string LhmCsvPath = SensorPaths.LhmCsv;
 
     /// <summary>Факт наличия наблюдателя на клиенте — независимо от того, кто его поднял:
     /// команда `sensors start` или рецепт `start-sensors.ps1` (бэклог п.190, СЗ 160705).</summary>

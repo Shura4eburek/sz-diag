@@ -12,6 +12,10 @@ public interface IHubApiClient
 
     /// <summary>`/healthz` — null, если hub не ответил вовсе (статусбар Desk краснеет).</summary>
     Task<HealthzResponse?> GetHealthAsync(CancellationToken ct = default);
+
+    /// <summary>`/api/status` — пакет агента, бэкап kb, туннель. null — старый hub без эндпоинта:
+    /// статусбар тогда просто без деталей.</summary>
+    Task<HubStatus?> GetStatusAsync(CancellationToken ct = default);
     Task<CloseOutcome> CloseAsync(string sz, CancellationToken ct = default);
 
     /// <summary>Ручной шаг у машины в журнал СЗ. Принимается и когда сессии нет.</summary>
