@@ -35,6 +35,24 @@ public class TransferItemViewModelTests
     }
 
     [Fact]
+    public void Running_SlowNetwork_ShowsKilobytes()
+    {
+        // Плохая сеть — ровно тот случай, ради которого прогресс делали: «0 / 300 МБ · 0 МБ/с»
+        // выглядел бы зависанием.
+        var t = new TransferInfo("r1", "161432", TransferDirection.Push, "occt", 300L << 20, 512L << 10,
+            200 * 1024, DateTimeOffset.UtcNow, TransferState.Running);
+        Assert.Equal("512 КБ / 300 МБ · 200 КБ/с", new TransferItemViewModel(t).Detail);
+    }
+
+    [Fact]
+    public void Running_FewMegabytes_OneDecimal()
+    {
+        var t = new TransferInfo("r1", "161432", TransferDirection.Pull, "dmp", null, (long)(2.5 * (1 << 20)),
+            1.5 * (1 << 20), DateTimeOffset.UtcNow, TransferState.Running);
+        Assert.Equal("2.5 МБ · 1.5 МБ/с", new TransferItemViewModel(t).Detail);
+    }
+
+    [Fact]
     public void Failed_ShowsError()
     {
         var vm = new TransferItemViewModel(T(TransferDirection.Pull, null, 0, TransferState.Failed, "таймаут"));

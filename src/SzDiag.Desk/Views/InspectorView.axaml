@@ -18,7 +18,7 @@
           <TextBlock Classes="secondary" Text="{Binding Selected.Info.Hostname, StringFormat='хост: {0}'}" />
           <TextBlock Classes="secondary" Text="{Binding Selected.Info.LanIp, StringFormat='LAN: {0}'}" />
           <TextBlock Classes="secondary" Text="{Binding Selected.Info.AccessMode, StringFormat='доступ: {0}', TargetNullValue='доступ: direct'}" />
-          <TextBlock Classes="secondary" Text="{Binding Selected.Info.BootTime, StringFormat='загрузка: {0:dd.MM HH:mm}'}" />
+          <TextBlock Classes="secondary" Text="{Binding Selected.BootTimeLocal, StringFormat='загрузка: {0:dd.MM HH:mm}'}" />
           <TextBlock Classes="secondary" Text="{Binding Selected.RebootCount, StringFormat='вырубонов за сессию: {0}'}" />
           <TextBlock Classes="secondary" TextWrapping="Wrap" Text="{Binding Selected.Info.Activity, StringFormat='занята: {0}'}" />
         </StackPanel>

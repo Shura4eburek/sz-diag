@@ -25,10 +25,29 @@ public sealed partial class TransferItemViewModel : ObservableObject
         {
             TransferState.Done => $"готово · {t.Note}",
             TransferState.Failed => $"ошибка: {t.Note}",
-            _ => (t.TotalBytes is > 0 ? $"{Mb(t.DoneBytes)} / {Mb(t.TotalBytes.Value)} МБ" : $"{Mb(t.DoneBytes)} МБ")
-                 + $" · {Mb((long)t.BytesPerSecond)} МБ/с",
+            _ => (t.TotalBytes is > 0 ? Pair(t.DoneBytes, t.TotalBytes.Value) : Size(t.DoneBytes))
+                 + $" · {Size((long)t.BytesPerSecond)}/с",
         };
     }
 
-    private static string Mb(long bytes) => (bytes / (1024 * 1024)).ToString();
+    private const long Mib = 1024 * 1024;
+
+    /// <summary>«412 / 690 МБ», а при разных единицах — каждая со своей («512 КБ / 300 МБ»).</summary>
+    private static string Pair(long done, long total)
+        => done >= Mib && total >= Mib
+            ? $"{Number(done)} / {Size(total)}"
+            : $"{Size(done)} / {Size(total)}";
+
+    /// <summary>Меньше мегабайта — в КБ, до 10 МБ — с десятыми: на плохой сети целые мегабайты
+    /// показывали «0 МБ/с», и живая передача выглядела зависшей.</summary>
+    private static string Size(long bytes)
+        => bytes < Mib ? $"{bytes / 1024} КБ" : $"{Number(bytes)} МБ";
+
+    private static string Number(long bytes)
+    {
+        var mb = bytes / (double)Mib;
+        return mb < 10
+            ? Math.Round(mb, 1).ToString("0.#", System.Globalization.CultureInfo.InvariantCulture)
+            : ((long)mb).ToString(System.Globalization.CultureInfo.InvariantCulture);
+    }
 }

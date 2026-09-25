@@ -24,6 +24,10 @@ public sealed class CountingReadStream(Stream inner, Action<long> onRead) : Stre
         return n;
     }
 
+    // Явно, а не через базовый BeginRead/EndRead: тот уходит в синхронный Read на пуле.
+    public override Task<int> ReadAsync(byte[] buffer, int offset, int count, CancellationToken ct)
+        => ReadAsync(buffer.AsMemory(offset, count), ct).AsTask();
+
     public override long Seek(long offset, SeekOrigin origin) => inner.Seek(offset, origin);
     public override void Flush() { }
     public override void SetLength(long value) => throw new NotSupportedException();

@@ -42,9 +42,16 @@ public static class ToolsApi
             // 404 и на «нет файла», и на попытку выйти за папку инструмента: подсказывать,
             // что путь существует, но запрещён, незачем.
             if (full is null) return Results.NotFound();
-            Stream body = File.OpenRead(full);
+            Stream body = OpenToolFile(full);
             if (req is not null) body = new CountingReadStream(body, n => transfers.Add(req, n));
             return Results.File(body, "application/octet-stream", Path.GetFileName(full));
         });
     }
+
+    /// <summary>Асинхронный поток на чтение: синхронный FileStream гоняет ReadAsync через пул
+    /// потоков, а 300 МБ OCCT — это тысячи чтений на том самом пуле, который у hub уже
+    /// захлёбывался (бэклог п.50). Раньше Results.File(path) отдавал файл сам, без этого.</summary>
+    public static Stream OpenToolFile(string path)
+        => new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read, 81920,
+            FileOptions.Asynchronous | FileOptions.SequentialScan);
 }

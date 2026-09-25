@@ -56,6 +56,19 @@ public class MainViewModelTests
     }
 
     [Fact]
+    public void Item_BootTime_ShownInHostZone()
+    {
+        // Агент шлёт boot-time со смещением клиента (в WinPE — Pacific, бэклог п.90):
+        // инспектор обязан показывать часы бокса, как `szcli list`.
+        var boot = new DateTimeOffset(2026, 9, 25, 3, 0, 0, TimeSpan.FromHours(-7));
+        var vm = New();
+        vm.Apply(Snap(S("161432") with { BootTime = boot }));
+        var local = vm.Items.Single().BootTimeLocal!.Value;
+        Assert.Equal(boot, local);
+        Assert.Equal(TimeZoneInfo.Local.GetUtcOffset(boot), local.Offset);
+    }
+
+    [Fact]
     public void Item_Liveness_And_Subtitle()
     {
         var vm = New();

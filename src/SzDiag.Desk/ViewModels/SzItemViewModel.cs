@@ -10,12 +10,16 @@ public sealed partial class SzItemViewModel : ObservableObject
 
     public string Sz { get; }
 
-    [ObservableProperty] private SessionInfo _info = null!;
+    [ObservableProperty] [NotifyPropertyChangedFor(nameof(BootTimeLocal))] private SessionInfo _info = null!;
     [ObservableProperty] private string _subtitle = "";
     [ObservableProperty] private SzLivenessState _liveness;
     [ObservableProperty] [NotifyPropertyChangedFor(nameof(HasReboots))] private int _rebootCount;
 
     public bool HasReboots => RebootCount > 0;
+
+    /// <summary>Boot-time в поясе бокса: агент шлёт его со смещением клиента, а в WinPE это
+    /// Pacific — время «на 10 часов мимо» (бэклог п.90). CLI делает то же через ToLocalTime.</summary>
+    public DateTimeOffset? BootTimeLocal => Info.BootTime?.ToLocalTime();
 
     public void Update(SessionInfo s, DateTimeOffset now)
     {
