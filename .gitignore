@@ -53,3 +53,6 @@ secrets/telegram.json
 
 # lhmmon: сборочные артефакты (сам источник в tools/lhmmon коммитим, бинарь — нет)
 tools/lhmmon/publish/
+
+# visual companion (brainstorming)
+.superpowers/
