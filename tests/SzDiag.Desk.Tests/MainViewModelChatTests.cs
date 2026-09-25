@@ -36,6 +36,16 @@ public class MainViewModelChatTests : IDisposable
         => new(new HubPoller(new FakeHubApi(), _clock), new DeskUiState(), _clock, _h.Services);
 
     [Fact]
+    public void StartSession_NewConversationInLeanWorkDir()
+    {
+        var vm = New();
+        vm.Apply(Snap(S("161432")));
+        vm.Selected = vm.Items.Single();
+        vm.StartSessionCommand.Execute("claude2");
+        Assert.Equal(Path.Combine(_h.Dir, "work"), Assert.Single(_h.Services.Sessions.Records).WorkDir);
+    }
+
+    [Fact]
     public void SelectSzWithoutSession_CanStart_StartOpensChat()
     {
         var vm = New();

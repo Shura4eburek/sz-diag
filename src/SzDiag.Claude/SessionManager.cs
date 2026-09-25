@@ -28,9 +28,9 @@ public sealed class SessionManager : IAsyncDisposable
 
     /// <summary>«Начать сессию»: запись в реестре без session_id; повторный вызов — та же сессия
     /// (и тот же профиль: он закреплён за разговором).</summary>
-    public ClaudeSession Create(string key, string? profile = null)
+    public ClaudeSession Create(string key, string? profile = null, string? workDir = null)
     {
-        if (_d.Index.Get(key) is null) _d.Index.Put(new SessionRecord(key, null, _d.Time.GetUtcNow(), false, profile));
+        if (_d.Index.Get(key) is null) _d.Index.Put(new SessionRecord(key, null, _d.Time.GetUtcNow(), false, profile, workDir));
         return _sessions.GetOrAdd(key, k => new ClaudeSession(k, _d));
     }
 

@@ -1,6 +1,11 @@
 ﻿<Project Sdk="Microsoft.NET.Sdk">
 
   <ItemGroup>
+    <!-- Лёгкий CLAUDE.md сессий заявок: Desk рендерит его в каталог сессий при старте. -->
+    <EmbeddedResource Include="Assets\sz-session-CLAUDE.md" LogicalName="sz-session-CLAUDE.md" />
+  </ItemGroup>
+
+  <ItemGroup>
     <ProjectReference Include="..\SzDiag.Contracts\SzDiag.Contracts.csproj" />
     <ProjectReference Include="..\SzDiag.HubClient\SzDiag.HubClient.csproj" />
     <ProjectReference Include="..\SzDiag.Kb\SzDiag.Kb.csproj" />

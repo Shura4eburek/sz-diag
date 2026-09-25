@@ -44,7 +44,8 @@ internal sealed class ChatHarness : IDisposable
             },
             TimeProvider.System, SessionTimeouts.Default));
         Peers = new PeerExchange(sessions, PeerDir, PeerLimits.Default, TimeProvider.System);
-        Services = new ChatServices(sessions, Broker, Tokens, Terminal, new[] { "claude", "claude2" }, a => a(), Peers);
+        Services = new ChatServices(sessions, Broker, Tokens, Terminal, new[] { "claude", "claude2" }, a => a(), Peers,
+            NewSessionWorkDir: Path.Combine(Dir, "work"));
     }
 
     public FakeClaudeProcess Last => Processes[^1];

@@ -48,6 +48,17 @@ public class ClaudeLaunchTests
     }
 
     [Fact]
+    public void AddDirs_OnePairPerDir()
+    {
+        // Сессия заявки работает в своём каталоге с лёгким CLAUDE.md; kb и репозиторий — доступ
+        // через --add-dir, чтобы запись в kb не спрашивала разрешения.
+        var a = (L() with { AddDirs = new[] { "C:\\kb", "C:\\repo" } }).Arguments().ToList();
+        var i = a.IndexOf("--add-dir");
+        Assert.Equal(new[] { "C:\\kb", "--add-dir", "C:\\repo" }, a.Skip(i + 1).Take(3));
+        Assert.DoesNotContain("--add-dir", L().Arguments());
+    }
+
+    [Fact]
     public void Arguments_Resume() => Assert.Equal("sid-1", After(L("sid-1").Arguments(), "--resume"));
 
     [Fact]

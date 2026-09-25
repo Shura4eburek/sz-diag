@@ -109,7 +109,7 @@ public sealed partial class MainViewModel : ObservableObject
     private void StartSession(string? profile)
     {
         if (_chat is null || Selected is null) return;
-        _chat.Sessions.Create(Selected.Sz, profile ?? _chat.Profiles.FirstOrDefault());
+        _chat.Sessions.Create(Selected.Sz, profile ?? _chat.Profiles.FirstOrDefault(), _chat.NewSessionWorkDir);
         ActiveChat = ChatFor(Selected.Sz);
         RefreshSessionBadges();
     }

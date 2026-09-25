@@ -14,7 +14,8 @@ public interface ITerminalLauncher
 /// консоли. Через .cmd-файл, а не аргументами: у уже запущенного Windows Terminal новая вкладка
 /// получает окружение его процесса, и CLAUDE_CONFIG_DIR из Desk туда не доехал бы.</summary>
 /// <param name="profileFor">Профиль сессии по ключу — тот, в чьём каталоге лежит разговор.</param>
-public sealed class TerminalLauncher(string? claudeExe, string workDir, Func<string, ClaudeProfile?> profileFor,
+/// <param name="workDirFor">Рабочий каталог разговора по ключу: --resume ищет разговор по нему.</param>
+public sealed class TerminalLauncher(string? claudeExe, Func<string, string> workDirFor, Func<string, ClaudeProfile?> profileFor,
     string scriptDir) : ITerminalLauncher
 {
     public static string Script(string claudeExe, string workDir, string? configDir, string sessionId)
@@ -36,6 +37,7 @@ public sealed class TerminalLauncher(string? claudeExe, string workDir, Func<str
     {
         if (claudeExe is null || profileFor(key) is not { } profile) return false;
         var configDir = profile.ConfigDir;
+        var workDir = workDirFor(key);
         string path;
         try
         {

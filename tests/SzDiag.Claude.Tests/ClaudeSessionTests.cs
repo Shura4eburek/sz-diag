@@ -28,6 +28,15 @@ public class ClaudeSessionTests : IDisposable
     }
 
     [Fact]
+    public void Create_RemembersWorkDir()
+    {
+        // Каталог закреплён за разговором, как профиль: --resume из другого каталога его не найдёт.
+        _h.Manager.Create("161432", "claude2", "C:\\work");
+        Assert.Equal("C:\\work", _h.Index.Get("161432")!.WorkDir);
+        Assert.Equal("C:\\work", SessionIndex.Load(Path.Combine(_h.Dir, "desk-sessions.json")).Get("161432")!.WorkDir);
+    }
+
+    [Fact]
     public async Task Send_StartsProcess_WritesUserMessage()
     {
         var s = _h.Manager.Create("161432");

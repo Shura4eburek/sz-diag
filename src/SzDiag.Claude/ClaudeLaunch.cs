@@ -10,7 +10,8 @@ namespace SzDiag.Claude;
 /// <param name="PermissionMode">`auto` — как терминальный Claude, разрешения спрашиваются только на
 /// то, что классификатор не пропустил; `default` — карточка на каждый инструмент.</param>
 public sealed record ClaudeLaunch(string Executable, string WorkDir, string? ConfigDir, string? ResumeSessionId,
-    string AppendSystemPrompt, string McpConfigPath, string PermissionMode = "auto")
+    string AppendSystemPrompt, string McpConfigPath, string PermissionMode = "auto",
+    IReadOnlyList<string>? AddDirs = null)
 {
     public const string PermissionTool = "mcp__desk__permission_prompt";
 
@@ -55,6 +56,12 @@ public sealed record ClaudeLaunch(string Executable, string WorkDir, string? Con
             "--strict-mcp-config",
             "--append-system-prompt", AppendSystemPrompt,
         };
+        // Каждый каталог — своей парой: флаг вариадический и проглотил бы следующие аргументы.
+        foreach (var dir in AddDirs ?? Array.Empty<string>())
+        {
+            a.Add("--add-dir");
+            a.Add(dir);
+        }
         if (ResumeSessionId is { Length: > 0 } id)
         {
             a.Add("--resume");

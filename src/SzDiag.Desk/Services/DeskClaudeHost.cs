@@ -14,6 +14,8 @@ public sealed class DeskClaudeHost : IAsyncDisposable
     {
         ClaudeExe = ClaudeLocator.Resolve(o.ClaudePath, Environment.GetEnvironmentVariable("PATH"));
         WorkDir = string.IsNullOrWhiteSpace(o.ClaudeWorkDir) ? FindRepoRoot(baseDir) : o.ClaudeWorkDir;
+        SessionWorkDir = o.ResolveSessionWorkDir();
+        KbRoot = o.ResolveKbRoot(baseDir);
         Profiles = ClaudeProfiles.Discover(string.IsNullOrWhiteSpace(o.ClaudeHome)
             ? Environment.GetFolderPath(Environment.SpecialFolder.UserProfile)
             : o.ClaudeHome);
@@ -29,7 +31,14 @@ public sealed class DeskClaudeHost : IAsyncDisposable
     }
 
     public string? ClaudeExe { get; }
+
+    /// <summary>Корень репозитория: szcli, скрипты, и рабочий каталог старых разговоров.</summary>
     public string WorkDir { get; }
+
+    /// <summary>Каталог новых сессий заявок с лёгким CLAUDE.md (вне репозитория).</summary>
+    public string SessionWorkDir { get; }
+
+    public string KbRoot { get; }
 
     /// <summary>Полный путь к szcli для вводной; null — не найден, в вводной просто «szcli».
     /// Ищется на каждый запуск: dist могут пересобрать, пока Desk открыт.</summary>
@@ -51,6 +60,7 @@ public sealed class DeskClaudeHost : IAsyncDisposable
         Func<SessionManager, IPeerDirectory>? peers = null)
     {
         var host = new DeskClaudeHost(o, baseDir);
+        SessionWorkspace.Write(host.SessionWorkDir, host.WorkDir, host.KbRoot, host.Szcli);
         if (peers is not null)
             host.Peers = new PeerExchange(host.Sessions, peers(host.Sessions),
                 new PeerLimits(o.PeerLivePerHour, TimeSpan.FromMinutes(o.PeerTimeoutMinutes)), TimeProvider.System);
@@ -76,16 +86,20 @@ public sealed class DeskClaudeHost : IAsyncDisposable
         Directory.CreateDirectory(_runDir);
         var config = Path.Combine(_runDir, $"{r.Key}.mcp.json");
         File.WriteAllText(config, Mcp.McpConfigJson(r.Key));
-        return new ClaudeLaunch(ClaudeExe, WorkDir, profile.ConfigDir, r.SessionId, SzBriefing.For(r.Key, Szcli), config,
-            _permissionMode);
+        // Новый разговор — в каталоге с лёгким CLAUDE.md, kb и репозиторий — через --add-dir; старый
+        // остаётся в репозитории: --resume ищет разговор по каталогу.
+        var lean = r.WorkDir is not null;
+        return new ClaudeLaunch(ClaudeExe, r.WorkDir ?? WorkDir, profile.ConfigDir, r.SessionId, SzBriefing.For(r.Key, Szcli), config,
+            _permissionMode, lean ? new[] { KbRoot, WorkDir } : null);
     }
 
     public ChatServices Services(Action<Action> ui)
         => new(Sessions, Broker, Tokens,
-            new TerminalLauncher(ClaudeExe, WorkDir,
+            new TerminalLauncher(ClaudeExe,
+                key => Sessions.Records.FirstOrDefault(x => x.Key == key)?.WorkDir ?? WorkDir,
                 key => Sessions.Records.FirstOrDefault(x => x.Key == key) is { } r ? ProfileFor(r) : null,
                 _runDir),
-            Profiles.Select(p => p.Name).ToList(), ui, Peers);
+            Profiles.Select(p => p.Name).ToList(), ui, Peers, SessionWorkDir);
 
     /// <summary>szcli рядом с Desk в dist (`dist\host\desk` → `dist\host\szcli.cmd`), иначе в dist
     /// репозитория сессий; ни там ни там — null.</summary>

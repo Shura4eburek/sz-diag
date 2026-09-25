@@ -8,6 +8,8 @@ public class DeskClaudeHostTests : IAsyncLifetime
 {
     private readonly string _dir = Path.Combine(Path.GetTempPath(), "szdesk-" + Guid.NewGuid().ToString("N"));
     private string Home => Path.Combine(_dir, "home");
+    private string Work => Path.Combine(_dir, "work");
+    private string Kb => Path.Combine(_dir, "kb");
     private DeskClaudeHost _host = null!;
 
     public async Task InitializeAsync()
@@ -22,7 +24,7 @@ public class DeskClaudeHostTests : IAsyncLifetime
         var exe = Path.Combine(_dir, "claude.exe");
         File.WriteAllText(exe, "");
         _host = await DeskClaudeHost.StartAsync(
-            new DeskOptions { ClaudePath = exe, ClaudeWorkDir = _dir, ClaudeHome = Home }, _dir);
+            new DeskOptions { ClaudePath = exe, ClaudeWorkDir = _dir, ClaudeHome = Home, SessionWorkDir = Work, KbRoot = Kb }, _dir);
     }
 
     public async Task DisposeAsync()
@@ -53,6 +55,43 @@ public class DeskClaudeHostTests : IAsyncLifetime
             .GetProperty("mcpServers").GetProperty("desk");
         Assert.EndsWith("/mcp/161432", desk.GetProperty("url").GetString());
         Assert.Equal(86_400_000, desk.GetProperty("timeout").GetInt32());
+    }
+
+    [Fact]
+    public void LaunchFor_LegacyRecord_RepoRoot_NoAddDirs()
+    {
+        // Разговоры, начатые до лёгкого CLAUDE.md, живут в каталоге репозитория: --resume иначе не найдёт.
+        var l = _host.LaunchFor(R("claude2"))!;
+        Assert.Equal(_dir, l.WorkDir);
+        Assert.Null(l.AddDirs);
+    }
+
+    [Fact]
+    public void LaunchFor_NewSession_LeanWorkspace_WithKbAndRepo()
+    {
+        var l = _host.LaunchFor(R("claude2") with { WorkDir = _host.SessionWorkDir })!;
+        Assert.Equal(Work, l.WorkDir);
+        Assert.Equal(new[] { Kb, _dir }, l.AddDirs);
+    }
+
+    [Fact]
+    public void Start_WritesLeanClaudeMd_WithPaths()
+    {
+        var md = File.ReadAllText(Path.Combine(Work, "CLAUDE.md"));
+        Assert.Contains(Kb, md);
+        Assert.Contains(_dir, md);
+        Assert.DoesNotContain("{{", md);
+        Assert.Contains("lastHeartbeat", md);
+    }
+
+    [Fact]
+    public void DefaultSessionWorkDir_OutsideRepo()
+    {
+        // Claude Code поднимается по родительским папкам за CLAUDE.md — каталог внутри репозитория
+        // снова подтянул бы большой CLAUDE.md разработчика.
+        var d = new DeskOptions().ResolveSessionWorkDir();
+        Assert.StartsWith(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), d);
+        Assert.EndsWith(Path.Combine("SzDiag", "desk-work"), d);
     }
 
     [Fact]
