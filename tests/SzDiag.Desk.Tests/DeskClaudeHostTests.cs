@@ -96,10 +96,32 @@ public class DeskClaudeHostTests : IAsyncLifetime
     [Fact]
     public void Briefing_BindsSessionToSz()
     {
-        var b = SzBriefing.For("161432");
-        Assert.Contains("szcli", b);
+        var b = SzBriefing.For("161432", @"C:\repo\dist\host\szcli.cmd");
+        Assert.Contains(@"C:\repo\dist\host\szcli.cmd", b);
         Assert.Contains("kb/СЗ/161432", b);
         Assert.Contains("161432", b.Split('\n')[0]);
+    }
+
+    [Fact]
+    public void LaunchFor_BriefingNamesSzcliFromDist()
+    {
+        // Живая проверка: szcli на боксе не в PATH, и сессия тратила ход на «not recognized».
+        var szcli = Path.Combine(_dir, "dist", "host", "szcli.cmd");
+        Directory.CreateDirectory(Path.GetDirectoryName(szcli)!);
+        File.WriteAllText(szcli, "");
+        Assert.Equal(szcli, DeskClaudeHost.FindSzcli(Path.Combine(_dir, "bin"), _dir));
+        Assert.Contains(szcli, _host.LaunchFor(R(null))!.AppendSystemPrompt);
+    }
+
+    [Fact]
+    public void FindSzcli_NextToDeskInDist_ThenRepo_ThenNull()
+    {
+        var deskDir = Path.Combine(_dir, "d", "host", "desk");
+        Directory.CreateDirectory(deskDir);
+        var sibling = Path.Combine(_dir, "d", "host", "szcli.cmd");
+        File.WriteAllText(sibling, "");
+        Assert.Equal(sibling, DeskClaudeHost.FindSzcli(deskDir, Path.Combine(_dir, "нет")));
+        Assert.Null(DeskClaudeHost.FindSzcli(Path.Combine(_dir, "x"), Path.Combine(_dir, "нет")));
     }
 
     [Fact]

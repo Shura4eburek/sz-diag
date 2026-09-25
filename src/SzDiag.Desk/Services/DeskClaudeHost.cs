@@ -7,6 +7,7 @@ namespace SzDiag.Desk.Services;
 public sealed class DeskClaudeHost : IAsyncDisposable
 {
     private readonly string _runDir;
+    private readonly string _baseDir;
     private readonly string _permissionMode;
 
     private DeskClaudeHost(DeskOptions o, string baseDir)
@@ -17,6 +18,7 @@ public sealed class DeskClaudeHost : IAsyncDisposable
             ? Environment.GetFolderPath(Environment.SpecialFolder.UserProfile)
             : o.ClaudeHome);
         _permissionMode = string.IsNullOrWhiteSpace(o.PermissionMode) ? "auto" : o.PermissionMode;
+        _baseDir = baseDir;
         _runDir = Path.Combine(baseDir, "run");
         Tokens = new TokenLedger(Path.Combine(baseDir, "desk-tokens.json"), TimeProvider.System);
         Sessions = new SessionManager(new SessionDeps(
@@ -28,6 +30,10 @@ public sealed class DeskClaudeHost : IAsyncDisposable
 
     public string? ClaudeExe { get; }
     public string WorkDir { get; }
+
+    /// <summary>Полный путь к szcli для вводной; null — не найден, в вводной просто «szcli».
+    /// Ищется на каждый запуск: dist могут пересобрать, пока Desk открыт.</summary>
+    public string? Szcli => FindSzcli(_baseDir, WorkDir);
 
     /// <summary>Профили Claude на машине (поиск, а не конфиг): первый — по умолчанию.</summary>
     public IReadOnlyList<ClaudeProfile> Profiles { get; }
@@ -62,7 +68,7 @@ public sealed class DeskClaudeHost : IAsyncDisposable
         Directory.CreateDirectory(_runDir);
         var config = Path.Combine(_runDir, $"{r.Key}.mcp.json");
         File.WriteAllText(config, Mcp.McpConfigJson(r.Key));
-        return new ClaudeLaunch(ClaudeExe, WorkDir, profile.ConfigDir, r.SessionId, SzBriefing.For(r.Key), config,
+        return new ClaudeLaunch(ClaudeExe, WorkDir, profile.ConfigDir, r.SessionId, SzBriefing.For(r.Key, Szcli), config,
             _permissionMode);
     }
 
@@ -72,6 +78,20 @@ public sealed class DeskClaudeHost : IAsyncDisposable
                 key => Sessions.Records.FirstOrDefault(x => x.Key == key) is { } r ? ProfileFor(r) : null,
                 _runDir),
             Profiles.Select(p => p.Name).ToList(), ui);
+
+    /// <summary>szcli рядом с Desk в dist (`dist\host\desk` → `dist\host\szcli.cmd`), иначе в dist
+    /// репозитория сессий; ни там ни там — null.</summary>
+    public static string? FindSzcli(string baseDir, string workDir)
+    {
+        var parent = Directory.GetParent(Path.TrimEndingDirectorySeparator(baseDir))?.FullName;
+        foreach (var candidate in new[]
+                 {
+                     parent is null ? null : Path.Combine(parent, "szcli.cmd"),
+                     Path.Combine(workDir, "dist", "host", "szcli.cmd"),
+                 })
+            if (candidate is not null && File.Exists(candidate)) return candidate;
+        return null;
+    }
 
     public static string FindRepoRoot(string start)
     {
