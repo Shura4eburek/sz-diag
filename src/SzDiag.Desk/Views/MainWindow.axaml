@@ -1,0 +1,23 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:v="using:SzDiag.Desk.Views"
+        x:Class="SzDiag.Desk.Views.MainWindow"
+        Title="SzDiag" Width="1280" Height="780" MinWidth="900" MinHeight="520"
+        ExtendClientAreaToDecorationsHint="True"
+        ExtendClientAreaChromeHints="NoChrome"
+        ExtendClientAreaTitleBarHeightHint="36">
+  <DockPanel>
+    <Border DockPanel.Dock="Top" BorderBrush="{StaticResource Line}" BorderThickness="0,0,0,1">
+      <v:TitleBar x:Name="TitleBar" />
+    </Border>
+    <Border x:Name="StatusPane" DockPanel.Dock="Bottom" Height="26"
+            Background="{StaticResource Bg.Status}" BorderBrush="{StaticResource Line}" BorderThickness="0,1,0,0" />
+    <Grid ColumnDefinitions="210,*,Auto">
+      <Border x:Name="LeftPane" Background="{StaticResource Bg.Side}"
+              BorderBrush="{StaticResource Line}" BorderThickness="0,0,1,0" />
+      <Border x:Name="CenterPane" Grid.Column="1" />
+      <Border x:Name="InspectorPane" Grid.Column="2" Width="290" Background="{StaticResource Bg.TitleBar}"
+              BorderBrush="{StaticResource Line}" BorderThickness="1,0,0,0" />
+    </Grid>
+  </DockPanel>
+</Window>
