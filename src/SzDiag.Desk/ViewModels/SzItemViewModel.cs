@@ -23,6 +23,9 @@ public sealed partial class SzItemViewModel : ObservableObject
 
     public bool HasSession => SessionState is not null;
 
+    /// <summary>Windows Update заморожен (бейдж 🧊): не забыть unfreeze до закрытия.</summary>
+    [ObservableProperty] private bool _isFrozen;
+
     /// <summary>Boot-time в поясе бокса: агент шлёт его со смещением клиента, а в WinPE это
     /// Pacific — время «на 10 часов мимо» (бэклог п.90). CLI делает то же через ToLocalTime.</summary>
     public DateTimeOffset? BootTimeLocal => Info.BootTime?.ToLocalTime();

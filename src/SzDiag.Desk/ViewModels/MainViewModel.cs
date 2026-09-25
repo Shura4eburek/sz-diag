@@ -3,6 +3,7 @@ using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using SzDiag.Claude;
 using SzDiag.Desk.Services;
+using SzDiag.Desk.ViewModels.Inspector;
 using SzDiag.HubClient;
 
 namespace SzDiag.Desk.ViewModels;
@@ -12,6 +13,7 @@ public sealed partial class MainViewModel : ObservableObject
     private readonly DeskUiState _ui;
     private readonly TimeProvider _time;
     private readonly ChatServices? _chat;
+    private readonly FreezeProbe? _freeze;
     private readonly Dictionary<string, ChatViewModel> _chats = new(StringComparer.Ordinal);
 
     /// <summary>Сколько СЗ должна отсутствовать в списке hub, чтобы её сессия ушла в архив:
@@ -21,8 +23,11 @@ public sealed partial class MainViewModel : ObservableObject
     /// <summary>С какого момента СЗ, бывшая в списке, в нём отсутствует.</summary>
     private readonly Dictionary<string, DateTimeOffset> _missingSince = new(StringComparer.Ordinal);
 
-    public MainViewModel(HubPoller poller, DeskUiState ui, TimeProvider time, ChatServices? chat = null)
+    public MainViewModel(HubPoller poller, DeskUiState ui, TimeProvider time, ChatServices? chat = null,
+        InspectorViewModel? inspector = null, FreezeProbe? freeze = null)
     {
+        Inspector = inspector;
+        _freeze = freeze;
         Poller = poller;
         _ui = ui;
         _time = time;
@@ -35,6 +40,9 @@ public sealed partial class MainViewModel : ObservableObject
     }
 
     public HubPoller Poller { get; }
+
+    /// <summary>Правая панель: вкладки выбранной СЗ; null — окно без инспектора (тесты части 1).</summary>
+    public InspectorViewModel? Inspector { get; }
     public ObservableCollection<SzItemViewModel> Items { get; } = new();
     public ObservableCollection<ArchivedItemViewModel> Archived { get; } = new();
     public ObservableCollection<TransferItemViewModel> Transfers { get; } = new();
@@ -60,6 +68,7 @@ public sealed partial class MainViewModel : ObservableObject
 
     partial void OnSelectedChanged(SzItemViewModel? value)
     {
+        Inspector?.Select(value?.Sz);
         if (value is not null) SelectedArchived = null;
         ActiveChat = value is not null ? ChatFor(value.Sz)
             : SelectedArchived is not null ? ChatFor(SelectedArchived.Key)
@@ -123,6 +132,11 @@ public sealed partial class MainViewModel : ObservableObject
         CollectionSync.Sync(Items, s.Sessions.OrderBy(x => x.Sz, StringComparer.Ordinal),
             x => x.Sz, vm => vm.Sz, x => new SzItemViewModel(x, now), (vm, x) => vm.Update(x, now));
         if (selectedSz is not null && Items.All(i => i.Sz != selectedSz)) Selected = null;
+        if (_freeze is not null)
+            foreach (var item in Items) item.IsFrozen = _freeze.IsFrozen(item.Sz);
+        // ⚡N выбранной СЗ вырос — вкладка вырубонов перечитывается сама.
+        if (Selected is { } sel && before.TryGetValue(sel.Sz, out var was) && sel.RebootCount > was.RebootCount)
+            Inspector?.OnRebootCountChanged();
 
         CollectionSync.Sync(Transfers, s.Transfers, t => t.Id, vm => vm.Id,
             t => new TransferItemViewModel(t), (vm, t) => vm.Update(t));
