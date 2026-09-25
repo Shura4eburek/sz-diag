@@ -407,6 +407,32 @@ stream-json без служебных строк + строки `desk_user/desk_
 `/mcp/<ключ>`. `timeout` сервера в конфиге — сутки (без него `claude` рвёт тулзу через 300 с).
 Остановка сессии/Desk и «■» отвечают на висящие запросы отказом.
 
+### Инспектор Desk (`ViewModels/Inspector`)
+
+Вкладки — `IInspectorTab` (`Interval`, `RefreshOnReboot`, `RefreshAsync`, `Clear`);
+`InspectorViewModel` обновляет **только видимую**: при открытии, по интервалу (тик раз в секунду
+из окна) и вкладку вырубонов — при росте ⚡N выбранной СЗ. Порядок: Обзор (0, без опроса),
+Вырубоны (`/api/sessions/{sz}/reboots`, при открытии), Задачи (`ExecJobsAsync` + хвост выбранной
+`ExecStatusAsync`, 3 с), Сенсоры (синхронный exec хвоста `SensorPaths.LhmCsv`, 5 с; «не пишутся» —
+строка не менялась 30 с по часам бокса), Журнал (`KbPaths.Journal` с диска, `FileSystemWatcher`),
+Железо (`szcli hw passport`, кэш на СЗ), Действия. Таймаут клиента hub (30 с) приходит как
+`TaskCanceledException` — вкладки показывают «агент не ответил», прежние данные не стираются;
+инспектор глотает отмену только при смене СЗ.
+
+**`SzcliRunner`** — `cli\SzDiag.Cli.exe` рядом с найденным `szcli.cmd` (`DeskClaudeHost.Szcli`),
+`NO_COLOR=1`, UTF-8, ANSI вычищается; коды `-1` — szcli не найден (собери dist), `-2` — прервано.
+**`FreezeProbe`** — `cli\freeze\<СЗ>.json` рядом с szcli, тот же признак, что у `szcli list`.
+Действия (`ActionsViewModel`): `diag run`, `test run … --config` (метка обязательна), `freeze`,
+`unfreeze` (подтверждение), `note`, `sz fetch`, `close` / `close --force "причина"` (подтверждение);
+пока идёт одна команда, остальные не запускаются. `CliXml` и `SensorPaths` — в HubClient/Contracts,
+общие с CLI.
+
+**`GET /api/status`** (`HubStatus`, под management-токеном): `AgentPackageVersion` — из
+`agent-dist/version.txt`; `KbBackup` (`Enabled`, `LastRunAt`, `Outcome` строкой, `Message`) и
+`Tunnel` (`State` из `TunnelStates`: off / not-found / running / restarting, `Since`) — в
+`HubStatusTracker` отчитываются `KbBackupService` и `HubTunnelService`. Старый hub (404) —
+статусбар без деталей.
+
 ## Рецепты расширения (точные места)
 
 **Новая команда hub→агент** (образец `RunTests`), 6 согласованных мест:
