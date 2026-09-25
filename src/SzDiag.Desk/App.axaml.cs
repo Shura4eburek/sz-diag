@@ -49,6 +49,12 @@ public partial class App : Application
                 DeskLog.Write("выход: сессии остановлены");
             };
             DeskLog.Write($"старт, hub {opts.HubBaseUrl}");
+            if (opts.AutostartHub)
+            {
+                var hubScript = HubAutostart.FindScript(AppContext.BaseDirectory, claude.WorkDir);
+                var autostart = HubAutostart.Default(async ct => await api.GetHealthAsync(ct) is not null);
+                _ = Task.Run(async () => DeskLog.Write(await autostart.EnsureAsync(opts.HubBaseUrl, hubScript, CancellationToken.None)));
+            }
         }
         base.OnFrameworkInitializationCompleted();
     }

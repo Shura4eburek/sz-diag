@@ -29,6 +29,10 @@ public sealed class DeskOptions
     /// <summary>Сколько ждать ответа живой сессии соседа.</summary>
     public int PeerTimeoutMinutes { get; set; } = 5;
 
+    /// <summary>Поднять свой hub (localhost), если он не отвечает: `start-hub.cmd` отдельным окном —
+    /// hub остаётся независимым процессом и переживает закрытие Desk.</summary>
+    public bool AutostartHub { get; set; } = true;
+
     /// <summary>Конфиг рядом с exe, не от рабочего каталога (конвенция репо).</summary>
     public static DeskOptions Load()
     {
