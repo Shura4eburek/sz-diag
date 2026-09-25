@@ -2,6 +2,7 @@ using System.Diagnostics;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
+using SzDiag.Contracts;
 
 namespace SzDiag.Hub;
 
@@ -21,18 +22,22 @@ public sealed class HubTunnelService : BackgroundService
     private readonly HubTunnelOptions _options;
     private readonly ILogger<HubTunnelService> _logger;
     private readonly string _baseDir;
+    private readonly HubStatusTracker? _status;
     private KillOnCloseJob? _job;
 
-    public HubTunnelService(IOptions<HubOptions> options, ILogger<HubTunnelService> logger)
-        : this(options.Value.Tunnel, logger, AppContext.BaseDirectory)
+    public HubTunnelService(IOptions<HubOptions> options, ILogger<HubTunnelService> logger,
+        HubStatusTracker? status = null)
+        : this(options.Value.Tunnel, logger, AppContext.BaseDirectory, status)
     {
     }
 
-    public HubTunnelService(HubTunnelOptions options, ILogger<HubTunnelService> logger, string baseDir)
+    public HubTunnelService(HubTunnelOptions options, ILogger<HubTunnelService> logger, string baseDir,
+        HubStatusTracker? status = null)
     {
         _options = options;
         _logger = logger;
         _baseDir = baseDir;
+        _status = status;
     }
 
     /// <summary>Путь pid-файла: относительный резолвится от папки exe (как остальные пути hub).</summary>
@@ -87,13 +92,18 @@ public sealed class HubTunnelService : BackgroundService
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
-        if (!_options.Enabled) return;
+        if (!_options.Enabled)
+        {
+            _status?.Tunnel(TunnelStates.Off);
+            return;
+        }
 
         var exe = ResolveExecutable(_options.ExecutablePath, File.Exists);
         if (exe is null)
         {
             _logger.LogWarning(
                 "туннель: cloudflared.exe не найден (Hub:Tunnel:ExecutablePath) — hub доступен только локально");
+            _status?.Tunnel(TunnelStates.NotFound);
             return;
         }
 
@@ -121,6 +131,7 @@ public sealed class HubTunnelService : BackgroundService
 
             if (stoppingToken.IsCancellationRequested) break;
 
+            _status?.Tunnel(TunnelStates.Restarting);
             _logger.LogWarning("туннель: cloudflared завершился (прожил {Seconds:F0} с), перезапуск через {Delay}",
                 (DateTime.UtcNow - started).TotalSeconds, _options.RestartDelay);
             try { await Task.Delay(_options.RestartDelay, stoppingToken); }
@@ -152,6 +163,7 @@ public sealed class HubTunnelService : BackgroundService
         if (_job is not null && !_job.TryAssign(process.Handle))
             _logger.LogDebug("туннель: процесс не назначен в job — откат держится на pid-файле");
         WritePid(process.Id);
+        _status?.Tunnel(TunnelStates.Running);
         _logger.LogInformation("туннель: cloudflared запущен (pid {Pid}){Name}", process.Id,
             string.IsNullOrWhiteSpace(_options.Name) ? "" : $", туннель {_options.Name}");
 

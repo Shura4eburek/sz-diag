@@ -63,6 +63,7 @@ builder.Services.AddSingleton<IKbBackup>(sp =>
     return new KbGitBackup(
         opts.KnowledgeBaseRoot, opts.KbBackup.Remote, opts.KbBackup.Branch, opts.KbBackup.CommandTimeout);
 });
+builder.Services.AddSingleton(new HubStatusTracker(TimeProvider.System));
 builder.Services.AddHostedService<KbBackupService>();
 builder.Services.AddHostedService<OfflineSweeper>();
 builder.Services.AddHostedService<ThreadPoolWatchdog>();

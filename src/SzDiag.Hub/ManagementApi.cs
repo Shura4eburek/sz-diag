@@ -181,6 +181,14 @@ public static class ManagementApi
         // запущенные через szcli.
         group.MapGet("/transfers", (TransferTracker transfers) => Results.Ok(transfers.Snapshot()));
 
+        // Детали статусбара Desk (спека 2026-09-25): пакет агента, бэкап kb, туннель.
+        group.MapGet("/status", (HubStatusTracker status, IOptions<HubOptions> options) =>
+        {
+            var path = Path.Combine(options.Value.AgentDistRoot, "version.txt");
+            var version = File.Exists(path) ? File.ReadAllText(path).Trim() : null;
+            return Results.Ok(status.Snapshot(string.IsNullOrEmpty(version) ? null : version));
+        });
+
         // План расписания OCCT из раздачи, а не из репозитория (бэклог п.124/#60, СЗ 161346):
         // `deploy/occt/*.json` в репо и `Hub.ToolsRoot/occt/*.json` на боксе молча расходились
         // (5+5 минут против заявленных 90+90) — печатать план имеет смысл только по тому, что
