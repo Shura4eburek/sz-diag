@@ -4,7 +4,7 @@
              xmlns:v="using:SzDiag.Desk.Views"
              x:Class="SzDiag.Desk.Views.StatusBarView"
              x:DataType="vm:StatusBarViewModel">
-  <Grid ColumnDefinitions="*,Auto,Auto" Margin="14,0" VerticalAlignment="Center">
+  <Grid ColumnDefinitions="*,Auto,Auto,Auto" Margin="14,0" VerticalAlignment="Center">
     <StackPanel Orientation="Horizontal" Spacing="18">
       <StackPanel Orientation="Horizontal" Spacing="6">
         <Ellipse Width="7" Height="7" Fill="{StaticResource Ok}" IsVisible="{Binding HubOk}" />
@@ -18,7 +18,12 @@
     <TextBlock Grid.Column="1" Text="{Binding DetailsText}" Classes="secondary" Margin="0,0,18,0"
                IsVisible="{Binding DetailsText, Converter={x:Static ObjectConverters.IsNotNull}}"
                Foreground="{Binding DetailsWarn, Converter={x:Static v:Converters.WarnToBrush}}" />
-    <TextBlock Grid.Column="2" Text="{Binding TokensText}" Classes="secondary"
+    <!-- Лимиты подписки по профилям Claude — из rate_limit_event каждого хода. -->
+    <TextBlock Grid.Column="2" Text="{Binding LimitsText}" Classes="secondary" Margin="0,0,18,0"
+               IsVisible="{Binding LimitsText, Converter={x:Static ObjectConverters.IsNotNull}}"
+               Foreground="{Binding LimitsWarn, Converter={x:Static v:Converters.WarnToBrush}}"
+               ToolTip.Tip="{Binding LimitsTip}" />
+    <TextBlock Grid.Column="3" Text="{Binding TokensText}" Classes="secondary"
                IsVisible="{Binding TokensText, Converter={x:Static ObjectConverters.IsNotNull}}" />
   </Grid>
 </UserControl>

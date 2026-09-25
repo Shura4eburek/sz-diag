@@ -18,6 +18,39 @@ public sealed partial class StatusBarViewModel : ObservableObject
     [ObservableProperty] private string? _tokensText;
     [ObservableProperty] private string? _detailsText;
     [ObservableProperty] private bool _detailsWarn;
+    [ObservableProperty] private string? _limitsText;
+    [ObservableProperty] private bool _limitsWarn;
+    [ObservableProperty] private string? _limitsTip;
+
+    /// <summary>С какой доли окна подсвечивать лимит.</summary>
+    public const double LimitsWarnAt = 0.8;
+
+    public void ApplyLimits(IReadOnlyDictionary<string, LimitsEntry> byProfile, DateTimeOffset now)
+        => (LimitsText, LimitsWarn, LimitsTip) = FormatLimits(byProfile, now);
+
+    /// <summary>`claude2 · 5ч 9% до 18:00 · 7д 57%` по каждому профилю. Окно, которое уже сбросилось
+    /// без новых данных, — «сброшен»: старый процент врал бы.</summary>
+    public static (string? Text, bool Warn, string? Tip) FormatLimits(IReadOnlyDictionary<string, LimitsEntry> byProfile,
+        DateTimeOffset now)
+    {
+        if (byProfile.Count == 0) return (null, false, null);
+        var warn = false;
+        string Window(string label, RateLimitWindow? w, bool withReset)
+        {
+            if (w is null) return $"{label} —";
+            if (now >= w.ResetsAt) return $"{label} сброшен";
+            if (w.Utilization >= LimitsWarnAt) warn = true;
+            var pct = $"{label} {Math.Round(w.Utilization * 100).ToString(CultureInfo.InvariantCulture)}%";
+            return withReset ? $"{pct} до {w.ResetsAt.ToLocalTime():HH:mm}" : pct;
+        }
+        var parts = byProfile.OrderBy(p => p.Key, StringComparer.Ordinal)
+            .Select(p => $"{p.Key} · {Window("5ч", p.Value.Info.FiveHour, true)} · {Window("7д", p.Value.Info.SevenDay, false)}")
+            .ToList();
+        var tip = string.Join("\n", byProfile.OrderBy(p => p.Key, StringComparer.Ordinal).Select(p =>
+            $"{p.Key}: неделя сбрасывается {p.Value.Info.SevenDay?.ResetsAt.ToLocalTime():dd.MM HH:mm}, " +
+            $"данные на {p.Value.SeenAt.ToLocalTime():HH:mm} (обновляются с каждым ходом)"));
+        return (string.Join("  |  ", parts), warn, tip);
+    }
 
     public void Apply(HubSnapshot s, DateTimeOffset now)
     {

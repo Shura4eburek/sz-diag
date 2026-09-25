@@ -8,6 +8,7 @@ internal sealed class SessionHarness : IDisposable
     public List<FakeClaudeProcess> Processes { get; } = new();
     public PermissionBroker Broker { get; } = new(TimeProvider.System);
     public TokenLedger Tokens { get; }
+    public LimitsLedger Limits { get; }
     public SessionIndex Index { get; }
     public TranscriptStore Transcripts { get; }
     public SessionManager Manager { get; }
@@ -20,6 +21,7 @@ internal sealed class SessionHarness : IDisposable
     {
         Directory.CreateDirectory(Dir);
         Tokens = new TokenLedger(Path.Combine(Dir, "desk-tokens.json"), TimeProvider.System);
+        Limits = new LimitsLedger(Path.Combine(Dir, "desk-limits.json"), TimeProvider.System);
         Index = SessionIndex.Load(Path.Combine(Dir, "desk-sessions.json"));
         Transcripts = new TranscriptStore(Path.Combine(Dir, "sessions"));
         Manager = New(timeouts);
@@ -39,7 +41,7 @@ internal sealed class SessionHarness : IDisposable
             Processes.Add(p);
             return p;
         },
-        TimeProvider.System, timeouts ?? SessionTimeouts.Default));
+        TimeProvider.System, timeouts ?? SessionTimeouts.Default, Limits: Limits));
 
     public FakeClaudeProcess Last => Processes[^1];
 

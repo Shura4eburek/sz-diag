@@ -34,11 +34,27 @@ public static class StreamJsonParser
             "user" => User(root),
             "result" => new[] { Result(root) },
             "control_response" => new[] { Control(root) },
-            "rate_limit_event" => new ClaudeEvent[] { new ServiceEvent(type, null) },
+            "rate_limit_event" => new ClaudeEvent[] { RateLimit(root) },
             _ when type.StartsWith(DeskLines.Prefix, StringComparison.Ordinal) => new[] { DeskLines.Parse(type, root) },
             _ => new ClaudeEvent[] { new UnknownEvent(type, text) },
         };
         return events.Select(e => e with { At = at }).ToList();
+    }
+
+    /// <summary>`rate_limit_info.unifiedWindows.{five_hour,seven_day}` — доля и время сброса (unix-секунды).</summary>
+    private static ClaudeEvent RateLimit(JsonElement root)
+    {
+        if (!root.TryGetProperty("rate_limit_info", out var info) || info.ValueKind != JsonValueKind.Object)
+            return new ServiceEvent("rate_limit_event", null);
+        RateLimitWindow? Window(string name)
+        {
+            if (!info.TryGetProperty("unifiedWindows", out var w) || w.ValueKind != JsonValueKind.Object
+                || !w.TryGetProperty(name, out var x) || x.ValueKind != JsonValueKind.Object
+                || !x.TryGetProperty("utilization", out var u) || u.ValueKind != JsonValueKind.Number)
+                return null;
+            return new RateLimitWindow(u.GetDouble(), DateTimeOffset.FromUnixTimeSeconds(Json.Long(x, "resetsAt")));
+        }
+        return new RateLimitUpdate(new RateLimitInfo(Json.Str(info, "status") ?? "", Window("five_hour"), Window("seven_day")));
     }
 
     private static ClaudeEvent SystemEvent(JsonElement root)

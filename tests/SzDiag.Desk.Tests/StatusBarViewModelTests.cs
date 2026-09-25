@@ -1,3 +1,4 @@
+using SzDiag.Claude;
 using SzDiag.Contracts;
 using SzDiag.Desk.Services;
 using SzDiag.Desk.ViewModels;
@@ -103,4 +104,43 @@ public class StatusBarViewModelTests
             Status = St(new KbBackupStatus(false, null, null, null)) }, Now);
         Assert.Equal("агент 76a6189 · kb: бэкап выключен", vm.DetailsText);
     }
+
+    private static readonly DateTimeOffset LimNow = new(2026, 9, 25, 12, 0, 0, TimeSpan.Zero);
+
+    private static RateLimitInfo Lim(double fiveHour, double week)
+        => new("allowed", new RateLimitWindow(fiveHour, LimNow.AddHours(2)), new RateLimitWindow(week, LimNow.AddDays(3)));
+
+    [Fact]
+    public void Limits_PerProfile_PercentAndReset()
+    {
+        var (text, warn, _) = StatusBarViewModel.FormatLimits(new Dictionary<string, LimitsEntry>
+        {
+            ["claude2"] = new(Lim(0.09, 0.57), LimNow),
+        }, LimNow);
+        Assert.StartsWith("claude2 · 5ч 9% до ", text);
+        Assert.EndsWith(" · 7д 57%", text);
+        Assert.False(warn);
+    }
+
+    [Fact]
+    public void Limits_80Percent_Warn_AndResetWindowShownAsReset()
+    {
+        var (text, warn, _) = StatusBarViewModel.FormatLimits(new Dictionary<string, LimitsEntry>
+        {
+            ["claude"] = new(Lim(0.85, 0.2), LimNow),
+        }, LimNow);
+        Assert.True(warn);
+        Assert.Contains("5ч 85%", text);
+
+        // Окно уже сбросилось, а новых данных не было — старый процент врал бы.
+        var (later, _, _) = StatusBarViewModel.FormatLimits(new Dictionary<string, LimitsEntry>
+        {
+            ["claude"] = new(Lim(0.85, 0.2), LimNow),
+        }, LimNow.AddHours(3));
+        Assert.Contains("5ч сброшен", later);
+    }
+
+    [Fact]
+    public void Limits_None_Hidden()
+        => Assert.Null(StatusBarViewModel.FormatLimits(new Dictionary<string, LimitsEntry>(), LimNow).Text);
 }

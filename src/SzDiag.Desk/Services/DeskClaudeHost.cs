@@ -23,11 +23,12 @@ public sealed class DeskClaudeHost : IAsyncDisposable
         _baseDir = baseDir;
         _runDir = Path.Combine(baseDir, "run");
         Tokens = new TokenLedger(Path.Combine(baseDir, "desk-tokens.json"), TimeProvider.System);
+        Limits = new LimitsLedger(Path.Combine(baseDir, "desk-limits.json"), TimeProvider.System);
         Sessions = new SessionManager(new SessionDeps(
             SessionIndex.Load(Path.Combine(baseDir, "desk-sessions.json")),
             new TranscriptStore(Path.Combine(baseDir, "sessions")),
             Tokens, Broker, LaunchFor, () => new ClaudeProcess(), TimeProvider.System,
-            SessionTimeouts.Default, DeskLog.Write));
+            SessionTimeouts.Default, DeskLog.Write, Limits));
     }
 
     public string? ClaudeExe { get; }
@@ -50,6 +51,7 @@ public sealed class DeskClaudeHost : IAsyncDisposable
     public PermissionBroker Broker { get; } = new(TimeProvider.System);
     public DeskMcpServer Mcp { get; } = new();
     public TokenLedger Tokens { get; }
+    public LimitsLedger Limits { get; }
     public SessionManager Sessions { get; }
 
     /// <summary>Обмен между сессиями (`peers`/`ask_peer`); null — Desk запущен без каталога соседей.</summary>
@@ -99,7 +101,7 @@ public sealed class DeskClaudeHost : IAsyncDisposable
                 key => Sessions.Records.FirstOrDefault(x => x.Key == key)?.WorkDir ?? WorkDir,
                 key => Sessions.Records.FirstOrDefault(x => x.Key == key) is { } r ? ProfileFor(r) : null,
                 _runDir),
-            Profiles.Select(p => p.Name).ToList(), ui, Peers, SessionWorkDir);
+            Profiles.Select(p => p.Name).ToList(), ui, Peers, SessionWorkDir, Limits);
 
     /// <summary>szcli рядом с Desk в dist (`dist\host\desk` → `dist\host\szcli.cmd`), иначе в dist
     /// репозитория сессий; ни там ни там — null.</summary>

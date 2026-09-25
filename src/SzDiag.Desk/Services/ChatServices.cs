@@ -8,4 +8,4 @@ namespace SzDiag.Desk.Services;
 /// <param name="NewSessionWorkDir">Каталог новых разговоров (лёгкий CLAUDE.md заявок); null — по умолчанию.</param>
 public sealed record ChatServices(SessionManager Sessions, PermissionBroker Broker, TokenLedger Tokens,
     ITerminalLauncher Terminal, IReadOnlyList<string> Profiles, Action<Action> Ui, PeerExchange? Peers = null,
-    string? NewSessionWorkDir = null);
+    string? NewSessionWorkDir = null, LimitsLedger? Limits = null);

@@ -21,7 +21,8 @@ public sealed record SessionDeps(
     Func<IClaudeProcess> ProcessFactory,
     TimeProvider Time,
     SessionTimeouts Timeouts,
-    Action<string>? Log = null);
+    Action<string>? Log = null,
+    LimitsLedger? Limits = null);
 
 /// <summary>Одна сессия Claude (спека 2026-09-25: 1 СЗ = 1 сессия). Процесс поднимается при первом
 /// сообщении, а не при открытии чата: до первого сообщения `claude -p` ничего не делает, а
@@ -244,7 +245,7 @@ public sealed class ClaudeSession
     {
         var events = StreamJsonParser.Parse(line, _d.Time.GetUtcNow());
         // Служебные строки (хуки SessionStart — десятки КБ на запуск) в журнал не пишем.
-        if (events.Any(e => e is not (ServiceEvent or ParseError))) _d.Transcripts.Append(Key, line);
+        if (events.Any(e => e is not (ServiceEvent or ParseError or RateLimitUpdate))) _d.Transcripts.Append(Key, line);
 
         var turnEnded = false;
         lock (_gate)
@@ -254,6 +255,10 @@ public sealed class ClaudeSession
                 switch (e)
                 {
                     case ServiceEvent:
+                        continue;
+                    case RateLimitUpdate rl:
+                        // Лимиты — на аккаунт профиля; в ленту не идут.
+                        _d.Limits?.Update(Profile ?? "claude", rl.Info);
                         continue;
                     case ParseError pe:
                         _d.Log?.Invoke($"сессия {Key}: битая строка stream-json пропущена ({pe.Message})");

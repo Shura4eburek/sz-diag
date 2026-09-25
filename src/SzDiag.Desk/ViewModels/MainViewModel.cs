@@ -37,9 +37,11 @@ public sealed partial class MainViewModel : ObservableObject
         _isInspectorOpen = ui.InspectorOpen;
         if (chat is null) return;
         chat.Tokens.Changed += () => chat.Ui(UpdateTokens);
+        if (chat.Limits is { } limits) limits.Changed += () => chat.Ui(UpdateLimits);
         chat.Broker.Requested += _ => chat.Ui(() => AttentionNeeded?.Invoke());
         if (chat.Peers is { } peers) peers.Changed += () => chat.Ui(RefreshSessionBadges);
         UpdateTokens();
+        UpdateLimits();
     }
 
     public HubPoller Poller { get; }
@@ -151,6 +153,7 @@ public sealed partial class MainViewModel : ObservableObject
         HasTransfers = Transfers.Count > 0;
 
         Status.Apply(s, now);
+        UpdateLimits();   // окно могло сброситься — «сброшен» без нового хода
 
         // Без удачного опроса списка СЗ пустой список значит «ещё не знаю», а не «все СЗ закрыты»:
         // иначе первый же опрос передач отправил бы все сессии в архив.
@@ -256,6 +259,11 @@ public sealed partial class MainViewModel : ObservableObject
             };
             item.SimilarTip = string.Join("\n", similar.Select(x => $"{x.Sz}: {string.Join(", ", x.Why)}"));
         }
+    }
+
+    private void UpdateLimits()
+    {
+        if (_chat?.Limits is { } limits) Status.ApplyLimits(limits.All, _time.GetUtcNow());
     }
 
     private void UpdateTokens()
