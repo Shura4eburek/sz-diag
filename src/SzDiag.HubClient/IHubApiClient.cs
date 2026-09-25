@@ -5,6 +5,13 @@ namespace SzDiag.HubClient;
 public interface IHubApiClient
 {
     Task<IReadOnlyList<SessionInfo>> GetSessionsAsync(CancellationToken ct = default);
+
+    /// <summary>Передачи push/pull для прогресс-баров. Старый hub без эндпоинта (404) — пустой
+    /// список: Desk должен работать и с ним, просто без прогресса.</summary>
+    Task<IReadOnlyList<TransferInfo>> GetTransfersAsync(CancellationToken ct = default);
+
+    /// <summary>`/healthz` — null, если hub не ответил вовсе (статусбар Desk краснеет).</summary>
+    Task<HealthzResponse?> GetHealthAsync(CancellationToken ct = default);
     Task<CloseOutcome> CloseAsync(string sz, CancellationToken ct = default);
 
     /// <summary>Ручной шаг у машины в журнал СЗ. Принимается и когда сессии нет.</summary>
