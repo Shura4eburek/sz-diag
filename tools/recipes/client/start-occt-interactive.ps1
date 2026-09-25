@@ -24,9 +24,9 @@
 # Тест при этом уже идёт, но весь вывод — включая единственную строку про GPU-подтесты — теряется,
 # и запуск выглядит неудавшимся (161538, 01.09). Результат: szcli exec <СЗ> --result <jobId>.
 
-$Sz       = '161538'
+$Sz       = '162003'
 $Schedule = 'schedule-combined.json'
-$Tag      = 'EXPO6000-asis'
+$Tag      = 'EXPO6000-cleanwin'
 $Suffix   = 'int'
 $Prefix   = 'combined'          # ← имя отчёта: <Prefix>-<Tag>-<время>.html (memtest/combined/...)
 $LimitHours = 4                 # ← лимит задачи, ч: ЗАВЕДОМО больше расписания (162003)

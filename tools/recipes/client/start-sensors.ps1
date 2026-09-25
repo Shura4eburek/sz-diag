@@ -3,7 +3,7 @@
 # Запуск ТОЛЬКО задачей под SYSTEM: под нагрузкой SSH/exec глохнет, а процесс, запущенный
 # из сессии агента, умирает вместе с ней. Перед запуском — prep-stress.ps1 (папка + Defender).
 #   szcli exec <СЗ> -f tools\recipes\client\start-sensors.ps1
-$Sz = '000000'   # ← номер СЗ: попадает в имя задачи, чтобы хвосты было видно в inventory
+$Sz = '162003'   # ← номер СЗ: попадает в имя задачи, чтобы хвосты было видно в inventory
 
 $proc = Get-CimInstance Win32_Process -Filter "Name='SzDiag.Agent.exe'" | Select-Object -First 1
 # Тулы лежат либо рядом с агентом, либо в ProgramData (агент запущен из OneDrive-папки —
