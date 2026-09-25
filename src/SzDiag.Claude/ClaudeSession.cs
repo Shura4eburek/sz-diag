@@ -1,6 +1,9 @@
 namespace SzDiag.Claude;
 
-public enum SessionState { Stopped, Idle, Working, WaitingPermission, Crashed, Archived }
+public enum SessionState { Stopped, Idle, Working, WaitingPermission, AnsweringPeer, Crashed, Archived }
+
+/// <summary>Живой вопрос соседу не получил ответа: причина уходит спросившему Claude текстом.</summary>
+public sealed class PeerAnswerException(string message) : Exception(message);
 
 public sealed record SessionTimeouts(TimeSpan StopGrace, TimeSpan InterruptWait)
 {
@@ -41,6 +44,14 @@ public sealed class ClaudeSession
     private TaskCompletionSource<bool>? _interrupt;
     private Action<ClaudeEvent>? _listener;
 
+    private sealed record PeerAsk(string From, string Question, TaskCompletionSource<string> Answer);
+
+    /// <summary>Вопросы соседей — отдельной очередью и впереди очереди оператора: спрашивающий
+    /// ждёт ограниченное время (решение плана части 4).</summary>
+    private readonly List<PeerAsk> _peerQueue = new();
+    private PeerAsk? _answering;
+    private string? _lastText;
+
     internal ClaudeSession(string key, SessionDeps deps)
     {
         Key = key;
@@ -69,6 +80,52 @@ public sealed class ClaudeSession
     public IReadOnlyList<string> Queued
     {
         get { lock (_gate) return _queue.ToList(); }
+    }
+
+    public bool IsAnsweringPeer
+    {
+        get { lock (_gate) return _answering is not null; }
+    }
+
+    public int PeerQueued
+    {
+        get { lock (_gate) return _peerQueue.Count; }
+    }
+
+    internal static string PeerPrompt(string fromKey, string question) =>
+        $"[вопрос от сессии {fromKey}] {question}\n\n" +
+        "Это вопрос соседней сессии Desk, не оператора. Ответь по своей СЗ коротко и фактами: " +
+        "весь финальный текст этого хода уйдёт спросившему. ask_peer в этом ходе недоступен.";
+
+    /// <summary>Живой вопрос соседа: встаёт в очередь, уходит в stdin, когда сессия свободна.
+    /// Ответ — финальный текст хода. Отмена снимает вопрос, пока он не отправлен.</summary>
+    internal Task<string> AskAsync(string fromKey, string question, CancellationToken ct)
+    {
+        var ask = new PeerAsk(fromKey, question, new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously));
+        lock (_gate)
+        {
+            if (State == SessionState.Archived) throw new PeerAnswerException("сессия соседа в архиве — СЗ закрыта");
+            if (State == SessionState.Crashed) throw new PeerAnswerException("сессия соседа упала — оператор её ещё не перезапустил");
+            _peerQueue.Add(ask);
+        }
+        var reg = ct.Register(() =>
+        {
+            lock (_gate) _peerQueue.Remove(ask);
+            ask.Answer.TrySetCanceled(ct);
+            Changed?.Invoke();
+        });
+        ask.Answer.Task.ContinueWith(_ => reg.Dispose(), TaskScheduler.Default);
+        Changed?.Invoke();
+        _ = PumpQueueAsync();
+        return ask.Answer.Task;
+    }
+
+    private void FailPeersLocked(string reason)
+    {
+        _answering?.Answer.TrySetException(new PeerAnswerException(reason));
+        _answering = null;
+        foreach (var a in _peerQueue) a.Answer.TrySetException(new PeerAnswerException(reason));
+        _peerQueue.Clear();
     }
 
     /// <summary>Состояние или очередь изменились. Может прийти с потока процесса — UI маршалит сам.</summary>
@@ -109,15 +166,28 @@ public sealed class ClaudeSession
         bool send;
         lock (_gate)
         {
-            send = _queue.Count > 0 && _interrupt is null
+            send = (_peerQueue.Count > 0 || _queue.Count > 0) && _interrupt is null
                    && State is SessionState.Stopped or SessionState.Idle
                    && (_process is { IsRunning: true } || TryStartLocked());
             if (send)
             {
                 process = _process!;
-                text = _queue.Dequeue();
-                AddLocked(new DeskUserMessage(text) { At = _d.Time.GetUtcNow() });
-                State = SessionState.Working;
+                _lastText = null;
+                if (_peerQueue.Count > 0)
+                {
+                    var ask = _peerQueue[0];
+                    _peerQueue.RemoveAt(0);
+                    _answering = ask;
+                    text = PeerPrompt(ask.From, ask.Question);
+                    AddLocked(new PeerQuestion(ask.From, ask.Question) { At = _d.Time.GetUtcNow() });
+                    State = SessionState.AnsweringPeer;
+                }
+                else
+                {
+                    text = _queue.Dequeue();
+                    AddLocked(new DeskUserMessage(text) { At = _d.Time.GetUtcNow() });
+                    State = SessionState.Working;
+                }
             }
         }
         Changed?.Invoke();
@@ -181,10 +251,20 @@ public sealed class ClaudeSession
                     case SystemInit init:
                         RememberSessionIdLocked(init.SessionId);
                         break;
+                    case AssistantText { ParentToolUseId: null } t:
+                        _lastText = t.Text;
+                        break;
                     case TurnResult r:
                         Usage = Usage.Add(r.Usage);
                         _d.Tokens.Add(r.Usage, Math.Max(0m, r.CostUsd - _processCost));
                         _processCost = Math.Max(_processCost, r.CostUsd);
+                        if (_answering is { } a)
+                        {
+                            if (r.Interrupted) a.Answer.TrySetException(new PeerAnswerException("сосед прервал ход — ответа нет"));
+                            else if (r.IsError) a.Answer.TrySetException(new PeerAnswerException($"ход соседа завершился ошибкой: {r.Text}"));
+                            else a.Answer.TrySetResult(r.Text is { Length: > 0 } rt ? rt : _lastText ?? "");
+                            _answering = null;
+                        }
                         State = SessionState.Idle;
                         turnEnded = true;
                         break;
@@ -203,6 +283,7 @@ public sealed class ClaudeSession
         {
             if (!ReferenceEquals(p, _process)) return;
             _process = null;
+            FailPeersLocked(_stopping ? "сессия соседа остановлена" : "сессия соседа упала");
             if (_stopping)
             {
                 if (State != SessionState.Archived) State = SessionState.Stopped;
@@ -230,7 +311,7 @@ public sealed class ClaudeSession
         {
             back = _queue.ToList();
             _queue.Clear();
-            active = _process is not null && State is SessionState.Working or SessionState.WaitingPermission;
+            active = _process is not null && State is SessionState.Working or SessionState.WaitingPermission or SessionState.AnsweringPeer;
             if (active)
             {
                 process = _process;
@@ -280,6 +361,7 @@ public sealed class ClaudeSession
         lock (_gate)
         {
             if (ReferenceEquals(_process, p)) _process = null;
+            FailPeersLocked("сессия соседа остановлена");
             if (State != SessionState.Archived) State = SessionState.Stopped;
         }
         Changed?.Invoke();
@@ -341,7 +423,7 @@ public sealed class ClaudeSession
         {
             _permissions.Add(p.RequestId);
             AddLocked(new PermissionAsked(p.RequestId, p.ToolName, p.Input, p.ToolUseId) { At = p.At });
-            if (State == SessionState.Working) State = SessionState.WaitingPermission;
+            if (State is SessionState.Working or SessionState.AnsweringPeer) State = SessionState.WaitingPermission;
         }
         Changed?.Invoke();
     }
@@ -352,7 +434,8 @@ public sealed class ClaudeSession
         {
             if (!_permissions.Remove(requestId)) return;
             AddLocked(new PermissionAnswered(requestId, allowed) { At = _d.Time.GetUtcNow() });
-            if (State == SessionState.WaitingPermission && _permissions.Count == 0) State = SessionState.Working;
+            if (State == SessionState.WaitingPermission && _permissions.Count == 0)
+                State = _answering is null ? SessionState.Working : SessionState.AnsweringPeer;
         }
         Changed?.Invoke();
     }
@@ -366,6 +449,7 @@ public sealed class ClaudeSession
 
     private void CrashLocked(int? code, IReadOnlyList<string> tail)
     {
+        FailPeersLocked("сессия соседа упала");
         AddLocked(new ProcessCrashed(code, tail) { At = _d.Time.GetUtcNow() });
         State = SessionState.Crashed;
     }

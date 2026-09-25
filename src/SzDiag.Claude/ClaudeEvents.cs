@@ -59,3 +59,6 @@ public sealed record PermissionAsked(string RequestId, string ToolName, JsonElem
 public sealed record PermissionAnswered(string RequestId, bool Allowed) : ClaudeEvent;
 
 public sealed record ProcessCrashed(int? ExitCode, IReadOnlyList<string> StderrTail) : ClaudeEvent;
+
+/// <summary>Вопрос соседней сессии (`ask_peer` с live): в ленте — «💬 от &lt;ключ&gt;: …».</summary>
+public sealed record PeerQuestion(string FromKey, string Text) : ClaudeEvent;

@@ -24,6 +24,7 @@ public static class DeskLines
                 tool_use_id = p.ToolUseId, timestamp = at,
             },
             PermissionAnswered a => new { type = "desk_permission_answered", request_id = a.RequestId, allowed = a.Allowed, timestamp = at },
+            PeerQuestion q => new { type = "desk_peer_question", from = q.FromKey, text = q.Text, timestamp = at },
             ProcessCrashed c => new { type = "desk_crash", exit_code = c.ExitCode, stderr = c.StderrTail, timestamp = at },
             _ => null,
         };
@@ -37,6 +38,7 @@ public static class DeskLines
         "desk_permission_asked" => new PermissionAsked(Json.Str(root, "request_id") ?? "", Json.Str(root, "tool_name") ?? "",
             root.TryGetProperty("input", out var i) ? i.Clone() : default, Json.Str(root, "tool_use_id")),
         "desk_permission_answered" => new PermissionAnswered(Json.Str(root, "request_id") ?? "", Json.Bool(root, "allowed")),
+        "desk_peer_question" => new PeerQuestion(Json.Str(root, "from") ?? "", Json.Str(root, "text") ?? ""),
         "desk_crash" => new ProcessCrashed(
             root.TryGetProperty("exit_code", out var c) && c.ValueKind == JsonValueKind.Number ? (int?)c.GetInt32() : null,
             root.TryGetProperty("stderr", out var s) && s.ValueKind == JsonValueKind.Array

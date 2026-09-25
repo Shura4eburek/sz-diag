@@ -15,4 +15,8 @@
     <Nullable>enable</Nullable>
   </PropertyGroup>
 
+  <ItemGroup>
+    <InternalsVisibleTo Include="SzDiag.Claude.Tests" />
+  </ItemGroup>
+
 </Project>
