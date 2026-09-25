@@ -5,7 +5,7 @@
 > ежедневной работы — [../CLAUDE.md](../CLAUDE.md). Здесь — протокол, точки расширения,
 > таблицы параметров и рецепты. Обновлено 2026-09-04.
 
-## Проекты (11 в `src/` + зеркальные тесты в `tests/`)
+## Проекты (12 в `src/` + зеркальные тесты в `tests/`)
 
 | Проект | Роль | Ключевые типы |
 |---|---|---|
@@ -13,7 +13,8 @@
 | `SzDiag.Hub` | ASP.NET Core на хосте: SignalR `/agents` + `/api/*` + `/agent/*` | `AgentHub`, `ManagementApi`, `AgentPackageApi`, `SessionRegistry` |
 | `SzDiag.Cli` (`szcli`) | тонкий клиент к `/api` | команды в `Program.cs` |
 | `SzDiag.HubClient` | клиент `/api`, общий для CLI и Desk | `HubApiClient`, `IHubApiClient`, `SzLiveness` |
-| `SzDiag.Desk` | окно на Avalonia: список СЗ, инспектор, передачи, статусбар | `HubPoller`, `MainViewModel`, `CollectionSync`, `MainWindow` |
+| `SzDiag.Desk` | окно на Avalonia: список СЗ, чат сессии Claude, инспектор, передачи, статусбар | `HubPoller`, `MainViewModel`, `ChatViewModel`, `FeedBuilder`, `DeskClaudeHost` |
+| `SzDiag.Claude` | ядро сессий Claude без UI: процесс, парсер stream-json, сессии, разрешения через MCP | `ClaudeSession`, `SessionManager`, `StreamJsonParser`, `PermissionBroker`, `DeskMcpServer` |
 | `SzDiag.Agent` | консоль на клиенте (админ, `app.manifest`) | `AgentSession`, `WindowsSystemAccessManager`, `PortableSshServer` |
 | `SzDiag.Updater` | точка входа на клиенте: самообновление агента с hub | `HttpUpdateClient`, `PackageApplier`, `AgentLauncher` |
 | `SzDiag.ConsoleUi` | консольный UI, общий для hub/агента/CLI | `StickyHeader`, `SyncedConsoleWriter`, `MarkupText` |
@@ -371,6 +372,34 @@ staging) → `AgentLauncher.LaunchAndWait` (запуск `agent.exe` в насл
 `IGpuScraper`→запись). `VgaBiosScraper` (`TechPowerUpClient`+`VgaBiosParser` на AngleSharp)
 дорезолвивает точную партнёрскую плату (SKU) и спеки прошивки по subsystem ID. `gpu-specs`-каталог
 за CAPTCHA — вне scope (`NotImplementedGpuScraper` — заглушка).
+
+## Сессии Claude в Desk (`SzDiag.Claude` + `SzDiag.Desk`)
+
+**Запуск процесса** (`ClaudeLaunch`): `claude -p --input-format stream-json --output-format
+stream-json --verbose --permission-mode default --permission-prompt-tool mcp__desk__permission_prompt
+--mcp-config run\<ключ>.mcp.json --append-system-prompt <SzBriefing.For(сз)> [--resume <id>]`,
+рабочий каталог — корень репо, stdin UTF-8 без BOM, `CLAUDE_CONFIG_DIR` из `ClaudeConfigDir`,
+маркеры родительской сессии (`ClaudeLaunch.InheritedSessionMarkers`) вычищаются. Процесс
+стартует при **первом сообщении**, не при открытии чата. Схема событий — итоги спайка
+(`docs/superpowers/specs/2026-09-25-desk-spike-notes.md`), фикстуры — `tests/SzDiag.Claude.Tests/Fixtures`.
+
+**Файлы рядом с exe Desk:** `desk-sessions.json` (реестр `ключ → session_id, CreatedAt, Archived`),
+`desk-tokens.json` (токены и стоимость за локальные сутки), `sessions\<ключ>.jsonl` (журнал: сырой
+stream-json без служебных строк + строки `desk_user/desk_note/desk_permission_asked|answered/desk_crash`;
+лента после перезапуска Desk строится только из него), `run\<ключ>.mcp.json` (порт и токен MCP —
+переписываются на каждый запуск процесса), `run\resume-<ключ>.cmd` («открыть в терминале»).
+
+**Состояния** (`SessionState`): `Stopped` → первое сообщение → `Working` → `result` → `Idle`
+(следующее из очереди — снова `Working`); запрос разрешения — `WaitingPermission`; неожиданный
+выход процесса — `Crashed` (карточка с хвостом stderr, «перезапустить» шлёт очередь); `Archived` —
+СЗ пропала из `/api/sessions` (только переход «была → пропала» и только после удачного опроса
+списка СЗ), новое сообщение снимает архив и продолжает `--resume`. «■» — control-запрос
+`interrupt`; нет `result` за 10 с — процесс останавливается, очередь возвращается в поле ввода.
+
+**Разрешения:** `DeskMcpServer` (127.0.0.1, случайный порт, `X-Desk-Token` на запуск, stateless)
+держит запрос `permission_prompt` открытым, пока человек не ответит; ключ сессии — из пути
+`/mcp/<ключ>`. `timeout` сервера в конфиге — сутки (без него `claude` рвёт тулзу через 300 с).
+Остановка сессии/Desk и «■» отвечают на висящие запросы отказом.
 
 ## Рецепты расширения (точные места)
 
