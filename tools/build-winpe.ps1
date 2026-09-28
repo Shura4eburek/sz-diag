@@ -37,6 +37,11 @@
   меньше требует место single-file агент под распаковку, а `DISM /Cleanup-Image` прямо
   ругается «recommended size is at least 1024 MB» (поймано на живой СЗ 160450).
 
+.PARAMETER ReuseImage
+  Не пересобирать boot.wim: взять готовый из $Work (media от прошлой сборки) и
+  только записать флешку и положить агента. Для случая «флешку затёрли/потеряли»
+  или «обновился агент» — экономит ~20 минут DISM.
+
 .PARAMETER SkipMedia
   Только собрать boot.wim, флешку не трогать (для отладки образа).
 
@@ -54,6 +59,7 @@ param(
     [ValidateSet(32, 64, 128, 256, 512, 1024)]
     [int]$ScratchMb = 1024,
     [switch]$SkipMedia,
+    [switch]$ReuseImage,
     [switch]$Force
 )
 
@@ -127,20 +133,33 @@ if (-not $SkipMedia) {
 
 # --- 1. Чистый образ PE из ADK ------------------------------------------------
 
-if (Test-Path $Work) {
+# -ReuseImage: образ уже собран (пакеты, драйверы, startnet) — пересобирать его
+# 20+ минут незачем, когда надо просто перезалить затёртую флешку или обновить
+# агента на ней. Проверяем только, что media от прошлой сборки на месте.
+$bootWim = Join-Path $Work "media\sources\boot.wim"
+$mount = Join-Path $Work "mount"
+
+if ($ReuseImage) {
+    if (-not (Test-Path $bootWim)) {
+        throw "-ReuseImage: нет готового образа $bootWim. Прогони сборку без -ReuseImage."
+    }
+    Write-Host "-- беру готовый образ $bootWim (собран $((Get-Item $bootWim).LastWriteTime))" -ForegroundColor Yellow
+    Write-Host "   пакеты/драйверы/startnet идут из него как есть, пересборки нет"
+}
+elseif (Test-Path $Work) {
     Write-Host "-- чищу рабочую папку $Work"
     # Хвост от прерванной сборки: примонтированный образ иначе держит папку.
     & dism.exe /English /Cleanup-Wim | Out-Null
     Remove-Item $Work -Recurse -Force
 }
 
+if (-not $ReuseImage) {
+
 Write-Host "-- copype amd64 -> $Work"
 $copype = "call `"$dandi`" && copype amd64 `"$Work`""
 & cmd.exe /c $copype
 if ($LASTEXITCODE -ne 0) { throw "copype упал (код $LASTEXITCODE)" }
 
-$bootWim = Join-Path $Work "media\sources\boot.wim"
-$mount = Join-Path $Work "mount"
 if (-not (Test-Path $bootWim)) { throw "copype не создал $bootWim" }
 
 Write-Host "-- монтирую boot.wim -> $mount"
@@ -261,6 +280,8 @@ echo.
         & dism.exe /English /Unmount-Image /MountDir:"$mount" /Discard 2>&1 | Out-Null
     }
 }
+
+} # if (-not $ReuseImage)
 
 # --- 6. Запись на флешку ------------------------------------------------------
 
