@@ -54,6 +54,44 @@ public static class ErpRest
     public static bool IsCallable(string tool)
         => tool == SzGetTool || tool.StartsWith("api.", StringComparison.Ordinal);
 
+    /// <summary>
+    /// Аргументы `sz call`: `ключ=значение` через пробел (`order_id=1951256 limit=5`) либо один
+    /// json-объект. Основная форма — ключ=значение: json из PowerShell через `szcli.cmd` теряет
+    /// внутренние кавычки (сессия Desk на этом споткнулась, бэклог п.269), а у `ключ=значение`
+    /// экранировать нечего. Числа и true/false уходят как json-числа и булевы.
+    /// </summary>
+    /// <returns>Аргументы (null — без аргументов) либо текст ошибки для человека.</returns>
+    public static (object? Args, string? Error) ParseCallArgs(IReadOnlyList<string> args)
+    {
+        if (args.Count == 0) return (null, null);
+
+        if (args.Count == 1 && args[0].TrimStart().StartsWith('{'))
+        {
+            try
+            {
+                using var document = JsonDocument.Parse(args[0]);
+                if (document.RootElement.ValueKind == JsonValueKind.Object)
+                    return (document.RootElement.Clone(), null);
+            }
+            catch (JsonException) { }
+            return (null, "json не разобран (из PowerShell кавычки срезаются) — передай аргументы "
+                + "как ключ=значение, например: sz call api.order order_id=1951256");
+        }
+
+        var result = new Dictionary<string, object>(StringComparer.Ordinal);
+        foreach (var arg in args)
+        {
+            var at = arg.IndexOf('=');
+            if (at <= 0)
+                return (null, $"«{arg}» — не ключ=значение, например: sz call api.order order_id=1951256");
+            var value = arg[(at + 1)..];
+            result[arg[..at]] = long.TryParse(value, out var number) ? number
+                : bool.TryParse(value, out var flag) ? flag
+                : value;
+        }
+        return (result, null);
+    }
+
     /// <summary>Словарь статусов заявки Telemart (`ServiceRequestState`).</summary>
     public static string RequestState(string id) => id switch
     {

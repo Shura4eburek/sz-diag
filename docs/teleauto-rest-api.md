@@ -290,7 +290,7 @@ POST /call
 |---|---|
 | `szcli sz get <СЗ> [--json]` | `sz.get`: сводка в терминал (дефект, коментар, состав, другие СЗ, подсказка про историю клиента); сырой ответ — `kb/СЗ/<номер>/erp-rest.json`. `--json` — вывести сырой ответ вместо сводки |
 | `szcli sz orders <СЗ\|телефон> [--limit N] [--json]` | `api.customer.orders`: 6 цифр — номер СЗ (телефон берётся из заявки), иначе телефон в любом виде |
-| `szcli sz call <инструмент> ['<json>']` | любой `sz.get` / `api.*`, ответ — json как есть. UI-инструменты (`session.*`, `filters.*`, `sz.fetch`…) не пускает: код `2` |
+| `szcli sz call <инструмент> [ключ=значение ...]` | любой `sz.get` / `api.*`, ответ — json как есть. Аргументы — `ключ=значение` (числа и true/false — как числа и булевы); один json-объект тоже принимается, но из PowerShell через `szcli.cmd` его кавычки срезаются. UI-инструменты (`session.*`, `filters.*`, `sz.fetch`…) не пускает: код `2` |
 
 `sz get` в kb пишет **только** `erp-rest.json`: `erp.json`, блок `erp:початок/кінець` в
 `запит.md` и frontmatter остаются за `sz fetch`.
@@ -298,6 +298,7 @@ POST /call
 ```powershell
 szcli sz get 161716
 szcli sz orders 161211 --limit 20
-szcli sz call api.order '{"order_id": 1951256}'
-szcli sz call api.assembled_computer '{"series": "1521343-29721"}'
+szcli sz call api.order order_id=1951256
+szcli sz call api.assembled_computer series=1521343-29721
+szcli sz call api.discussions number=160753
 ```

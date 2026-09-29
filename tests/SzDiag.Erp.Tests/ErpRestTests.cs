@@ -138,6 +138,43 @@ public class ErpRestTests : IDisposable
             new JsonSerializerOptions { Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping }));
 
     [Fact]
+    public void Аргументы_ключ_значение_становятся_json_с_типами()
+    {
+        var (args, error) = ErpRest.ParseCallArgs(["order_id=1951256", "series=1521343-29721", "verbose=true"]);
+
+        Assert.Null(error);
+        Assert.Equal("""{"order_id":1951256,"series":"1521343-29721","verbose":true}""",
+            JsonSerializer.Serialize(args));
+    }
+
+    [Fact]
+    public void Json_объект_тоже_принимается()
+    {
+        var (args, error) = ErpRest.ParseCallArgs(["""{"number": 163419}"""]);
+
+        Assert.Null(error);
+        Assert.Equal(163419, ((JsonElement)args!).GetProperty("number").GetInt32());
+    }
+
+    [Theory]
+    // Так json доезжает из PowerShell через szcli.cmd: внутренние кавычки срезаны (бэклог п.269).
+    [InlineData("{number: 163419}")]
+    [InlineData("[1,2]")]
+    [InlineData("order_id")]
+    [InlineData("=1951256")]
+    public void Кривые_аргументы_дают_подсказку_про_ключ_значение(string raw)
+    {
+        var (args, error) = ErpRest.ParseCallArgs([raw]);
+
+        Assert.Null(args);
+        Assert.Contains("order_id=1951256", error);
+    }
+
+    [Fact]
+    public void Без_аргументов_вызов_без_аргументов()
+        => Assert.Equal((null, null), ErpRest.ParseCallArgs([]));
+
+    [Fact]
     public void Сырой_ответ_ложится_рядом_с_заметками_и_не_трогает_erp_json()
     {
         var path = SzGetWriter.Save(_root, "163419", """{"request":{}}""");

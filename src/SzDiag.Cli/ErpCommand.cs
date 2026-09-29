@@ -58,7 +58,7 @@ public static class ErpCommand
             "release" => await ReleaseAsync(options),
             "get" when args.Length >= 2 => await GetAsync(args[1], args.Contains("--json"), options),
             "orders" when args.Length >= 2 => await OrdersAsync(args[1], LimitArg(args), args.Contains("--json"), options),
-            "call" when args.Length >= 2 => await CallAsync(args[1], args.Length >= 3 ? args[2] : null, options),
+            "call" when args.Length >= 2 => await CallAsync(args[1], args[2..], options),
             _ => Unknown(),
         };
 
@@ -150,7 +150,7 @@ public static class ErpCommand
     }
 
     /// <summary>`sz call`: сквозной вызов REST-инструмента, ответ — json как есть.</summary>
-    private static async Task<int> CallAsync(string tool, string? argsJson, CliOptions options)
+    private static async Task<int> CallAsync(string tool, string[] rawArgs, CliOptions options)
     {
         if (!ErpRest.IsCallable(tool))
         {
@@ -159,22 +159,11 @@ public static class ErpCommand
             return 2;
         }
 
-        JsonElement? args = null;
-        if (!string.IsNullOrWhiteSpace(argsJson))
+        var (args, error) = ErpRest.ParseCallArgs(rawArgs);
+        if (error is not null)
         {
-            try
-            {
-                using var document = JsonDocument.Parse(argsJson);
-                if (document.RootElement.ValueKind != JsonValueKind.Object)
-                    throw new JsonException();
-                args = document.RootElement.Clone();
-            }
-            catch (JsonException)
-            {
-                AnsiConsole.MarkupLine("[red]Аргументы — json-объект[/], например "
-                    + "[grey]'{\"order_id\": 1951256}'[/].");
-                return 2;
-            }
+            AnsiConsole.MarkupLineInterpolated($"[red]Аргументы не разобраны:[/] {error}");
+            return 2;
         }
 
         JsonElement result;
@@ -334,8 +323,9 @@ public static class ErpCommand
           szcli sz get <СЗ> [--json]      всё по заявке через REST: дефект, состав ПК, повторные СЗ
           szcli sz orders <СЗ|телефон> [--limit N] [--json]
                                           заказы клиента по телефону, с товарами
-          szcli sz call <инструмент> ['<json>']
-                                          сквозной вызов sz.get / api.*, ответ — json
+          szcli sz call <инструмент> [ключ=значение ...]
+                                          сквозной вызов sz.get / api.*, ответ — json;
+                                          например: sz call api.order order_id=1951256
 
         sz fetch: --force перебивает уже заполненные поля frontmatter (по умолчанию не трогаются).
         Вызов занимает несколько минут и кликает по чужому интерфейсу физически:

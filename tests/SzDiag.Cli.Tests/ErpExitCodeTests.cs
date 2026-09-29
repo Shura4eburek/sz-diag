@@ -37,9 +37,9 @@ public class ErpExitCodeTests
     }
 
     [Fact]
-    public async Task sz_call_требует_json_объект_в_аргументах()
+    public async Task sz_call_отклоняет_json_со_срезанными_кавычками()
     {
-        var code = await ErpCommand.RunAsync(["call", "api.order", "[1,2]"], new CliOptions());
+        var code = await ErpCommand.RunAsync(["call", "api.order", "{order_id: 1951256}"], new CliOptions());
         Assert.Equal(2, code);
     }
 

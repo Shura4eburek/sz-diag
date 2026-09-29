@@ -1131,7 +1131,7 @@ static void PrintUsage()
               [yellow]szcli sz get[/] [blue]<СЗ>[/] [grey][[--json]][/]  заявка через REST TeleAuto: дефект, состав ПК, повторные СЗ
                 [grey]без окон и захвата, за секунды; сырой ответ — kb\СЗ\<номер>\erp-rest.json[/]
               [yellow]szcli sz orders[/] [blue]<СЗ|телефон>[/] [grey][[--limit N]] [[--json]][/]  заказы клиента, с товарами
-              [yellow]szcli sz call[/] [grey]<sz.get|api.*> ['<json>'][/]  сквозной вызов REST-инструмента
+              [yellow]szcli sz call[/] [grey]<sz.get|api.*> [[ключ=значение ...]][/]  сквозной вызов REST-инструмента
               [yellow]szcli sensors[/] [grey]start|status|stop <СЗ> | report <csv>[/]
                 [grey]наблюдатель нагрузки (CSV построчно, переживает вырубон) и его разбор[/]
               [yellow]szcli disk scan[/] [blue]<СЗ>[/] [grey][[--map|--zone НАЧАЛО-КОНЕЦ]] [[--drive N]] [[--minutes N]][/]

@@ -295,7 +295,7 @@ IP и пинг hub; ручной повтор — команда `net-up`. Но�
   по телефону) отдаёт **REST-путь** — `sz.get` и `api.*`, без кликов, захвата и за секунды;
   `sz fetch` становится запасным. Команды: `szcli sz get <СЗ> [--json]` (сводка, сырой ответ в
   `kb/СЗ/<номер>/erp-rest.json` — `erp.json` и блок `erp:` остаются за `sz fetch`),
-  `szcli sz orders <СЗ|телефон> [--limit N] [--json]`, `szcli sz call <sz.get|api.*> ['<json>']`
+  `szcli sz orders <СЗ|телефон> [--limit N] [--json]`, `szcli sz call <sz.get|api.*> [ключ=значение ...]`
   (UI-инструменты туда не пускаются). Без `ErpSession`, таймаут 120 с. Коды сверх `sz fetch`:
   8 TeleAuto без PIN · 9 нет VPN · 10 токен не выдан. Как читать ответ —
   [docs/teleauto-rest-api.md](docs/teleauto-rest-api.md).
