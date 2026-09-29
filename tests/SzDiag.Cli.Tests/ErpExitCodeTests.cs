@@ -16,11 +16,32 @@ public class ErpExitCodeTests
     [InlineData("not_found", 6)]
     [InlineData("ambiguous", 6)]
     [InlineData("anchor_missing", 7)]
+    [InlineData("locked", 8)]
+    [InlineData("unreachable", 9)]
+    [InlineData("auth_failed", 10)]
+    [InlineData("api_error", 1)]
     [InlineData("timeout", 1)]
     [InlineData("internal", 1)]
     [InlineData("что-то новое", 1)]
     public void Код_апи_превращается_в_код_возврата(string apiCode, int expected)
         => Assert.Equal(expected, ErpCommand.ExitCodeFor(apiCode));
+
+    [Theory]
+    [InlineData("session.begin")]
+    [InlineData("sz.fetch")]
+    public async Task sz_call_не_пускает_инструменты_которые_кликают(string tool)
+    {
+        // Проверка до обращения к API: конфиг пустой, и до сети дело дойти не должно.
+        var code = await ErpCommand.RunAsync(["call", tool], new CliOptions());
+        Assert.Equal(2, code);
+    }
+
+    [Fact]
+    public async Task sz_call_требует_json_объект_в_аргументах()
+    {
+        var code = await ErpCommand.RunAsync(["call", "api.order", "[1,2]"], new CliOptions());
+        Assert.Equal(2, code);
+    }
 
     [Fact]
     public void Команда_sz_числится_известной()

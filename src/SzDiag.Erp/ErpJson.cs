@@ -26,7 +26,7 @@ public static class ErpJson
         Str(node, "summary"),
         Components(Node(node, "components")));
 
-    private static JsonElement? Node(JsonElement? parent, string name)
+    internal static JsonElement? Node(JsonElement? parent, string name)
     {
         if (parent is not { ValueKind: JsonValueKind.Object } obj) return null;
         if (!obj.TryGetProperty(name, out var child)) return null;
@@ -68,7 +68,7 @@ public static class ErpJson
     }
 
     /// <summary>Значения приводим к строке: на той стороне числа и строки перемешаны.</summary>
-    private static string Scalar(JsonElement value) => value.ValueKind switch
+    internal static string Scalar(JsonElement value) => value.ValueKind switch
     {
         JsonValueKind.String => value.GetString() ?? "",
         JsonValueKind.Null or JsonValueKind.Undefined => "",

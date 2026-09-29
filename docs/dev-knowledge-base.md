@@ -356,6 +356,13 @@ staging) → `AgentLauncher.LaunchAndWait` (запуск `agent.exe` в насл
   поднят либо нет токена · `4` учётная программа не запущена или без логина · `5` захват
   занят (лечится `sz release`) · `6` не найдено либо неоднозначно · `7` интерфейс не
   распознан (обычно поверх висит окно с описанием обновления).
+- `sz get <СЗ> [--json]` · `sz orders <СЗ|телефон> [--limit N] [--json]` ·
+  `sz call <sz.get|api.*> ['<json>']` — REST-путь TeleAuto v1.6.0+ (`ErpRest`): бэкенд Telemart
+  напрямую, без окон, захвата и `ErpSession`, таймаут 120 с. `sz get` пишет сырой ответ в
+  `kb/СЗ/<номер>/erp-rest.json` (не `erp.json`: у `sz fetch` там другая форма) и больше ничего
+  в kb не трогает. `sz call` пускает только `sz.get` и `api.*` — UI-инструменты кликают по экрану.
+  Коды сверх `sz fetch`: `8` TeleAuto без PIN (`locked`) · `9` нет VPN (`unreachable`) ·
+  `10` токен не выдан (`auth_failed`). Поля и ветки состава — `docs/teleauto-rest-api.md`.
 
 ## KB (`SzDiag.Kb`, Obsidian-vault, корень `kb/` — в .gitignore)
 
