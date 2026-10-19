@@ -219,6 +219,7 @@ $staleDirs = @()   # компоненты, оставшиеся на старо�
 # «перенос из прежнего конфига» читал уже его — и туннель/токен молча терялись (бэклог п.265).
 $prevHubCfgText = if (Test-Path dist\host\hub\appsettings.json) { Get-Content dist\host\hub\appsettings.json -Raw } else { $null }
 $prevClientCfgText = if (Test-Path dist\client\appsettings.json) { Get-Content dist\client\appsettings.json -Raw } else { $null }
+$prevCliCfgText = if (Test-Path dist\host\cli\appsettings.json) { Get-Content dist\host\cli\appsettings.json -Raw } else { $null }
 
 foreach ($p in @(
     @{ Project = "src/SzDiag.Hub"; Out = "dist/host/hub" },
@@ -426,7 +427,23 @@ if ((Test-Path dist\host\hub) -and (Should-WriteConfig "dist/host/hub")) {
 # раза, а не `ssh user@ip` без -i (бэклог п.118).
 $sshKeyAbs = (Resolve-Path secrets\svc_diag_key).Path -replace '\\', '\\'
 $erpBaseUrl = if ($ErpPort -gt 0) { "http://127.0.0.1:$ErpPort" } else { "" }
-$erpToken = $ErpTokenFile -replace '\\', '\\'
+$erpTokenFile = $ErpTokenFile
+# Секцию Erp без параметров переносим из прежнего конфига: пересборка без -ErpPort молча
+# обнуляла её, и `sz get`/`sz fetch` падали exit 3 уже на живой заявке (бэклог п.244, п.285).
+if ($prevCliCfgText -and (-not $erpBaseUrl -or -not $erpTokenFile)) {
+    try {
+        $prevErp = ($prevCliCfgText | ConvertFrom-Json).Erp
+        if ($prevErp) {
+            if (-not $erpBaseUrl)   { $erpBaseUrl   = [string]$prevErp.BaseUrl }
+            if (-not $erpTokenFile) { $erpTokenFile = [string]$prevErp.TokenFile }
+        }
+    } catch {
+        Write-Host "   ВНИМАНИЕ: прежний appsettings.json szcli не разобран — секция Erp не перенесена." -ForegroundColor Yellow
+    }
+}
+if ($erpBaseUrl) { Write-Host "-- ERP: $erpBaseUrl" }
+else { Write-Host "-- ERP не настроен: sz get/fetch дадут exit 3 — пересобери с -ErpPort <порт> -ErpTokenFile <путь> (порт: Get-NetTCPConnection -State Listen по процессу TeleAuto)" -ForegroundColor Yellow }
+$erpToken = $erpTokenFile -replace '\\', '\\'
 $cliCfg = @"
 {
   "HubBaseUrl": "http://localhost:$Port",
