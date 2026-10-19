@@ -108,6 +108,16 @@ public sealed partial class MainViewModel : ObservableObject
 
     partial void OnActiveChatChanged(ChatViewModel? value) => NotifyCenter();
 
+    /// <summary>«Открыть заявку»: снять выбор (живой и архивной СЗ) и вернуть пустой экран с полем
+    /// номера — иначе после архива или живой СЗ к сессии без агента не попасть.</summary>
+    [RelayCommand]
+    private void OpenSz()
+    {
+        Selected = null;
+        SelectedArchived = null;
+        OfflineSzError = null;
+    }
+
     private void NotifyCenter()
     {
         OnPropertyChanged(nameof(CanStartSession));

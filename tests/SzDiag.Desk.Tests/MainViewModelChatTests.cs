@@ -63,6 +63,25 @@ public class MainViewModelChatTests : IDisposable
         Assert.NotEqual(SessionState.Archived, _h.Services.Sessions.Peek("162001")!.State);
     }
 
+    /// <summary>После выбора архивной СЗ к пустому экрану с полем номера не вернуться было никак.</summary>
+    [Fact]
+    public void OpenSz_FromArchived_ReturnsToPlaceholder()
+    {
+        var vm = New();
+        vm.Apply(Snap(S("161432")));
+        vm.OfflineSz = "162001";
+        vm.StartOfflineSessionCommand.Execute("claude2");
+        Assert.NotNull(vm.SelectedArchived);
+        Assert.False(vm.ShowPlaceholder);
+
+        vm.OpenSzCommand.Execute(null);
+
+        Assert.Null(vm.SelectedArchived);
+        Assert.Null(vm.Selected);
+        Assert.Null(vm.ActiveChat);
+        Assert.True(vm.ShowPlaceholder);
+    }
+
     [Fact]
     public void OfflineSession_BadNumber_ErrorNoSession()
     {
