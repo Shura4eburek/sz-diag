@@ -23,6 +23,13 @@ public partial class MainWindow : Window
         // Узкое окно: инспектор не сжимает чат, а ложится поверх него плавающим слоем (с тенью) —
         // переключатель в шапке продолжает работать при любой ширине.
         SizeChanged += (_, e) => SetInspectorOverlay(e.NewSize.Width < InspectorMinWindowWidth);
+        // Развёрнутое окно без системной рамки уходит за экран на толщину рамки — отступаем на неё,
+        // иначе край островов, иконка тулбара и статус-бар обрезаны.
+        PropertyChanged += (_, e) =>
+        {
+            if (e.Property == OffScreenMarginProperty || e.Property == WindowStateProperty)
+                Root.Margin = WindowState == WindowState.Maximized ? OffScreenMargin : default;
+        };
     }
 
     private void SetInspectorOverlay(bool overlay)

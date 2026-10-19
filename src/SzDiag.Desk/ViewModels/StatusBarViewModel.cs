@@ -114,7 +114,8 @@ public sealed partial class StatusBarViewModel : ObservableObject
         return (string.Join(" · ", parts), warn);
     }
 
-    private static readonly CultureInfo Ru = CultureInfo.GetCultureInfo("ru-RU");
+    /// <summary>Явная запятая, а не культура ru-RU: на боксе Desk показал «$0.00» при зелёных тестах.</summary>
+    private static readonly NumberFormatInfo Ru = new() { NumberDecimalSeparator = "," };
 
     public static string FormatTokens(TokenUsage u, decimal cost)
     {
