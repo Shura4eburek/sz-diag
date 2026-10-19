@@ -4,7 +4,7 @@
         xmlns:vm="using:SzDiag.Desk.ViewModels"
         x:Class="SzDiag.Desk.Views.MainWindow"
         x:DataType="vm:MainViewModel"
-        Title="SzDiag" Width="1280" Height="780" MinWidth="900" MinHeight="520"
+        Title="SzDiag" Icon="/Assets/szdiag.ico" Width="1280" Height="780" MinWidth="900" MinHeight="520"
         ExtendClientAreaToDecorationsHint="True"
         ExtendClientAreaChromeHints="NoChrome"
         ExtendClientAreaTitleBarHeightHint="40">

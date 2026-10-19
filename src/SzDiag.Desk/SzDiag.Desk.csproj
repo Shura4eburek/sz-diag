@@ -5,6 +5,8 @@
     <EmbeddedResource Include="Assets\sz-session-CLAUDE.md" LogicalName="sz-session-CLAUDE.md" />
     <!-- Шрифты дизайн-системы Shirabe внутри exe: бокс может быть без интернета и без них в системе. -->
     <AvaloniaResource Include="Assets\Fonts\*.ttf" />
+    <!-- Иконка — тот же знак «пульс», что в тулбаре окна (Icon.Pulse на Bg.Surface1). -->
+    <AvaloniaResource Include="Assets\szdiag.ico" />
   </ItemGroup>
 
   <ItemGroup>
@@ -40,6 +42,7 @@
     <Nullable>enable</Nullable>
     <AvaloniaUseCompiledBindingsByDefault>true</AvaloniaUseCompiledBindingsByDefault>
     <ApplicationManifest>app.manifest</ApplicationManifest>
+    <ApplicationIcon>Assets\szdiag.ico</ApplicationIcon>
     <!-- Skia/HarfBuzz — нативные dll; без этого single-file публикация кладёт их рядом россыпью -->
     <IncludeNativeLibrariesForSelfExtract>true</IncludeNativeLibrariesForSelfExtract>
   </PropertyGroup>
