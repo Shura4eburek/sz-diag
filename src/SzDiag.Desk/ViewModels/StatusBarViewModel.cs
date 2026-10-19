@@ -114,12 +114,15 @@ public sealed partial class StatusBarViewModel : ObservableObject
         return (string.Join(" · ", parts), warn);
     }
 
+    private static readonly CultureInfo Ru = CultureInfo.GetCultureInfo("ru-RU");
+
     public static string FormatTokens(TokenUsage u, decimal cost)
     {
         var t = u.Total;
-        var n = t >= 1_000_000 ? (t / 1_000_000d).ToString("0.0", CultureInfo.InvariantCulture) + "M"
-            : t >= 1_000 ? (t / 1_000d).ToString("0.0", CultureInfo.InvariantCulture) + "K"
+        // Тон Shirabe: десятичная запятая, токены — `184,2k`, `1,21M`, стоимость — `$2,84`.
+        var n = t >= 1_000_000 ? (t / 1_000_000d).ToString("0.0", Ru) + "M"
+            : t >= 1_000 ? (t / 1_000d).ToString("0.0", Ru) + "k"
             : t.ToString(CultureInfo.InvariantCulture);
-        return $"токены сегодня: {n} · ${cost.ToString("0.00", CultureInfo.InvariantCulture)}";
+        return $"токены сегодня: {n} · ${cost.ToString("0.00", Ru)}";
     }
 }

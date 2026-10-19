@@ -56,8 +56,8 @@ public class MainViewModelPeerTests : IDisposable
 
         var reply = _h.Peers.AskAsync("161432", "161501", "?", live: true, default);
         vm.Apply(Snap(S("161432"), S("161501")));   // точки сессий обновляет опрос (чаты не открыты)
-        Assert.Equal("💬161501", vm.Items.Single(i => i.Sz == "161432").PeerText);
-        Assert.Equal("💬161432", vm.Items.Single(i => i.Sz == "161501").PeerText);
+        Assert.Equal("161501", vm.Items.Single(i => i.Sz == "161432").PeerText);
+        Assert.Equal("161432", vm.Items.Single(i => i.Sz == "161501").PeerText);
         Assert.Equal(SessionState.AnsweringPeer, vm.Items.Single(i => i.Sz == "161501").SessionState);
 
         _h.Last.Exit(1);   // сосед упал — пара снимается

@@ -1,66 +1,269 @@
 <Styles xmlns="https://github.com/avaloniaui"
-        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:v="using:SzDiag.Desk.Views">
+  <!-- Компоненты дизайн-системы Shirabe поверх шаблонов Fluent. Пять состояний: default /
+       hover / active (pressed, checked, selected) / disabled / focus. -->
+
   <Style Selector="Window">
-    <Setter Property="FontFamily" Value="{StaticResource UiFont}" />
-    <Setter Property="FontSize" Value="12.5" />
+    <Setter Property="FontFamily" Value="{StaticResource Font.Ui}" />
+    <Setter Property="FontSize" Value="13" />
     <Setter Property="Foreground" Value="{StaticResource Text.Primary}" />
-    <Setter Property="Background" Value="{StaticResource Bg.Window}" />
+    <Setter Property="Background" Value="{StaticResource Bg.Base}" />
+  </Style>
+  <Style Selector="TextBlock, SelectableTextBlock">
+    <Setter Property="FontFeatures" Value="+tnum" />
   </Style>
 
-  <!-- Кнопки окна: вариант 2 макета — скруглённая плашка при наведении. -->
-  <Style Selector="Button.caption">
-    <Setter Property="Width" Value="34" />
-    <Setter Property="Height" Value="28" />
-    <Setter Property="CornerRadius" Value="6" />
+  <!-- Поверхности. У островов теней нет; тень — только у плавающих слоёв. -->
+  <Style Selector="Border.island">
+    <Setter Property="Background" Value="{StaticResource Bg.Surface1}" />
+    <Setter Property="CornerRadius" Value="{StaticResource Radius.Island}" />
+    <Setter Property="ClipToBounds" Value="True" />
+  </Style>
+  <!-- Инспектор поверх чата в узком окне — плавающий слой: shadow.popup и рамка. Ниже шапки чата
+       (40 + линия), чтобы переключатель инспектора в ней оставался доступен. -->
+  <Style Selector="Border.island.overlay">
+    <Setter Property="Margin" Value="0,41,0,0" />
+    <Setter Property="BoxShadow" Value="0 8 24 0 #80000000" />
+    <Setter Property="BorderBrush" Value="{StaticResource Border.Default}" />
+    <Setter Property="BorderThickness" Value="1" />
+    <Setter Property="ClipToBounds" Value="False" />
+  </Style>
+  <Style Selector="Border.card">
+    <Setter Property="Background" Value="{StaticResource Bg.Surface2}" />
+    <Setter Property="BorderBrush" Value="{StaticResource Border.Default}" />
+    <Setter Property="BorderThickness" Value="1" />
+    <Setter Property="CornerRadius" Value="{StaticResource Radius.Lg}" />
+    <Setter Property="Padding" Value="12,8" />
+  </Style>
+  <Style Selector="Border.card.approval">
+    <Setter Property="BorderBrush" Value="{StaticResource Status.Approval}" />
+  </Style>
+  <Style Selector="Border.card.error">
+    <Setter Property="BorderBrush" Value="{StaticResource Status.Error}" />
+  </Style>
+  <Style Selector="Border.code">
+    <Setter Property="Background" Value="{StaticResource Bg.Code}" />
+    <Setter Property="BorderBrush" Value="{StaticResource Border.Subtle}" />
+    <Setter Property="BorderThickness" Value="1" />
+    <Setter Property="CornerRadius" Value="{StaticResource Radius.Md}" />
+    <Setter Property="Padding" Value="8,6" />
+  </Style>
+  <Style Selector="Border.badge">
+    <Setter Property="Background" Value="{StaticResource Bg.Surface2}" />
+    <Setter Property="CornerRadius" Value="{StaticResource Radius.Xs}" />
+    <Setter Property="Padding" Value="4,1" />
+    <Setter Property="VerticalAlignment" Value="Center" />
+  </Style>
+
+  <!-- Иконки: линия 1,2 цветом текста родителя. -->
+  <Style Selector="Path.icon">
+    <Setter Property="Width" Value="16" />
+    <Setter Property="Height" Value="16" />
+    <Setter Property="Stretch" Value="None" />
+    <Setter Property="StrokeThickness" Value="1.2" />
+    <Setter Property="StrokeLineCap" Value="Round" />
+    <Setter Property="StrokeJoin" Value="Round" />
+    <!-- Наследуемый TextElement.Foreground: его выставляет ContentPresenter кнопки (и в hover). -->
+    <Setter Property="Stroke" Value="{Binding $self.(TextElement.Foreground)}" />
+    <Setter Property="VerticalAlignment" Value="Center" />
+  </Style>
+  <!-- Масштаб от левого верхнего угла: коробка 14 (24) совпадает с нарисованным, без сдвига. -->
+  <Style Selector="Path.icon.sm">
+    <Setter Property="Width" Value="14" />
+    <Setter Property="Height" Value="14" />
+    <Setter Property="RenderTransformOrigin" Value="0,0" />
+    <Setter Property="RenderTransform" Value="scale(0.875)" />
+  </Style>
+  <!-- Иконка пустого состояния (EmptyStates) — 24px, только украшение. -->
+  <Style Selector="Path.icon.lg">
+    <Setter Property="Width" Value="24" />
+    <Setter Property="Height" Value="24" />
+    <Setter Property="RenderTransformOrigin" Value="0,0" />
+    <Setter Property="RenderTransform" Value="scale(1.5)" />
+    <Setter Property="Margin" Value="0,0,0,4" />
+  </Style>
+  <Style Selector="Path.icon.fill">
+    <Setter Property="Fill" Value="{Binding $self.Stroke}" />
+  </Style>
+
+  <!-- Button: по умолчанию вторичная — прозрачная с рамкой border.control. -->
+  <Style Selector="Button">
+    <Setter Property="MinHeight" Value="{StaticResource Size.Control}" />
+    <Setter Property="Padding" Value="10,0" />
+    <Setter Property="CornerRadius" Value="{StaticResource Radius.Sm}" />
+    <Setter Property="BorderThickness" Value="1" />
+    <Setter Property="FontWeight" Value="Medium" />
+    <Setter Property="VerticalContentAlignment" Value="Center" />
+  </Style>
+  <Style Selector="Button.primary">
+    <Setter Property="Background" Value="{StaticResource Accent.Default}" />
+    <Setter Property="Foreground" Value="{StaticResource Text.OnAccent}" />
+    <Setter Property="BorderThickness" Value="0" />
+  </Style>
+  <Style Selector="Button.primary:pointerover /template/ ContentPresenter">
+    <Setter Property="Background" Value="{StaticResource Accent.Hover}" />
+    <Setter Property="Foreground" Value="{StaticResource Text.OnAccent}" />
+  </Style>
+  <Style Selector="Button.primary:pressed /template/ ContentPresenter">
+    <Setter Property="Background" Value="{StaticResource Accent.Pressed}" />
+    <Setter Property="Foreground" Value="{StaticResource Text.OnAccent}" />
+  </Style>
+  <Style Selector="Button.primary:disabled /template/ ContentPresenter">
+    <Setter Property="Background" Value="{StaticResource Bg.Pressed}" />
+    <Setter Property="Foreground" Value="{StaticResource Text.Disabled}" />
+  </Style>
+  <Style Selector="Button.ghost">
+    <Setter Property="BorderThickness" Value="0" />
+  </Style>
+  <Style Selector="Button.danger">
+    <Setter Property="Foreground" Value="{StaticResource Status.Error}" />
+    <Setter Property="BorderBrush" Value="{StaticResource Status.Error}" />
+  </Style>
+  <Style Selector="Button.danger:pointerover /template/ ContentPresenter">
+    <Setter Property="Background" Value="{StaticResource Bg.Danger}" />
+    <Setter Property="BorderBrush" Value="{StaticResource Bg.Danger}" />
+    <Setter Property="Foreground" Value="{StaticResource Text.OnAccent}" />
+  </Style>
+  <!-- «Стоп»: прервать работающего агента — текст и иконка status.error. -->
+  <Style Selector="Button.stop">
+    <Setter Property="Foreground" Value="{StaticResource Status.Error}" />
+  </Style>
+  <Style Selector="Button.icon">
+    <Setter Property="BorderThickness" Value="0" />
     <Setter Property="Padding" Value="0" />
-    <Setter Property="Background" Value="Transparent" />
-    <Setter Property="Foreground" Value="#9a9ba3" />
+    <Setter Property="Width" Value="{StaticResource Size.Control}" />
+    <Setter Property="Height" Value="{StaticResource Size.Control}" />
+    <Setter Property="HorizontalContentAlignment" Value="Center" />
+    <Setter Property="Foreground" Value="{StaticResource Text.Secondary}" />
+  </Style>
+  <Style Selector="Button.icon:pointerover /template/ ContentPresenter">
+    <Setter Property="Foreground" Value="{StaticResource Text.Primary}" />
+  </Style>
+  <Style Selector="Button.sm">
+    <Setter Property="MinHeight" Value="{StaticResource Size.ControlSm}" />
+    <Setter Property="Padding" Value="8,0" />
+    <Setter Property="FontSize" Value="12" />
+  </Style>
+  <!-- Строка-кнопка (заголовок ToolCall): без рамки, на всю ширину. -->
+  <Style Selector="Button.row">
+    <Setter Property="BorderThickness" Value="0" />
+    <Setter Property="Padding" Value="8,0" />
+    <Setter Property="MinHeight" Value="{StaticResource Size.Row}" />
+    <Setter Property="HorizontalAlignment" Value="Stretch" />
+    <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+    <Setter Property="FontWeight" Value="Normal" />
+  </Style>
+
+  <!-- Кнопки окна: 46×40 без скругления, у «Закрыть» — bg.danger. -->
+  <Style Selector="Button.caption">
+    <Setter Property="Width" Value="46" />
+    <Setter Property="Height" Value="{StaticResource Size.Toolbar}" />
+    <Setter Property="MinHeight" Value="0" />
+    <Setter Property="CornerRadius" Value="0" />
+    <Setter Property="BorderThickness" Value="0" />
+    <Setter Property="Padding" Value="0" />
+    <Setter Property="Foreground" Value="{StaticResource Text.Secondary}" />
+    <Setter Property="HorizontalContentAlignment" Value="Center" />
+  </Style>
+  <Style Selector="Button.caption:pointerover /template/ ContentPresenter">
+    <Setter Property="Foreground" Value="{StaticResource Text.Primary}" />
+  </Style>
+  <Style Selector="Button.caption.close:pointerover /template/ ContentPresenter">
+    <Setter Property="Background" Value="{StaticResource Bg.Danger}" />
+    <Setter Property="Foreground" Value="{StaticResource Text.OnAccent}" />
+  </Style>
+
+  <!-- Иконка-переключатель (инспектор): включённый — accent.subtle + accent.text. -->
+  <Style Selector="ToggleButton.icon">
+    <Setter Property="Width" Value="{StaticResource Size.Control}" />
+    <Setter Property="Height" Value="{StaticResource Size.Control}" />
+    <Setter Property="MinHeight" Value="0" />
+    <Setter Property="CornerRadius" Value="{StaticResource Radius.Sm}" />
+    <Setter Property="Padding" Value="0" />
+    <Setter Property="BorderThickness" Value="0" />
+    <Setter Property="Foreground" Value="{StaticResource Text.Secondary}" />
     <Setter Property="HorizontalContentAlignment" Value="Center" />
     <Setter Property="VerticalContentAlignment" Value="Center" />
   </Style>
-  <Style Selector="Button.caption:pointerover /template/ ContentPresenter">
-    <Setter Property="Background" Value="{StaticResource Bg.Hover}" />
+
+  <!-- Поле: 28px, bg.surface-2, рамка border.control; ошибка — рамка status.error. -->
+  <Style Selector="TextBox">
+    <Setter Property="MinHeight" Value="{StaticResource Size.Control}" />
+    <Setter Property="Padding" Value="8,5" />
+    <Setter Property="CornerRadius" Value="{StaticResource Radius.Sm}" />
+    <Setter Property="FontSize" Value="13" />
+    <Setter Property="VerticalContentAlignment" Value="Center" />
   </Style>
-  <Style Selector="Button.caption.close:pointerover /template/ ContentPresenter">
-    <Setter Property="Background" Value="{StaticResource CloseHover}" />
+  <Style Selector="TextBox.error /template/ Border#PART_BorderElement">
+    <Setter Property="BorderBrush" Value="{StaticResource Status.Error}" />
   </Style>
-  <Style Selector="Button.caption.close:pointerover Path">
-    <Setter Property="Stroke" Value="White" />
-  </Style>
-  <Style Selector="Button.caption Path">
-    <Setter Property="Stroke" Value="{Binding $parent[Button].Foreground}" />
-    <Setter Property="StrokeThickness" Value="1.1" />
-    <Setter Property="Width" Value="10" />
-    <Setter Property="Height" Value="10" />
-    <Setter Property="Stretch" Value="None" />
+  <Style Selector="TextBox:focus /template/ Border#PART_BorderElement">
+    <Setter Property="BorderThickness" Value="2" />
   </Style>
 
-  <!-- Иконка-кнопка (инспектор): «on» — подсветка акцентом. -->
-  <Style Selector="ToggleButton.icon">
-    <Setter Property="Width" Value="30" />
-    <Setter Property="Height" Value="28" />
-    <Setter Property="CornerRadius" Value="7" />
-    <Setter Property="Padding" Value="0" />
+  <!-- Строки списков: 26+, radius.sm; выбранная с фокусом — bg.selected, без — bg.selected-inactive. -->
+  <Style Selector="ListBox">
     <Setter Property="Background" Value="Transparent" />
-    <Setter Property="Foreground" Value="{StaticResource Text.Secondary}" />
   </Style>
-  <Style Selector="ToggleButton.icon:checked /template/ ContentPresenter">
-    <Setter Property="Background" Value="#220a84ff" />
-    <Setter Property="BorderBrush" Value="#550a84ff" />
-    <Setter Property="BorderThickness" Value="1" />
+  <Style Selector="ListBoxItem">
+    <Setter Property="MinHeight" Value="{StaticResource Size.Row}" />
+    <Setter Property="CornerRadius" Value="{StaticResource Radius.Sm}" />
+    <Setter Property="Padding" Value="8,6" />
+    <Setter Property="Margin" Value="0,1" />
   </Style>
-  <Style Selector="ToggleButton.icon:checked">
-    <Setter Property="Foreground" Value="#4aa3ff" />
+  <Style Selector="ListBox:focus-within ListBoxItem:selected /template/ ContentPresenter">
+    <Setter Property="Background" Value="{StaticResource Bg.Selected}" />
   </Style>
 
-  <Style Selector="TextBlock.caps">
-    <Setter Property="FontSize" Value="10.5" />
-    <Setter Property="FontWeight" Value="SemiBold" />
-    <Setter Property="Foreground" Value="{StaticResource Text.Tertiary}" />
-    <Setter Property="LetterSpacing" Value="0.8" />
+  <!-- Вкладки (EditorTabs): 36, body-medium у активной, подчёркивание 2px accent.default. -->
+  <Style Selector="TabItem">
+    <Setter Property="MinHeight" Value="{StaticResource Size.Tab}" />
+    <Setter Property="Height" Value="{StaticResource Size.Tab}" />
+    <Setter Property="FontSize" Value="12" />
+    <Setter Property="FontWeight" Value="Normal" />
+    <Setter Property="Padding" Value="8,0" />
+    <Setter Property="Margin" Value="0" />
+    <Setter Property="VerticalContentAlignment" Value="Center" />
   </Style>
-  <Style Selector="TextBlock.secondary">
-    <Setter Property="Foreground" Value="{StaticResource Text.Secondary}" />
-    <Setter Property="FontSize" Value="11" />
+  <Style Selector="TabItem:selected">
+    <Setter Property="FontWeight" Value="Medium" />
+  </Style>
+  <Style Selector="TabItem /template/ Border#PART_SelectedPipe">
+    <Setter Property="Height" Value="2" />
+    <Setter Property="CornerRadius" Value="0" />
+    <Setter Property="Margin" Value="0" />
+    <Setter Property="VerticalAlignment" Value="Bottom" />
+  </Style>
+
+  <!-- Прогресс: 4px, accent на bg.surface-2. -->
+  <Style Selector="ProgressBar">
+    <Setter Property="Height" Value="4" />
+    <Setter Property="MinHeight" Value="4" />
+    <Setter Property="CornerRadius" Value="{StaticResource Radius.Full}" />
+    <Setter Property="Background" Value="{StaticResource Bg.Surface2}" />
+    <Setter Property="Foreground" Value="{StaticResource Accent.Default}" />
+  </Style>
+
+  <!-- Тултип — плавающий слой уровня 3. -->
+  <Style Selector="ToolTip">
+    <Setter Property="CornerRadius" Value="{StaticResource Radius.Md}" />
+    <Setter Property="FontSize" Value="12" />
+    <Setter Property="Padding" Value="8,5" />
+  </Style>
+
+  <Style Selector="ScrollViewer">
+    <Setter Property="AllowAutoHide" Value="True" />
+  </Style>
+
+  <!-- Пульс работающей сессии — единственная анимация, кроме спиннера. -->
+  <Style Selector="v|StatusDot.live, Path.live">
+    <Style.Animations>
+      <Animation Duration="0:0:1.6" IterationCount="Infinite">
+        <KeyFrame Cue="0%"><Setter Property="Opacity" Value="1" /></KeyFrame>
+        <KeyFrame Cue="50%"><Setter Property="Opacity" Value="0.4" /></KeyFrame>
+        <KeyFrame Cue="100%"><Setter Property="Opacity" Value="1" /></KeyFrame>
+      </Animation>
+    </Style.Animations>
   </Style>
 </Styles>

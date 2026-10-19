@@ -228,10 +228,10 @@ public sealed partial class MainViewModel : ObservableObject
                 session.Note("связь с машиной пропала: heartbeat молчит (под нагрузкой это бывает лагом — вырубон подтвердит только смена boot)");
             else if (!wasOnline && online)
                 session.Note(rebooted
-                    ? $"машина вернулась, boot сменился — был ребут или вырубон (⚡{item.RebootCount})"
+                    ? $"машина вернулась, boot сменился — был ребут или вырубон (вырубонов: {item.RebootCount})"
                     : "машина снова на связи, boot прежний — это был лаг");
             else if (rebooted)
-                session.Note($"boot сменился — был ребут или вырубон (⚡{item.RebootCount})");
+                session.Note($"boot сменился — был ребут или вырубон (вырубонов: {item.RebootCount})");
         }
     }
 
@@ -282,7 +282,7 @@ public sealed partial class MainViewModel : ObservableObject
         {
             var other = active.Where(a => a.From == item.Sz).Select(a => a.To)
                 .Concat(active.Where(a => a.To == item.Sz).Select(a => a.From)).FirstOrDefault();
-            item.PeerText = other is null ? "" : $"💬{other}";
+            item.PeerText = other ?? "";
         }
     }
 

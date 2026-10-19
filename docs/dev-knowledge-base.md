@@ -425,9 +425,9 @@ stream-json без служебных строк + строки `desk_user/desk_
 
 `peers`/`ask_peer` передаются в `--allowedTools` (`ClaudeLaunch.PeerTools`) — без карточки
 разрешения. Живой вопрос встаёт в отдельную очередь соседа **впереди** очереди оператора; сосед
-переходит в `SessionState.AnsweringPeer`, в его ленте — `💬 от <СЗ>: …` (строка журнала
+переходит в `SessionState.AnsweringPeer`, в его ленте — `от <СЗ>: …` с иконкой чата (строка журнала
 `desk_peer_question`). Отмена/таймаут снимает неотправленный вопрос. Пары в полёте —
-`PeerExchange.Active` (метка `💬` в списке СЗ).
+`PeerExchange.Active` (иконка чата с номером соседа в списке СЗ).
 
 Данные о соседях — `SzPeerDirectory` (Desk): живые СЗ из `HwProfileCache.Live`, у которых есть
 неархивная запись сессии; выжимка — только для ключа `^\d{6}$`. Профиль железа — `HwProfile.Script`
@@ -438,6 +438,24 @@ stream-json без служебных строк + строки `desk_user/desk_
 В сессии A: «спроси соседа, что он нашёл» (`ask_peer` без live — выжимка), при нужде — «спроси
 живьём, на каком профиле памяти его прогон прошёл чисто». Сравнение идёт через соседа, а не
 через `szcli … <чужая СЗ>`: сессия привязана к своей машине.
+
+### Тема Desk — дизайн-система Shirabe (`Theme/`)
+
+Вид Desk — язык Shirabe (артефакт https://claude.ai/artifact/TYJjNu1apzCZjcvczfoPxy, спека
+`specs/001-desk-shirabe-design/`): рама `Bg.Base`, острова `Border.island` (заявки 268 · чат ·
+инспектор 308), тулбар 40, статус-бар 24, один акцент `#2f6ae0`.
+
+| Файл | Что | Правило |
+|---|---|---|
+| `Theme/Tokens.axaml` | токены `Bg.* Border.* Text.* Accent.* Status.* Space.* Radius.* Size.* Font.*` + перекрытие ресурсов Fluent | **цвет — только отсюда**: литерал `#rrggbb` в `Views/**` роняет `ThemeTests` |
+| `Theme/Typography.axaml` | классы `heading title body body-medium small caption code code-small secondary section accent error warning` | размеры только 11–16, цифры `tnum` |
+| `Theme/Icons.axaml` | `Icon.*` — пути 16×16 набора Shirabe | рисовать `<Path Classes="icon" Data="{StaticResource Icon.X}"/>`; эмодзи в Views запрещены (`ThemeTests`) |
+| `Theme/Controls.axaml` | стили компонентов: `Button.primary/ghost/danger/stop/icon/sm/row/caption`, `Border.card/code/badge/island`, вкладки, поля, списки | состояние — словом и формой, не только цветом |
+| `Views/StatusDot.cs` | знак статуса: заливка / кольцо / ромб / треугольник / контур (`DotKind`) | статусы СЗ/сессии — через `Converters.*ToDot`; пульсирует только `Live` |
+
+Шрифты: Inter — пакет `Avalonia.Fonts.Inter` (`WithInterFont()` в `Program` и `TestApp`), JetBrains
+Mono — `Assets/Fonts` (OFL рядом). Тесты Desk рисуют настоящим Skia (`UseHeadlessDrawing = false`):
+заглушка шрифтов headless не подбирает Inter Medium/SemiBold и роняет окна.
 
 ### Инспектор Desk (`ViewModels/Inspector`)
 

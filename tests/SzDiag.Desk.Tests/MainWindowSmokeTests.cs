@@ -51,6 +51,28 @@ public class MainWindowSmokeTests
         Assert.False(pane.IsVisible);
     }
 
+    /// <summary>Ревью: в окне уже 1110 px инспектор прятался насовсем, а переключатель молча ничего
+    /// не делал. Теперь он ложится поверх чата и остаётся управляемым.</summary>
+    [AvaloniaFact]
+    public void NarrowWindow_InspectorOverlaysChat_ToggleStillWorks()
+    {
+        var (w, vm) = WithVm();
+        w.Width = 950;
+        Avalonia.Threading.Dispatcher.UIThread.RunJobs();
+        var pane = w.FindControl<Control>("InspectorPane")!;
+        Assert.True(pane.IsEffectivelyVisible);
+        Assert.True(pane.Classes.Contains("overlay"));
+
+        w.FindControl<ToggleButton>("InspectorToggle")!.IsChecked = false;
+        Assert.False(pane.IsEffectivelyVisible);
+
+        w.Width = 1400;
+        Avalonia.Threading.Dispatcher.UIThread.RunJobs();
+        vm.IsInspectorOpen = true;
+        Assert.True(pane.IsEffectivelyVisible);
+        Assert.False(pane.Classes.Contains("overlay"));
+    }
+
     [AvaloniaFact]
     public void Apply_ShowsSzInList()
     {

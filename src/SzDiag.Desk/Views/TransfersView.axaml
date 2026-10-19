@@ -4,24 +4,30 @@
              xmlns:v="using:SzDiag.Desk.Views"
              x:Class="SzDiag.Desk.Views.TransfersView"
              x:DataType="vm:MainViewModel">
-  <ItemsControl ItemsSource="{Binding Transfers}" Margin="12,6">
-    <ItemsControl.ItemTemplate>
-      <DataTemplate x:DataType="vm:TransferItemViewModel">
-        <Border Background="{StaticResource Bg.Panel}" CornerRadius="10" Padding="11,8" Margin="0,3">
-          <StackPanel Spacing="4">
-            <Grid ColumnDefinitions="*,Auto">
-              <TextBlock Text="{Binding Title}" FontFamily="{StaticResource MonoFont}" FontSize="11.5" />
-              <TextBlock Grid.Column="1" Text="{Binding Detail}" Classes="secondary" />
-            </Grid>
-            <ProgressBar Height="5" MinHeight="5" CornerRadius="3"
-                         Minimum="0" Maximum="100"
-                         Value="{Binding Percent, TargetNullValue=0}"
-                         IsIndeterminate="{Binding Percent, Converter={x:Static ObjectConverters.IsNull}}"
-                         Foreground="{Binding State, Converter={x:Static v:Converters.TransferStateToBrush}}"
-                         Background="{StaticResource Line}" />
-          </StackPanel>
-        </Border>
-      </DataTemplate>
-    </ItemsControl.ItemTemplate>
-  </ItemsControl>
+  <!-- Нижняя tool window центра: передачи push/pull — заголовок и строка с прогрессом на каждую. -->
+  <DockPanel>
+    <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Spacing="6" Margin="12,8,12,4">
+      <Path Classes="icon sm" Data="{StaticResource Icon.Download}" Stroke="{StaticResource Text.Secondary}" />
+      <TextBlock Text="{Binding Transfers.Count, StringFormat='Передачи · {0}'}" Classes="section" VerticalAlignment="Center" />
+    </StackPanel>
+    <ScrollViewer>
+      <ItemsControl ItemsSource="{Binding Transfers}" Margin="12,0,12,8">
+        <ItemsControl.ItemTemplate>
+          <DataTemplate x:DataType="vm:TransferItemViewModel">
+            <StackPanel Spacing="4" Margin="0,4">
+              <Grid ColumnDefinitions="*,Auto">
+                <TextBlock Text="{Binding Title}" Classes="code" TextTrimming="CharacterEllipsis" ToolTip.Tip="{Binding Title}" />
+                <TextBlock Grid.Column="1" Text="{Binding Detail}" Classes="code-small secondary" Margin="12,0,0,0"
+                           VerticalAlignment="Center" />
+              </Grid>
+              <ProgressBar Minimum="0" Maximum="100"
+                           Value="{Binding Percent, TargetNullValue=0}"
+                           IsIndeterminate="{Binding Percent, Converter={x:Static ObjectConverters.IsNull}}"
+                           Foreground="{Binding State, Converter={x:Static v:Converters.TransferStateToBrush}}" />
+            </StackPanel>
+          </DataTemplate>
+        </ItemsControl.ItemTemplate>
+      </ItemsControl>
+    </ScrollViewer>
+  </DockPanel>
 </UserControl>

@@ -13,8 +13,25 @@ public partial class MainWindow : Window
     /// раз в 10 минут окно снова мигает, пока запрос не решён.</summary>
     private readonly DispatcherTimer _attention = new() { Interval = TimeSpan.FromMinutes(10) };
 
+    /// <summary>Ширина, ниже которой инспектор ложится поверх чата: 268 + 520 (читаемый чат) + 308 + зазоры.</summary>
+    private const double InspectorMinWindowWidth = 1110;
+
     /// <summary>Для дизайнера XAML.</summary>
-    public MainWindow() => InitializeComponent();
+    public MainWindow()
+    {
+        InitializeComponent();
+        // Узкое окно: инспектор не сжимает чат, а ложится поверх него плавающим слоем (с тенью) —
+        // переключатель в шапке продолжает работать при любой ширине.
+        SizeChanged += (_, e) => SetInspectorOverlay(e.NewSize.Width < InspectorMinWindowWidth);
+    }
+
+    private void SetInspectorOverlay(bool overlay)
+    {
+        Grid.SetColumn(InspectorSlot, overlay ? 1 : 2);
+        InspectorSlot.HorizontalAlignment = overlay ? Avalonia.Layout.HorizontalAlignment.Right
+            : Avalonia.Layout.HorizontalAlignment.Stretch;
+        InspectorPane.Classes.Set("overlay", overlay);
+    }
 
     public MainWindow(MainViewModel vm) : this()
     {
