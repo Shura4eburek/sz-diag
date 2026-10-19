@@ -46,6 +46,49 @@ public class MainViewModelChatTests : IDisposable
     }
 
     [Fact]
+    public void OfflineSession_NoAgent_OpensChatInBottomSection()
+    {
+        var vm = New();
+        vm.Apply(Snap(S("161432")));
+        vm.OfflineSz = " 162001 ";
+        vm.StartOfflineSessionCommand.Execute("claude2");
+
+        Assert.Equal("162001", vm.ActiveChat!.Key);
+        Assert.Equal("162001", vm.SelectedArchived!.Key);
+        Assert.StartsWith("без агента", vm.SelectedArchived.Subtitle);
+        Assert.Equal("claude2", _h.Services.Sessions.Records.Single().Profile);
+        Assert.Null(vm.OfflineSz);
+
+        vm.Apply(Snap(S("161432")));   // следующий опрос не архивирует: СЗ в списке не бывала
+        Assert.NotEqual(SessionState.Archived, _h.Services.Sessions.Peek("162001")!.State);
+    }
+
+    [Fact]
+    public void OfflineSession_BadNumber_ErrorNoSession()
+    {
+        var vm = New();
+        vm.OfflineSz = "16200";
+        vm.StartOfflineSessionCommand.Execute(null);
+
+        Assert.NotNull(vm.OfflineSzError);
+        Assert.Empty(_h.Services.Sessions.Records);
+        Assert.Null(vm.ActiveChat);
+    }
+
+    [Fact]
+    public void OfflineSession_SzIsLive_SelectsLiveItem()
+    {
+        var vm = New();
+        vm.Apply(Snap(S("161432")));
+        vm.OfflineSz = "161432";
+        vm.StartOfflineSessionCommand.Execute(null);
+
+        Assert.Equal("161432", vm.Selected!.Sz);
+        Assert.Equal("161432", vm.ActiveChat!.Key);
+        Assert.Null(vm.SelectedArchived);
+    }
+
+    [Fact]
     public void SelectSzWithoutSession_CanStart_StartOpensChat()
     {
         var vm = New();

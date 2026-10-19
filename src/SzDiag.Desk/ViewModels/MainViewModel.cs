@@ -2,6 +2,7 @@ using System.Collections.ObjectModel;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using SzDiag.Claude;
+using SzDiag.Contracts;
 using SzDiag.Desk.Services;
 using SzDiag.Desk.ViewModels.Inspector;
 using SzDiag.HubClient;
@@ -116,6 +117,7 @@ public sealed partial class MainViewModel : ObservableObject
 
     /// <summary>Найденные профили Claude: на каждый — своя кнопка «Начать сессию».</summary>
     public IReadOnlyList<string> Profiles => _chat?.Profiles ?? Array.Empty<string>();
+    public bool HasProfiles => Profiles.Count > 0;
 
     /// <summary>«Начать сессию» — только руками: автозапуска нет (токены, спека). Профиль
     /// записывается явно даже без выбора: иначе «по умолчанию» после появления нового профиля
@@ -126,6 +128,39 @@ public sealed partial class MainViewModel : ObservableObject
         if (_chat is null || Selected is null) return;
         _chat.Sessions.Create(Selected.Sz, profile ?? _chat.Profiles.FirstOrDefault(), _chat.NewSessionWorkDir);
         ActiveChat = ChatFor(Selected.Sz);
+        RefreshSessionBadges();
+    }
+
+    /// <summary>Номер СЗ для сессии без агента: машина не грузится, а разбор в kb нужен уже сейчас.</summary>
+    [ObservableProperty] private string? _offlineSz;
+    [ObservableProperty] private string? _offlineSzError;
+
+    partial void OnOfflineSzChanged(string? value) => OfflineSzError = null;
+
+    /// <summary>Сессия по номеру СЗ, которой нет в списке hub (агент не заведён). Ложится в нижнюю
+    /// секцию рядом с архивом; заведут агента позже — та же сессия всплывёт у живой СЗ.</summary>
+    [RelayCommand]
+    private void StartOfflineSession(string? profile)
+    {
+        if (_chat is null) return;
+        var sz = OfflineSz?.Trim();
+        if (!SzNumber.IsValid(sz))
+        {
+            OfflineSzError = SzNumber.Explain(sz);
+            return;
+        }
+        OfflineSz = null;
+        if (Items.FirstOrDefault(i => i.Sz == sz) is { } live)
+        {
+            Selected = live;
+            if (ActiveChat is not null) return;
+            StartSession(profile);
+            return;
+        }
+        if (_chat.Sessions.Get(sz!) is null)
+            _chat.Sessions.Create(sz!, profile ?? _chat.Profiles.FirstOrDefault(), _chat.NewSessionWorkDir);
+        RefreshArchived();
+        SelectedArchived = Archived.First(a => a.Key == sz);
         RefreshSessionBadges();
     }
 
