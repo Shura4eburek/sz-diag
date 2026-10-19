@@ -4,7 +4,7 @@ namespace SzDiag.Desk.Services;
 
 public sealed class DeskOptions
 {
-    public string HubBaseUrl { get; set; } = "http://localhost:5000";
+    public string HubBaseUrl { get; set; } = "http://localhost:5099";
     public string ManagementToken { get; set; } = "";
     public string KbRoot { get; set; } = "kb";
 
@@ -44,12 +44,18 @@ public sealed class DeskOptions
     /// hub остаётся независимым процессом и переживает закрытие Desk.</summary>
     public bool AutostartHub { get; set; } = true;
 
-    /// <summary>Конфиг рядом с exe, не от рабочего каталога (конвенция репо).</summary>
-    public static DeskOptions Load()
+    /// <summary>Конфиг рядом с exe, не от рабочего каталога (конвенция репо). Поверх —
+    /// необязательный `appsettings.local.json` (вне git, в dist не уезжает): адрес и токен своего
+    /// hub для запуска из исходников. Без него Desk из `dotnet run` стучался в dev-порт с
+    /// dev-токеном, не видел hub из dist и запускал второй (19.10).</summary>
+    public static DeskOptions Load() => Load(AppContext.BaseDirectory);
+
+    public static DeskOptions Load(string baseDir)
     {
         var cfg = new ConfigurationBuilder()
-            .SetBasePath(AppContext.BaseDirectory)
+            .SetBasePath(baseDir)
             .AddJsonFile("appsettings.json", optional: true)
+            .AddJsonFile("appsettings.local.json", optional: true)
             .Build();
         var o = new DeskOptions();
         cfg.Bind(o);

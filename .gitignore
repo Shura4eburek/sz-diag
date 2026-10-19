@@ -5,6 +5,7 @@
 .credentials.json
 secrets/
 config.local.*
+appsettings.local.json
 
 # База знаний по реальным СЗ (данные клиентов) — не в публичный репозиторий
 kb/

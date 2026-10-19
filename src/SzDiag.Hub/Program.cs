@@ -100,6 +100,20 @@ builder.Services.AddSignalR(o =>
 
 var app = builder.Build();
 
+// Один hub на порт — до app.Run, то есть до старта любой hosted-службы (туннель убивал
+// cloudflared живого hub, 19.10). Только для настоящего Kestrel: тесты поднимают параллельно
+// десятки hub на TestServer, порт они не занимают и друг другу не мешают.
+var listenPort = HubInstanceLock.PortOf(listenUrls);
+var listensForReal = app.Services.GetRequiredService<Microsoft.AspNetCore.Hosting.Server.IServer>()
+    .GetType().FullName?.Contains("Kestrel", StringComparison.Ordinal) == true;
+using var instanceLock = listensForReal ? HubInstanceLock.TryAcquire(listenPort) : null;
+if (listensForReal && instanceLock is null)
+{
+    Console.WriteLine($"[hub] hub на порту {listenPort} уже запущен — этот экземпляр не стартует.");
+    try { hubLogFile.Flush(); hubLogFile.Dispose(); } catch { }
+    return 3;
+}
+
 // Инициализация БД при старте.
 await app.Services.GetRequiredService<ISessionStore>().InitializeAsync();
 
@@ -177,6 +191,7 @@ finally
     // Лог сбрасываем последним: сюда попадает и текст падения, если hub уронило исключение.
     try { hubLogFile.Flush(); hubLogFile.Dispose(); } catch { }
 }
+return 0;
 
 // Для WebApplicationFactory в тестах.
 public partial class Program { }

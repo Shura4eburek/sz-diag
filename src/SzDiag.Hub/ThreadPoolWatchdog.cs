@@ -42,6 +42,15 @@ public sealed class ThreadPoolWatchdog : BackgroundService
                 _alreadyWarned = false; // снова предупредит, если проблема вернётся
             }
         }
-        while (await timer.WaitForNextTickAsync(stoppingToken));
+        while (await NextTickAsync(timer, stoppingToken));
+    }
+
+    /// <summary>Отмена — штатная остановка, а не падение службы: при неудачном старте hub
+    /// (порт занят) StopAsync не вызывается, и исключение отмены хост писал как crit
+    /// «BackgroundService has thrown» — окно с ошибкой у оператора (19.10).</summary>
+    public static async Task<bool> NextTickAsync(PeriodicTimer timer, CancellationToken ct)
+    {
+        try { return await timer.WaitForNextTickAsync(ct); }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested) { return false; }
     }
 }

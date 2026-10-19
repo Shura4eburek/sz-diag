@@ -28,6 +28,9 @@
 
   <ItemGroup>
     <None Update="appsettings.json" CopyToOutputDirectory="PreserveNewest" />
+    <!-- Локальный адрес/токен hub для запуска из исходников: в bin — да, в dist (publish) — нет,
+         иначе он перекрыл бы конфиг, который пишет build-dist. -->
+    <None Update="appsettings.local.json" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="Never" />
   </ItemGroup>
 
   <PropertyGroup>
