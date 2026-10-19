@@ -61,7 +61,38 @@ public static class ExecParams
         var preamble = "# --- szcli exec --param: подставлено поверх значений по умолчанию из рецепта ---\n"
                        + string.Join('\n', overrideLines) + "\n"
                        + "# --- конец подстановки ---\n";
-        return preamble + text;
+        // Рецепт с `param(...)` (162003, 17.09): преамбула сверху сдвигала param-блок с первой
+        // позиции, и PowerShell ронял скрипт с `CommandNotFoundException: param`. Причём всегда,
+        // а не только с явным `--param`: номер СЗ подставляется автоматически (WithAutoSz),
+        // поэтому преамбула есть у любого `-f`. Вставляем её ПОСЛЕ param-блока — он остаётся
+        // первым выражением, а присваивания всё так же перекрывают значения по умолчанию.
+        var paramEnd = ParamBlockEnd(text);
+        return paramEnd > 0
+            ? text[..paramEnd] + "\n" + preamble + text[paramEnd..]
+            : preamble + text;
+    }
+
+    /// <summary>Индекс сразу за закрывающей скобкой стартового `param(...)`, или 0, если скрипт
+    /// с него не начинается. Скобки считаются с учётом вложенности (внутри param бывают
+    /// атрибуты вида `[ValidateSet('a','b')]`).</summary>
+    private static int ParamBlockEnd(string script)
+    {
+        var head = Regex.Match(script,
+            @"^\s*(?:(?:#[^\r\n]*|<#[\s\S]*?#>)\s*)*param\s*\(",
+            RegexOptions.IgnoreCase);
+        if (!head.Success) return 0;
+
+        var depth = 0;
+        for (var i = head.Index + head.Length - 1; i < script.Length; i++)
+        {
+            if (script[i] == '(') depth++;
+            else if (script[i] == ')')
+            {
+                depth--;
+                if (depth == 0) return i + 1;
+            }
+        }
+        return 0;   // скобка не закрыта — не наше дело, отдаём скрипт как есть
     }
 
     /// <summary>`szcli exec <СЗ> ...` знает номер СЗ и так — подставляет его в <c>$Sz</c>

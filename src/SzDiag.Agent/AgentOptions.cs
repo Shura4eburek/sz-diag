@@ -6,6 +6,17 @@ public sealed class AgentOptions
     /// Непустое значение — явный override, автообнаружение не запускается.</summary>
     public string HubUrl { get; set; } = "";
     public string AgentToken { get; set; } = "";
+
+    /// <summary>Service token приложения Cloudflare Access перед hub (пара заголовков
+    /// CF-Access-Client-Id / CF-Access-Client-Secret). Пусто — Access не используется.
+    /// Секрет доступа к нашему hub, общий на всех агентов, — как и AgentToken.</summary>
+    public string AccessClientId { get; set; } = "";
+    public string AccessClientSecret { get; set; } = "";
+
+    /// <summary>Путь к cloudflared.exe на клиенте для публикации sshd quick tunnel'ом.
+    /// Пусто — туннель не поднимается (прямой режим). Бинарь приезжает через `szcli push`.</summary>
+    public string CloudflaredPath { get; set; } = "";
+
     public string ServiceAccount { get; set; } = "svc-diag";
     public string ServicePublicKeyPath { get; set; } = "service_key.pub";
     public int SshPort { get; set; } = 22;

@@ -219,6 +219,45 @@ public class ClientTracesTests
         Assert.Contains("szdiag-lhmmon", leftover);
     }
 
+    // Живая СЗ 999001: задача quick tunnel'а `szdiag-cfd-<СЗ>` не попала в список задач
+    // текущей сессии — `close` отказался закрывать здоровую заявку («на клиенте остались
+    // наши файлы»), а совет `client cleanup` снёс бы живой туннель посреди работы. Та же
+    // грабля, что была с sshd/watchdog в п.107: новое имя задачи обязано попадать СЮДА.
+    [Fact]
+    public void FindLeftoversDetailed_ЗадачаТуннеля_ЭтоТекущаяСессия_АНеОстаток()
+    {
+        var stdout = string.Join("\n", new[]
+        {
+            "task:szdiag-sshd-999001=Running",
+            "task:szdiag-watchdog-999001=Ready",
+            "task:szdiag-autostart-999001=Ready",
+            "task:szdiag-cfd-999001=Running",
+        });
+
+        var report = ClientTraces.FindLeftoversDetailed(stdout, "999001");
+
+        Assert.Equal(4, report.CurrentSession.Count);
+        Assert.Empty(report.Leftovers);
+    }
+
+    [Fact]
+    public void SessionTasks_ВключаетЗадачуТуннеля()
+    {
+        Assert.Contains("szdiag-cfd-160306", ClientTraces.SessionTasks("160306"));
+    }
+
+    [Fact]
+    public void FindLeftoversDetailed_ТуннельЧужойСЗ_ЭтоОстаток()
+    {
+        // Обратная сторона: туннель от ДРУГОЙ незакрытой заявки — настоящий след,
+        // его прятать нельзя.
+        var stdout = "task:szdiag-cfd-160705=Running";
+
+        var report = ClientTraces.FindLeftoversDetailed(stdout, "999001");
+
+        Assert.Contains("szdiag-cfd-160705", Assert.Single(report.Leftovers));
+    }
+
     [Fact]
     public void FindLeftoversDetailed_FreshSession_HasNoLeftovers()
     {

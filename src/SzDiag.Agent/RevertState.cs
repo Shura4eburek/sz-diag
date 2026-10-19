@@ -33,4 +33,30 @@ public sealed class RevertState
     public int? TokenPolicyPreviousValue { get; set; }
     public bool CreatedWatchdogTask { get; set; }
     public bool CreatedAutostartTask { get; set; }
+
+    /// <summary>Имя quick tunnel'а этой сессии. Меняется при каждом переподнятии (туннель не
+    /// сохраняет hostname между запусками), поэтому хранится ради отката и диагностики —
+    /// актуальный адрес живёт на hub, куда агент шлёт ReportAccess.</summary>
+    public string QuickTunnelHost { get; set; } = "";
+
+    /// <summary>Задача, под которой крутится cloudflared (транзиентная, под SYSTEM).</summary>
+    public string TunnelTaskName { get; set; } = "";
+
+    public bool StartedQuickTunnel { get; set; }
+
+    /// <summary>Клали ли cloudflared.exe на машину мы. Если бинарь был там до нас — при
+    /// откате не трогаем: чужое не наше дело.</summary>
+    public bool DeployedCloudflared { get; set; }
+
+    /// <summary>Секрет этой сессии, выданный hub при регистрации. Нужен headless-откату
+    /// (watchdog, после ребута): там нет живого SignalR, и доказать hub, что отчитывается
+    /// владелец СЗ, больше нечем — токен `/agent/*` общий на весь флот, а за туннелем у всех
+    /// агентов одинаковый IP. Скоупнут одной СЗ: позволяет ровно одно — отчитаться о её
+    /// откате.</summary>
+    public string? SessionSecret { get; set; }
+
+    /// <summary>Публичный host-ключ нашего portable sshd (строка из `*.pub` без комментария).
+    /// Уезжает hub управляющим каналом, чтобы тот приколол его в known_hosts: имя quick
+    /// tunnel'а публично и не аутентифицировано, без пиннинга подмену не отличить.</summary>
+    public string? SshHostPublicKey { get; set; }
 }

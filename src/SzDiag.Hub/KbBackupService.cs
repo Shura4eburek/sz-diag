@@ -14,16 +14,20 @@ public sealed class KbBackupService : BackgroundService
     private readonly IKbBackup _backup;
     private readonly KbBackupOptions _options;
     private readonly ILogger<KbBackupService> _logger;
+    private readonly HubStatusTracker? _status;
 
-    public KbBackupService(IKbBackup backup, IOptions<HubOptions> options, ILogger<KbBackupService> logger)
+    public KbBackupService(IKbBackup backup, IOptions<HubOptions> options, ILogger<KbBackupService> logger,
+        HubStatusTracker? status = null)
     {
         _backup = backup;
         _options = options.Value.KbBackup;
         _logger = logger;
+        _status = status;
     }
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
+        _status?.KbBackupEnabled(_options.Enabled);
         if (!_options.Enabled) return;
 
         await RunSafeAsync(stoppingToken);
@@ -51,6 +55,7 @@ public sealed class KbBackupService : BackgroundService
         try
         {
             var result = await _backup.RunAsync(ct);
+            _status?.KbBackupRan(result);
             switch (result.Outcome)
             {
                 case KbBackupOutcome.NoChanges:
@@ -73,6 +78,7 @@ public sealed class KbBackupService : BackgroundService
         }
         catch (Exception ex)
         {
+            _status?.KbBackupCrashed(ex.Message);
             // Unhandled из BackgroundService валит весь хост — ловим всё.
             _logger.LogWarning(ex, "kb: бэкап упал");
         }

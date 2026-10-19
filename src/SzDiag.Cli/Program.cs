@@ -59,7 +59,9 @@ var szArgIndex = command switch
     "freeze" when args.Length >= 2 => Array.FindIndex(args, 1, a => !a.StartsWith('-')),
     "push" when args.Length >= 2 && !args[1].StartsWith('-') => 1,
     // szcli sz fetch <СЗ>: номер третий. У `sz release` номера нет — ветка не сработает.
-    "sz" when args.Length >= 3 && args[1].Equals("fetch", StringComparison.OrdinalIgnoreCase) => 2,
+    // szcli sz get <СЗ> — так же. У `sz orders` аргумент может быть телефоном: проверяется в команде.
+    "sz" when args.Length >= 3 && (args[1].Equals("fetch", StringComparison.OrdinalIgnoreCase)
+        || args[1].Equals("get", StringComparison.OrdinalIgnoreCase)) => 2,
     "test" or "diag" when args.Length >= 3 => 2,
     "app" when args.Length >= 3 && (args[1].Equals("run", StringComparison.OrdinalIgnoreCase)
         || args[1].Equals("restart", StringComparison.OrdinalIgnoreCase)) => 2,
@@ -564,10 +566,20 @@ switch (command)
             AnsiConsole.MarkupLineInterpolated($"[red]СЗ {args[1]} не найдена.[/]");
             break;
         }
+        // Машина недостижима по SSH (туннель не поднялся) — печатать строку, которая
+        // гарантированно не сработает, значит врать: называем причину.
+        if (!string.IsNullOrWhiteSpace(t.Unavailable))
+        {
+            AnsiConsole.MarkupLineInterpolated($"[yellow]⚠ {t.Unavailable}[/]");
+            break;
+        }
         // Полная строка с -i и опциями host-ключа: голый `ssh user@ip` не подключается,
         // а рабочую команду раньше собирали тремя попытками и поиском по диску (п.118).
         var key = TargetSsh.FindKey(options.SshKeyPath, AppContext.BaseDirectory);
-        AnsiConsole.WriteLine(TargetSsh.BuildSshLine(t.User, t.Ip, key));
+        var viaTunnel = t.AccessMode == AccessMode.Tunnel;
+        var targetHost = viaTunnel ? t.AccessHost! : t.Ip;
+        AnsiConsole.WriteLine(TargetSsh.BuildSshLine(t.User, targetHost, key, viaTunnel,
+            t.KnownHostsPath));
         if (key is null)
             AnsiConsole.MarkupLine("[yellow]⚠ Ключ svc_diag_key не найден (SshKeyPath в appsettings.json) — добавь -i <путь к ключу>.[/]");
         break;
@@ -1116,6 +1128,10 @@ static void PrintUsage()
                 [grey]поля, состав и номер заказа; блок под маркерами, ручной текст не трогается[/]
                 [grey]идёт несколько минут и кликает по чужому интерфейсу — мышь не трогать[/]
               [yellow]szcli sz release[/]        отпустить залипший захват учётной программы
+              [yellow]szcli sz get[/] [blue]<СЗ>[/] [grey][[--json]][/]  заявка через REST TeleAuto: дефект, состав ПК, повторные СЗ
+                [grey]без окон и захвата, за секунды; сырой ответ — kb\СЗ\<номер>\erp-rest.json[/]
+              [yellow]szcli sz orders[/] [blue]<СЗ|телефон>[/] [grey][[--limit N]] [[--json]][/]  заказы клиента, с товарами
+              [yellow]szcli sz call[/] [grey]<sz.get|api.*> [[ключ=значение ...]][/]  сквозной вызов REST-инструмента
               [yellow]szcli sensors[/] [grey]start|status|stop <СЗ> | report <csv>[/]
                 [grey]наблюдатель нагрузки (CSV построчно, переживает вырубон) и его разбор[/]
               [yellow]szcli disk scan[/] [blue]<СЗ>[/] [grey][[--map|--zone НАЧАЛО-КОНЕЦ]] [[--drive N]] [[--minutes N]][/]

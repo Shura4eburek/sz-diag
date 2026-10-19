@@ -38,6 +38,11 @@ public sealed class HubOptions
     /// от папки exe. Намеренно НЕ в vault: дампы и CSV раздувают git-историю базы знаний.</summary>
     public string PullRoot { get; set; } = "pulled";
 
+    /// <summary>Куда складывать known_hosts по СЗ (относительный — от папки exe). Нужен,
+    /// чтобы `szcli target` ходил со строгой проверкой host-ключа: имя quick tunnel'а
+    /// публично и не аутентифицировано, без пиннинга подмену не отличить.</summary>
+    public string KnownHostsRoot { get; set; } = "known_hosts";
+
     /// <summary>Каталог лог-файлов hub (относительный — от папки exe). Пусто — не писать в файл.</summary>
     public string LogDir { get; set; } = "logs";
 
@@ -50,6 +55,9 @@ public sealed class HubOptions
 
     /// <summary>Оффсайт-бэкап базы знаний в git-remote.</summary>
     public KbBackupOptions KbBackup { get; set; } = new();
+
+    /// <summary>Публикация hub наружу именованным Cloudflare Tunnel.</summary>
+    public HubTunnelOptions Tunnel { get; set; } = new();
 
     /// <summary>Порог числа потоков процесса, после которого <see cref="ThreadPoolWatchdog"/>
     /// пишет «THREAD POOL STARVATION» в лог. На живой заявке (СЗ 160306, бэклог п.50) здоровый
@@ -92,4 +100,26 @@ public sealed class KbBackupOptions
 
     /// <summary>Потолок на каждый вызов git: виснет сеть — процесс убивается.</summary>
     public TimeSpan CommandTimeout { get; set; } = TimeSpan.FromMinutes(2);
+}
+
+public sealed class HubTunnelOptions
+{
+    /// <summary>Рубильник: false — hub доступен только по локальному адресу/LAN.</summary>
+    public bool Enabled { get; set; }
+
+    /// <summary>Путь к cloudflared.exe. Пусто — ищем в PATH и штатных каталогах установки.</summary>
+    public string ExecutablePath { get; set; } = "";
+
+    /// <summary>Файл конфигурации туннеля (ingress). Пусто — cloudflared берёт свой дефолтный.</summary>
+    public string ConfigPath { get; set; } = "";
+
+    /// <summary>Имя (или UUID) именованного туннеля. Пусто — берётся из файла конфигурации.</summary>
+    public string Name { get; set; } = "";
+
+    /// <summary>Пауза перед перезапуском, если cloudflared упал сам (сеть отвалилась).</summary>
+    public TimeSpan RestartDelay { get; set; } = TimeSpan.FromSeconds(10);
+
+    /// <summary>Файл с pid запущенного cloudflared (относительный — от папки exe): по нему
+    /// добивается процесс, переживший убитый kill'ом hub.</summary>
+    public string PidFile { get; set; } = "cloudflared.pid";
 }

@@ -12,13 +12,15 @@ public sealed class PushCoordinator
     private readonly IAgentCommandSender _sender;
     private readonly int _timeoutSeconds;
     private readonly ConcurrentDictionary<string, TaskCompletionSource<PushResult>> _pending = new();
+    private readonly TransferTracker? _transfers;
 
     public PushCoordinator(SessionRegistry registry, IAgentCommandSender sender,
-        int timeoutSeconds = PushLimits.TimeoutSeconds)
+        int timeoutSeconds = PushLimits.TimeoutSeconds, TransferTracker? transfers = null)
     {
         _registry = registry;
         _sender = sender;
         _timeoutSeconds = timeoutSeconds;
+        _transfers = transfers;
     }
 
     public int PendingCount => _pending.Count;
@@ -31,6 +33,11 @@ public sealed class PushCoordinator
         if (connId is null) return null;
 
         var requestId = Guid.NewGuid().ToString("N");
+        _transfers?.Start(requestId, sz, TransferDirection.Push, tool);
+        // Исход по умолчанию — «прервано»: исключение из SendPushAsync не должно оставить
+        // передачу Running навсегда.
+        string? transferError = "прервано";
+        string? transferNote = null;
         var tcs = new TaskCompletionSource<PushResult>(TaskCreationOptions.RunContinuationsAsynchronously);
         _pending[requestId] = tcs;
         try
@@ -40,13 +47,20 @@ public sealed class PushCoordinator
             var wait = TimeSpan.FromSeconds(_timeoutSeconds);
             var done = await Task.WhenAny(tcs.Task, Task.Delay(wait, ct));
             if (done != tcs.Task)
+            {
+                transferError = $"агент не завершил за {wait.TotalSeconds:N0} с";
                 throw new TimeoutException(
                     $"агент СЗ {sz} не завершил доставку '{tool}' за {wait.TotalSeconds:N0} с");
-            return await tcs.Task;
+            }
+            var result = await tcs.Task;
+            transferError = result.Error;
+            transferNote = $"скачано {result.Downloaded}, пропущено {result.Skipped}";
+            return result;
         }
         finally
         {
             _pending.TryRemove(requestId, out _);
+            _transfers?.Finish(requestId, transferError, transferNote);
         }
     }
 

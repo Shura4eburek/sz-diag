@@ -34,14 +34,33 @@
 param(
     [string]$HubIp = "",
     [int]$Port = 5099,
-    [string]$Token = "dev-token",
+    # Пусто — берётся из существующего dist\host\hub\appsettings.json, иначе "dev-token".
+    [string]$Token = "",
     [string]$ToolsRoot = "",
     [double]$WatchdogHours = 6,
     # Доступ к локальному API учётной системы для `szcli sz fetch`. Порта по умолчанию нет
     # намеренно: репозиторий публичный, конкретика живёт в docs\erp-api.md вне git.
     # Пустой ErpPort = команда честно скажет «адрес не задан», а не будет стучаться в никуда.
     [int]$ErpPort = 0,
-    [string]$ErpTokenFile = ""
+    [string]$ErpTokenFile = "",
+    # Постоянный адрес hub через Cloudflare Tunnel (например https://hub.example.com).
+    # Задан — попадает в HubUrl клиента и становится основным путём, а UDP-broadcast
+    # остаётся запасным. Значения по умолчанию нет намеренно: репозиторий публичный,
+    # реальный домен в git не хранится.
+    [string]$HubUrl = "",
+    # Service token приложения Cloudflare Access перед hub (пара CF-Access-*).
+    [string]$AccessClientId = "",
+    [string]$AccessClientSecret = "",
+    # Путь к cloudflared.exe на клиенте. Пусто — туннель не поднимается (прямой режим);
+    # бинарь приезжает на клиента через `szcli push cloudflared`.
+    [string]$ClientCloudflaredPath = "tools\cloudflared\cloudflared.exe",
+    # Именованный туннель, публикующий САМ hub наружу (hub.<домен>). Hub поднимает cloudflared
+    # на старте и снимает при остановке — служба/автозапуск по входу не нужны. Пусто — берётся
+    # из уже существующего dist\host\hub\appsettings.json, иначе туннель выключен.
+    [string]$TunnelName = "",
+    [string]$TunnelConfig = "",
+    # Путь к cloudflared.exe на хосте. Пусто — ищется в PATH и штатных каталогах установки.
+    [string]$TunnelExe = ""
 )
 
 $ErrorActionPreference = "Stop"
@@ -176,17 +195,36 @@ function Publish($project, $out) {
                   "Закрой процесс и запусти сборку ещё раз. Старая версия в $out цела."
         }
     }
+    # Всё, чего нет в свежей публикации, — данные рядом с exe (Desk: реестр и журналы сессий,
+    # счётчик токенов; hub: known_hosts, logs, pulled). Без переноса пересборка dist молча
+    # стирала их: на 160176 Desk потерял ленту и связку с разговором Claude (бэклог п.268).
+    if (Test-Path $backup) {
+        foreach ($item in Get-ChildItem $backup -Force) {
+            if (-not (Test-Path (Join-Path $staging $item.Name))) {
+                Copy-Item $item.FullName (Join-Path $staging $item.Name) -Recurse -Force
+            }
+        }
+    }
     Move-Item $staging $out
     Remove-Item $backup -Recurse -Force -ErrorAction SilentlyContinue
 }
-# Три компонента независимы (напр. hub может быть живым сервером и залоченным, пока мы
+# Компоненты независимы (напр. hub может быть живым сервером и залоченным, пока мы
 # правим только agent/cli) — сбой одного не должен мешать пересобрать остальные. Копим
-# ошибки и валимся с сводкой только в самом конце, после того как попробовали все три.
+# ошибки и валимся с сводкой только в самом конце, после того как попробовали все.
 $failed = @()
 $staleDirs = @()   # компоненты, оставшиеся на старом бинаре: их конфиг трогать нельзя
+
+# Прежние конфиги снимаем ДО публикации: Publish подменяет папку целиком, и после неё в
+# dist лежит appsettings.json из проекта (туннель выключен, токен по умолчанию). Раньше
+# «перенос из прежнего конфига» читал уже его — и туннель/токен молча терялись (бэклог п.265).
+$prevHubCfgText = if (Test-Path dist\host\hub\appsettings.json) { Get-Content dist\host\hub\appsettings.json -Raw } else { $null }
+$prevClientCfgText = if (Test-Path dist\client\appsettings.json) { Get-Content dist\client\appsettings.json -Raw } else { $null }
+$prevCliCfgText = if (Test-Path dist\host\cli\appsettings.json) { Get-Content dist\host\cli\appsettings.json -Raw } else { $null }
+
 foreach ($p in @(
     @{ Project = "src/SzDiag.Hub"; Out = "dist/host/hub" },
     @{ Project = "src/SzDiag.Cli"; Out = "dist/host/cli" },
+    @{ Project = "src/SzDiag.Desk"; Out = "dist/host/desk" },
     @{ Project = "src/SzDiag.Agent"; Out = "dist/client" }
 )) {
     try { Publish $p.Project $p.Out }
@@ -213,15 +251,22 @@ if (Test-Path dist\client\SzDiag.Agent.exe) {
     Copy-Item secrets\svc_diag_key.pub dist\client\service_key.pub -Force
 }
 
-# 2b. Портативные стресс-утилиты (TM5 / OCCT / 3DMark / FurMark и пр.).
-# Кладутся в client-tools\<name>\ (в .gitignore — бинарники и лицензии не коммитим),
-# при сборке уезжают в dist\client\tools\. Пути в testsuite.json — tools\<name>\...
-if (Test-Path client-tools) {
-    Write-Host "-- копирую client-tools -> dist\client\tools"
-    New-Item -ItemType Directory dist\client\tools -Force | Out-Null
-    Copy-Item client-tools\* dist\client\tools\ -Recurse -Force
+# 2c. cloudflared для публикации sshd клиента quick tunnel'ом. Кладём в каталог раздачи,
+# чтобы он ехал на клиента по требованию через `szcli push cloudflared`, а не в пакете
+# агента: иначе апдейтер потолстеет на полсотни мегабайт ради случая, нужного не всегда.
+# Отсутствие — не ошибка: без него работает прямой режим (машина в сети бокса).
+$cloudflaredSrc = @(
+    "$env:ProgramFiles\cloudflared\cloudflared.exe",
+    "${env:ProgramFiles(x86)}\cloudflared\cloudflared.exe"
+) | Where-Object { Test-Path $_ } | Select-Object -First 1
+if ($cloudflaredSrc) {
+    $cfDst = Join-Path $ToolsRoot "cloudflared"
+    New-Item -ItemType Directory $cfDst -Force | Out-Null
+    Copy-Item $cloudflaredSrc $cfDst -Force
+    Write-Host "-- cloudflared -> $cfDst (раздача через szcli push cloudflared)"
 } else {
-    Write-Host "-- client-tools нет: стресс-утилиты не вложены (шаги app сообщат 'не найден exe')"
+    Write-Host "   cloudflared не найден на боксе — туннельный режим будет недоступен," -ForegroundColor Yellow
+    Write-Host "   пока бинарь не попадёт в $ToolsRoot\cloudflared\ (прямой режим работает)." -ForegroundColor Yellow
 }
 
 # Портативный sshd рядом с агентом: dist\client\ssh
@@ -280,9 +325,66 @@ if (Test-Path dist\client\SzDiag.Agent.exe) {
     Write-Host "-- пакет апдейтера: $zipPath (version=$version)"
 }
 
+# 2b. Портативные стресс-утилиты (TM5 / OCCT / 3DMark / FurMark и пр.).
+# Кладутся в client-tools\<name>\ (в .gitignore — бинарники и лицензии не коммитим),
+# при сборке уезжают в dist\client\tools\. Пути в testsuite.json — tools\<name>\...
+if (Test-Path client-tools) {
+    Write-Host "-- копирую client-tools -> dist\client\tools"
+    New-Item -ItemType Directory dist\client\tools -Force | Out-Null
+    Copy-Item client-tools\* dist\client\tools\ -Recurse -Force
+} else {
+    Write-Host "-- client-tools нет: стресс-утилиты не вложены (шаги app сообщат 'не найден exe')"
+}
+
 # 3. Конфиги (абсолютные пути хоста — под ЭТУ машину; относительные — агенту)
 $kb = ("$root\dist\host\kb").Replace('\', '\\')
 $db = ("$root\dist\host\szdiag.db").Replace('\', '\\')
+
+# Туннель хаба: hub сам поднимает cloudflared на старте и снимает при остановке.
+# Параметры не заданы — сохраняем то, что уже настроено в существующем конфиге, иначе
+# пересборка молча оставила бы hub без внешнего адреса (та же грабля, что с appsettings).
+$tunnelName = $TunnelName
+$tunnelConfig = $TunnelConfig
+$tunnelExe = $TunnelExe
+$prevHub = $null
+if ($prevHubCfgText) {
+    try { $prevHub = ($prevHubCfgText | ConvertFrom-Json).Hub } catch {
+        Write-Host "   ВНИМАНИЕ: прежний appsettings.json хаба не разобран — туннель и токен не перенесены." -ForegroundColor Yellow
+    }
+}
+if (-not $tunnelName -and -not $tunnelConfig -and $prevHub) {
+    try {
+        $prev = $prevHub.Tunnel
+        if ($prev) {
+            $tunnelName   = [string]$prev.Name
+            $tunnelConfig = [string]$prev.ConfigPath
+            $tunnelExe    = [string]$prev.ExecutablePath
+        }
+    } catch {
+        Write-Host "   ВНИМАНИЕ: прежний appsettings.json хаба не разобран — секция Tunnel не перенесена." -ForegroundColor Yellow
+    }
+}
+# Токен и постоянный адрес hub тоже переносим из прежнего dist: пересборка без -Token молча
+# ставила "dev-token", и апдейтер на клиенте с настоящим токеном получал 401 — а без HubUrl
+# клиент из новой сборки терял внешний адрес (бэклог п.265).
+if (-not $Token -and $prevHub) { $Token = [string]$prevHub.AgentToken }
+if (-not $Token) { $Token = "dev-token" }
+if (-not $HubUrl -and -not $HubIp -and $prevClientCfgText) {
+    try {
+        $prevClient = $prevClientCfgText | ConvertFrom-Json
+        # Только постоянный адрес (домен туннеля): http://<ip> прошлой сборки мог устареть.
+        if ([string]$prevClient.HubUrl -like 'https://*') {
+            $HubUrl = [string]$prevClient.HubUrl
+            if (-not $AccessClientId) {
+                $AccessClientId = [string]$prevClient.AccessClientId
+                $AccessClientSecret = [string]$prevClient.AccessClientSecret
+            }
+        }
+    } catch { }
+}
+Write-Host "-- токен: $(if ($Token -eq 'dev-token') { 'dev-token (по умолчанию)' } else { 'задан/перенесён' }); HubUrl клиента: $(if ($HubUrl) { $HubUrl } else { 'нет (UDP-обнаружение)' })"
+$tunnelEnabled = if ($tunnelName -or $tunnelConfig) { "true" } else { "false" }
+Write-Host "-- туннель хаба: $(if ($tunnelEnabled -eq 'true') { "$tunnelName ($tunnelConfig)" } else { 'выключен' })"
 
 $hubCfg = @"
 {
@@ -303,6 +405,14 @@ $hubCfg = @"
       "Remote": "origin",
       "Branch": "main",
       "CommandTimeout": "00:02:00"
+    },
+    "Tunnel": {
+      "Enabled": $tunnelEnabled,
+      "Name": "$tunnelName",
+      "ConfigPath": "$($tunnelConfig.Replace('\','\\'))",
+      "ExecutablePath": "$($tunnelExe.Replace('\','\\'))",
+      "RestartDelay": "00:00:10",
+      "PidFile": "cloudflared.pid"
     }
   }
 }
@@ -317,7 +427,23 @@ if ((Test-Path dist\host\hub) -and (Should-WriteConfig "dist/host/hub")) {
 # раза, а не `ssh user@ip` без -i (бэклог п.118).
 $sshKeyAbs = (Resolve-Path secrets\svc_diag_key).Path -replace '\\', '\\'
 $erpBaseUrl = if ($ErpPort -gt 0) { "http://127.0.0.1:$ErpPort" } else { "" }
-$erpToken = $ErpTokenFile -replace '\\', '\\'
+$erpTokenFile = $ErpTokenFile
+# Секцию Erp без параметров переносим из прежнего конфига: пересборка без -ErpPort молча
+# обнуляла её, и `sz get`/`sz fetch` падали exit 3 уже на живой заявке (бэклог п.244, п.285).
+if ($prevCliCfgText -and (-not $erpBaseUrl -or -not $erpTokenFile)) {
+    try {
+        $prevErp = ($prevCliCfgText | ConvertFrom-Json).Erp
+        if ($prevErp) {
+            if (-not $erpBaseUrl)   { $erpBaseUrl   = [string]$prevErp.BaseUrl }
+            if (-not $erpTokenFile) { $erpTokenFile = [string]$prevErp.TokenFile }
+        }
+    } catch {
+        Write-Host "   ВНИМАНИЕ: прежний appsettings.json szcli не разобран — секция Erp не перенесена." -ForegroundColor Yellow
+    }
+}
+if ($erpBaseUrl) { Write-Host "-- ERP: $erpBaseUrl" }
+else { Write-Host "-- ERP не настроен: sz get/fetch дадут exit 3 — пересобери с -ErpPort <порт> -ErpTokenFile <путь> (порт: Get-NetTCPConnection -State Listen по процессу TeleAuto)" -ForegroundColor Yellow }
+$erpToken = $erpTokenFile -replace '\\', '\\'
 $cliCfg = @"
 {
   "HubBaseUrl": "http://localhost:$Port",
@@ -335,14 +461,41 @@ if ((Test-Path dist\host\cli) -and (Should-WriteConfig "dist/host/cli")) {
     Set-Content -Path dist\host\cli\appsettings.json -Value $cliCfg -Encoding utf8
 }
 
-$hubUrlValue = if ([string]::IsNullOrWhiteSpace($HubIp)) { "" } else { "http://$($HubIp):$($Port)" }
+# Desk — тот же hub и тот же токен, что у CLI: окно и szcli обязаны видеть одно и то же.
+# Сессии Claude работают из корня репозитория (CLAUDE.md, скиллы). Профили Claude (~/.claude,
+# ~/.claude2 …) Desk ищет сам и даёт выбрать на заявку — в конфиг их не пишем: окружение того,
+# кто собирал dist, ничего не говорит о том, каким профилем вести конкретную заявку.
+$claudeWork = ("$root").Replace('\', '\\')
+$deskCfg = @"
+{
+  "HubBaseUrl": "http://localhost:$Port",
+  "ManagementToken": "$Token",
+  "KbRoot": "$kb",
+  "ClaudeWorkDir": "$claudeWork",
+  "PermissionMode": "auto"
+}
+"@
+if ((Test-Path dist\host\desk) -and (Should-WriteConfig "dist/host/desk")) {
+    Set-Content -Path dist\host\desk\appsettings.json -Value $deskCfg -Encoding utf8
+}
+
+# Явный -HubUrl (домен через Cloudflare Tunnel) главнее -HubIp: это постоянный адрес,
+# который работает из любой сети, тогда как IP годится только внутри LAN сервиса.
+$hubUrlValue = if (-not [string]::IsNullOrWhiteSpace($HubUrl)) { $HubUrl }
+               elseif ([string]::IsNullOrWhiteSpace($HubIp)) { "" }
+               else { "http://$($HubIp):$($Port)" }
 # Через InvariantCulture: на локали с запятой "1.5" превратилось бы в "1,5" и порвало JSON.
 $watchdogValue = $WatchdogHours.ToString([System.Globalization.CultureInfo]::InvariantCulture)
 
+# JSON не терпит одиночный обратный слеш — путь к cloudflared экранируем.
+$clientCloudflaredJson = $ClientCloudflaredPath.Replace('\', '\\')
 $agentCfg = @"
 {
   "HubUrl": "$hubUrlValue",
   "AgentToken": "$Token",
+  "AccessClientId": "$AccessClientId",
+  "AccessClientSecret": "$AccessClientSecret",
+  "CloudflaredPath": "$clientCloudflaredJson",
   "ServiceAccount": "svc-diag",
   "ServicePublicKeyPath": "service_key.pub",
   "SshPort": 22,
@@ -357,10 +510,12 @@ if ((Test-Path dist\client) -and (Should-WriteConfig "dist/client")) {
 }
 
 # 4. Удобные лаунчеры на хосте (single-quoted here-string — литералы)
+# exe — полным путём: при NoDefaultCurrentDirectoryInExePath=1 (его ставит окружение Claude Code, а
+# Desk, запущенный оттуда, передаёт дальше) cmd не ищет голое имя в текущей папке — код 9009.
 $startHub = @'
 @echo off
 cd /d "%~dp0hub"
-SzDiag.Hub.exe
+"%~dp0hub\SzDiag.Hub.exe"
 pause
 '@
 Set-Content -Path dist\host\start-hub.cmd -Value $startHub -Encoding ascii
@@ -455,7 +610,7 @@ if ($failed.Count -gt 0) {
 } else {
     Write-Host "== Готово =="
 }
-Write-Host "Хост:   dist\host\   (start-hub.cmd, szcli.cmd)"
+Write-Host "Хост:   dist\host\   (start-hub.cmd, szcli.cmd, desk\SzDiag.Desk.exe)"
 Write-Host "Клиент: dist\client\ (SzDiag.Agent.exe + ключ + testsuite, updater-log.cmd)"
 Write-Host "Гайд:   docs\TESTING.md"
 Write-Host "Открой порт на хосте (от админа):"

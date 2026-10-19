@@ -1,4 +1,4 @@
-using SzDiag.Cli;
+using SzDiag.HubClient;
 using Xunit;
 
 namespace SzDiag.Cli.Tests;

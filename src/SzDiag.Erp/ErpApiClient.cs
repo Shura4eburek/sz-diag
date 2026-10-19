@@ -22,7 +22,9 @@ public sealed class ErpApiClient : IDisposable
     }
 
     /// <summary>Собирает клиента по конфигу, читая токен из файла.</summary>
-    public static ErpApiClient Create(ErpOptions options)
+    /// <param name="timeoutSeconds">Перекрывает таймаут конфига: 600 с из него рассчитаны
+    /// на `sz.fetch`, который обходит окна минутами, а REST-вызов укладывается в секунды.</param>
+    public static ErpApiClient Create(ErpOptions options, int? timeoutSeconds = null)
     {
         if (!options.IsConfigured)
             throw new ErpApiException("unavailable", "адрес API не задан в конфиге (секция Erp).");
@@ -34,7 +36,7 @@ public sealed class ErpApiClient : IDisposable
         var http = new HttpClient
         {
             BaseAddress = new Uri(options.BaseUrl),
-            Timeout = TimeSpan.FromSeconds(options.TimeoutSeconds),
+            Timeout = TimeSpan.FromSeconds(timeoutSeconds ?? options.TimeoutSeconds),
         };
         return new ErpApiClient(http, File.ReadAllText(tokenFile).Trim(), ownsHttp: true);
     }

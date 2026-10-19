@@ -1,0 +1,27 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:SzDiag.Desk.ViewModels"
+             xmlns:v="using:SzDiag.Desk.Views"
+             x:Class="SzDiag.Desk.Views.TransfersView"
+             x:DataType="vm:MainViewModel">
+  <ItemsControl ItemsSource="{Binding Transfers}" Margin="12,6">
+    <ItemsControl.ItemTemplate>
+      <DataTemplate x:DataType="vm:TransferItemViewModel">
+        <Border Background="{StaticResource Bg.Panel}" CornerRadius="10" Padding="11,8" Margin="0,3">
+          <StackPanel Spacing="4">
+            <Grid ColumnDefinitions="*,Auto">
+              <TextBlock Text="{Binding Title}" FontFamily="{StaticResource MonoFont}" FontSize="11.5" />
+              <TextBlock Grid.Column="1" Text="{Binding Detail}" Classes="secondary" />
+            </Grid>
+            <ProgressBar Height="5" MinHeight="5" CornerRadius="3"
+                         Minimum="0" Maximum="100"
+                         Value="{Binding Percent, TargetNullValue=0}"
+                         IsIndeterminate="{Binding Percent, Converter={x:Static ObjectConverters.IsNull}}"
+                         Foreground="{Binding State, Converter={x:Static v:Converters.TransferStateToBrush}}"
+                         Background="{StaticResource Line}" />
+          </StackPanel>
+        </Border>
+      </DataTemplate>
+    </ItemsControl.ItemTemplate>
+  </ItemsControl>
+</UserControl>

@@ -44,16 +44,34 @@ if (-not (Test-Path $good)) {
 $sched = Join-Path $occt $Schedule
 if (-not (Test-Path $sched)) { "нет расписания $sched — сначала make-combined-schedule.ps1"; return }
 
+# ⚠ 16.09.2026 (162003): под SYSTEM у этого лаунчера работает ТОЛЬКО memory-часть Combined.
+# Прогон 30 мин записал отчёт с ExecutedDuration 00:30:00 и Errors=0, но по подтестам:
+# Memory 1712 циклов, CpuOcct и CpuOnlyOcct — по ОДНОМУ циклу, Linpack без циклов; приборно
+# CPU 15 % в среднем. Отключение GPU-подтестов (NoGpu) это не лечит. Любой Combined гоняем
+# интерактивно — start-occt-interactive.ps1; здесь остаётся только memory-профиль
+# (start-occt-mem.ps1). Подробности — бэклог п.282.
+#
+# Имя бинаря НЕ зашиваем (162003, 15-16.09): в раздаче лежит `OCCTEnterprise.exe`, а рецепт
+# звал `OCCTCmd.exe` — задача стартовала и падала с LastTaskResult=0x80070002 («файл не
+# найден»). В start-occt-mem.ps1 это починили 15.09, а здесь грабля выстрелила снова
+# 16.09 на контрольном Combined. Проверка — occt-binary-probe.ps1.
+$exe = @('OCCTCmd.exe', 'OCCTEnterprise.exe', 'OCCT.exe') |
+    ForEach-Object { Join-Path $occt $_ } |
+    Where-Object { Test-Path $_ } |
+    Select-Object -First 1
+if (-not $exe) { "в $occt нет ни OCCTCmd.exe, ни OCCTEnterprise.exe — раздача битая"; return }
+"бинарь: $exe"
+
 New-Item -ItemType Directory -Path 'C:\OCCT' -Force | Out-Null
 $stamp  = Get-Date -Format 'yyyyMMdd-HHmmss'
 $report = "C:\OCCT\combined-$Tag-$stamp.html"   # рядом лягут .json и .csv — json удобнее парсить
 $task   = "szdiag-occt$Suffix-$Sz"
 
-Get-Process OCCTCmd, OCCT -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
+Get-Process OCCTCmd, OCCTEnterprise, OCCT -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
 Unregister-ScheduledTask -TaskName $task -Confirm:$false -ErrorAction SilentlyContinue
 
 $argline = 'test --schedule="{0}" --auto-start=true --auto-save-report=true --report-file="{1}" --overwrite-report-file=true --auto-close=true' -f $sched, $report
-$action    = New-ScheduledTaskAction -Execute (Join-Path $occt 'OCCTCmd.exe') -Argument $argline -WorkingDirectory $occt
+$action    = New-ScheduledTaskAction -Execute $exe -Argument $argline -WorkingDirectory $occt
 $principal = New-ScheduledTaskPrincipal -UserId 'SYSTEM' -LogonType ServiceAccount -RunLevel Highest
 $settings  = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -MultipleInstances IgnoreNew -ExecutionTimeLimit ([TimeSpan]::FromHours(3))
 Register-ScheduledTask -TaskName $task -Action $action -Principal $principal -Settings $settings | Out-Null
@@ -61,7 +79,7 @@ Start-ScheduledTask -TaskName $task
 "задача $task запущена, отчёт: $report"
 
 Start-Sleep -Seconds 40
-$p = Get-Process OCCTCmd -ErrorAction SilentlyContinue
+$p = Get-Process ([IO.Path]::GetFileNameWithoutExtension($exe)) -ErrorAction SilentlyContinue
 if ($p) { 'OCCTCmd жив: pid {0}, старт {1:HH:mm:ss}' -f $p.Id, $p.StartTime } else { 'ПРОЦЕСС НЕ ЗАПУСТИЛСЯ — смотри task-why.ps1' }
 Get-ScheduledTaskInfo -TaskName $task | ForEach-Object { 'LastTaskResult=0x{0:X} (0x41301 = выполняется)' -f $_.LastTaskResult }
 

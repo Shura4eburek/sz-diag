@@ -1,0 +1,24 @@
+<ResourceDictionary xmlns="https://github.com/avaloniaui"
+                    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+  <!-- Палитра из утверждённого макета B v2 (спека 2026-09-25). Одно место для цветов:
+       экраны берут только эти ключи, иначе тёмная тема расползётся оттенками. -->
+  <SolidColorBrush x:Key="Bg.Window" Color="#17181b" />
+  <SolidColorBrush x:Key="Bg.TitleBar" Color="#1a1b1f" />
+  <SolidColorBrush x:Key="Bg.Side" Color="#1c1d21" />
+  <SolidColorBrush x:Key="Bg.Panel" Color="#212227" />
+  <SolidColorBrush x:Key="Bg.Status" Color="#141518" />
+  <SolidColorBrush x:Key="Bg.Selected" Color="#260a84ff" />
+  <SolidColorBrush x:Key="Bg.Hover" Color="#12ffffff" />
+  <SolidColorBrush x:Key="Line" Color="#2a2b31" />
+  <SolidColorBrush x:Key="Text.Primary" Color="#e7e7ea" />
+  <SolidColorBrush x:Key="Text.Secondary" Color="#8b8c94" />
+  <SolidColorBrush x:Key="Text.Tertiary" Color="#5d5e66" />
+  <SolidColorBrush x:Key="Accent" Color="#0a84ff" />
+  <SolidColorBrush x:Key="Ok" Color="#30d158" />
+  <SolidColorBrush x:Key="Warn" Color="#ff9f0a" />
+  <SolidColorBrush x:Key="Bad" Color="#ff453a" />
+  <SolidColorBrush x:Key="Violet" Color="#bf5af2" />
+  <SolidColorBrush x:Key="CloseHover" Color="#e81123" />
+  <FontFamily x:Key="UiFont">Segoe UI Variable Text, Segoe UI</FontFamily>
+  <FontFamily x:Key="MonoFont">Cascadia Mono, Consolas</FontFamily>
+</ResourceDictionary>

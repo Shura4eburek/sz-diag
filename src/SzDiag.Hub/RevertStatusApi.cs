@@ -37,7 +37,9 @@ public static class RevertStatusApi
             // волны 1). Соседний `/api/sessions/{sz}/journal` эту же проверку уже делает.
             if (!SzNumber.IsValid(report.Sz)) return Results.BadRequest(SzNumber.Explain(report.Sz));
 
-            if (!IsAuthorizedForSz(registry, report.Sz, http.Connection.RemoteIpAddress?.ToString()))
+            var sessionSecret = http.Request.Headers[HubRoutes.SessionSecretHeader].ToString();
+            if (!IsAuthorizedForSz(registry, report.Sz, http.Connection.RemoteIpAddress?.ToString(),
+                    string.IsNullOrEmpty(sessionSecret) ? null : sessionSecret))
                 return Results.StatusCode(StatusCodes.Status403Forbidden);
 
             // Watchdog/headless-откат уходит без живого SignalR-коннекта, поэтому обычный
@@ -62,14 +64,25 @@ public static class RevertStatusApi
     /// `/agent/*` общий на всех агентов, поэтому Sz из тела сам по себе не доказывает, что
     /// прислал его владелец сессии — заражённый клиент мог бы отчитаться за чужую активную
     /// СЗ и выкинуть её из реестра (DoS по соседним заявкам, Critical-5, ревью волны 1).
-    /// IP вызова не меняется при ребуте и должен совпасть с IP, под которым СЗ
-    /// зарегистрирована по SignalR. Пропускаем проверку, когда сверять не с чем: сессии уже
-    /// нет в реестре (обычный случай — watchdog шлёт репорт как раз потому, что живого
-    /// коннекта больше нет) или IP вызова не удалось определить.</summary>
-    public static bool IsAuthorizedForSz(SessionRegistry registry, string sz, string? remoteIp)
+    ///
+    /// Раньше сверяли IP вызова с IP регистрации. За Cloudflare Tunnel это перестаёт работать
+    /// в принципе: RemoteIpAddress у ВСЕХ агентов одинаков (адрес cloudflared), сверка
+    /// совпадала бы всегда и пропускала кого угодно. Основной механизм теперь — секрет
+    /// сессии, выданный при Register и живущий в state.json агента; проверка fail closed.</summary>
+    /// <param name="sessionSecret">Значение заголовка <see cref="HubRoutes.SessionSecretHeader"/>.</param>
+    public static bool IsAuthorizedForSz(SessionRegistry registry, string sz, string? remoteIp,
+        string? sessionSecret)
     {
         var info = registry.TryGetInfo(sz);
-        if (info is null || remoteIp is null) return true;
+        // Сессии нет — сверять не с чем: обычный случай watchdog-отчёта, живого коннекта нет.
+        if (info is null) return true;
+
+        // Секрет выдан — требуем его и только его.
+        if (registry.HasSecret(sz)) return registry.SecretMatches(sz, sessionSecret);
+
+        // Переходная ветка: агент старой сборки секрета не получал. Убрать вместе с веткой,
+        // когда апдейтер выведет флот.
+        if (remoteIp is null) return true;
         return info.Ip == remoteIp;
     }
 }

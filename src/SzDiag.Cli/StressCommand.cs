@@ -138,7 +138,7 @@ public static class StressCommand
     {
         AnsiConsole.MarkupLine("""
             Использование:
-              szcli stress start <СЗ> --transient [--on 60] [--off 40] [--hours 1.5] [--mem 8] [--no-gpu]
+              szcli stress start <СЗ> --transient [[--on 60]] [[--off 40]] [[--hours 1.5]] [[--mem 8]] [[--no-gpu]]
                 качели «нагрузка/простой» (CPU+RAM y-cruncher + GPU FurMark) — дискриминатор для
                 симптома «hard-off на простое»: ровный (плато) стресс такие срывы не создаёт вообще
               szcli stress stop <СЗ>   снять всю нагрузку разом: процессы, lhmmon, фоновые

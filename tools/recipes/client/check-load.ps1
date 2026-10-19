@@ -28,8 +28,10 @@ foreach ($c in $cols) {
     }
 }
 
-$p = Get-Process OCCTCmd -ErrorAction SilentlyContinue
-'OCCTCmd: ' + $(if ($p) { "жив, CPU-время $([int]$p.CPU) c, RAM $([int]($p.WorkingSet64/1MB)) МБ" } else { 'НЕТ ПРОЦЕССА — тест кончился или упал' })
+# OCCTEnterprise — имя процесса в текущей раздаче (162003, бэклог п.269): по одному
+# OCCTCmd рецепт врал «НЕТ ПРОЦЕССА» при живом прогоне.
+$p = Get-Process OCCTCmd, OCCTEnterprise -ErrorAction SilentlyContinue | Select-Object -First 1
+'OCCT: ' + $(if ($p) { "жив, CPU-время $([int]$p.CPU) c, RAM $([int]($p.WorkingSet64/1MB)) МБ" } else { 'НЕТ ПРОЦЕССА — тест кончился или упал' })
 if ($p) {
     Get-CimInstance Win32_Process | Where-Object { $_.ParentProcessId -eq $p.Id } | ForEach-Object { "   ребёнок: $($_.Name)" }
 }

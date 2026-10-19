@@ -15,8 +15,17 @@ namespace SzDiag.Contracts;
 /// версии «UAC» и «несовместимость», пока `whoami` не показал СИСТЕМА).</param>
 /// <param name="AgentSessionId">Сессия Windows, в которой живёт процесс агента. 0 — служебная
 /// сессия без рабочего стола (никто не увидит открытое окно).</param>
+/// <param name="LanIp">Адрес машины в её собственной сети, как его видит сам агент. Носит
+/// справочный смысл (какая у клиента сеть) и адресом не является: за туннелем и за NAT
+/// подключаться по нему нельзя.</param>
+/// <param name="AccessHost">Имя quick tunnel'а, если поднят. Именно из него строится строка
+/// подключения — hub больше не угадывает адрес из RemoteIpAddress.</param>
+/// <param name="AccessMode">См. <see cref="SzDiag.Contracts.AccessMode"/>.</param>
+/// <param name="SshHostKeyFingerprint">Публичный host-ключ portable sshd для пиннинга.</param>
 public sealed record RegisterRequest(string Sz, string Hostname, DateTimeOffset? BootTime = null,
-    string? LastShutdown = null, string? AgentUser = null, int? AgentSessionId = null);
+    string? LastShutdown = null, string? AgentUser = null, int? AgentSessionId = null,
+    string? LanIp = null, string? AccessHost = null, string? AccessMode = null,
+    string? SshHostKeyFingerprint = null);
 
 /// <summary>Как завершилась прошлая сессия ОС. Строки, а не enum: значение ездит по SignalR и
 /// лежит в SQLite, а агенты старых сборок его вообще не шлют.</summary>

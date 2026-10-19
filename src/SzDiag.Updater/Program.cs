@@ -1,4 +1,4 @@
-using Microsoft.Extensions.Configuration;
+﻿using Microsoft.Extensions.Configuration;
 using SzDiag.Contracts;
 using SzDiag.Updater;
 
@@ -72,7 +72,7 @@ async Task<int> RunAsync()
         catch (HttpRequestException)
         {
             Console.WriteLine("Hub не поддерживает апдейт (нет /agent/version).");
-            return LaunchLocalOrFail(agentExe, baseDir, "hub без апдейт-эндпоинта");
+            return LaunchLocalOrFail(agentExe, baseDir, "hub без апдейт-эндпоинта", args);
         }
 
         var localVersion = File.Exists(localVersionPath) ? File.ReadAllText(localVersionPath).Trim() : null;
@@ -90,7 +90,7 @@ async Task<int> RunAsync()
                 if (actual != expected)
                 {
                     Console.WriteLine($"sha256 не сошёлся (ожидали {expected}, получили {actual}).");
-                    return LaunchLocalOrFail(agentExe, baseDir, "битый пакет");
+                    return LaunchLocalOrFail(agentExe, baseDir, "битый пакет", args);
                 }
                 PackageApplier.Apply(tmpZip, baseDir);
                 Console.WriteLine("Пакет применён.");
@@ -99,7 +99,7 @@ async Task<int> RunAsync()
             {
                 // Напр. agent.exe залочен (уже запущен) — не заменяем, идём на локальный агент.
                 Console.WriteLine($"Не удалось применить обновление: {ex.Message}");
-                return LaunchLocalOrFail(agentExe, baseDir, "ошибка применения пакета");
+                return LaunchLocalOrFail(agentExe, baseDir, "ошибка применения пакета", args);
             }
             finally { try { File.Delete(tmpZip); } catch { } }
         }
@@ -114,7 +114,7 @@ async Task<int> RunAsync()
             Console.Error.WriteLine("Агент не найден после апдейта: " + agentExe);
             return 1;
         }
-        return AgentLauncher.LaunchAndWait(agentExe, baseDir);
+        return AgentLauncher.LaunchAndWait(agentExe, baseDir, args);
     }
     catch (HubNotFoundException ex)
     {
@@ -132,12 +132,13 @@ async Task<int> RunAsync()
 }
 
 // Деградация: если локальный агент есть — запустить его, иначе фейл.
-static int LaunchLocalOrFail(string agentExe, string baseDir, string reason)
+static int LaunchLocalOrFail(string agentExe, string baseDir, string reason,
+    IReadOnlyList<string> agentArgs)
 {
     if (File.Exists(agentExe))
     {
         Console.WriteLine($"Запускаю локального агента ({reason}).");
-        return AgentLauncher.LaunchAndWait(agentExe, baseDir);
+        return AgentLauncher.LaunchAndWait(agentExe, baseDir, agentArgs);
     }
     Console.Error.WriteLine($"Обновление невозможно ({reason}) и локального агента нет.");
     return 3;

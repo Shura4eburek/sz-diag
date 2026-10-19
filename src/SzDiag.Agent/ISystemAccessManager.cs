@@ -14,4 +14,9 @@ public interface ISystemAccessManager
     /// <summary>Переподнять доступ после ребута из сохранённого state (только sshd +
     /// сдвиг watchdog); user/firewall/token policy переживают ребут и не трогаются.</summary>
     void Resume(RevertState state, AccessSpec spec);
+
+    /// <summary>Дописать секрет сессии в сохранённое состояние. Владелец файла состояния —
+    /// менеджер, поэтому сохраняет он: секрет обязан пережить и краш агента, и ребут, иначе
+    /// headless-откат не сможет отчитаться hub.</summary>
+    void PersistSessionSecret(RevertState state, string? secret);
 }

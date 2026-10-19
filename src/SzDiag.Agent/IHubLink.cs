@@ -4,13 +4,25 @@
 public interface IHubLink
 {
     Task ConnectAsync(CancellationToken ct = default);
-    Task RegisterAsync(string sz, string hostname, DateTimeOffset? bootTime = null, string? lastShutdown = null,
+    /// <returns>Секрет сессии от hub (null — hub старой сборки). Агент обязан сохранить его
+    /// в state.json: при headless-откате доказать владение СЗ больше нечем.</returns>
+    Task<string?> RegisterAsync(string sz, string hostname, DateTimeOffset? bootTime = null, string? lastShutdown = null,
         string? agentUser = null, int? agentSessionId = null, CancellationToken ct = default);
     Task HeartbeatAsync(string sz, CancellationToken ct = default);
+
+    /// <summary>Агент -> hub: чем машина доступна сейчас. Отдельно от RegisterAsync, потому
+    /// что имя quick tunnel'а меняется в течение сессии — после ребута оно другое.</summary>
+    Task ReportAccessAsync(SzDiag.Contracts.AccessReportRequest report, CancellationToken ct = default);
 
     /// <summary>Отдать hub события питания из журнала клиента — то, что hub сам увидеть не
     /// может (бэклог п.97).</summary>
     Task ReportPowerEventsAsync(SzDiag.Contracts.PowerEventsReport report, CancellationToken ct = default);
+
+    /// <summary>Подписка на восстановление соединения. Обязательна: `WithAutomaticReconnect()`
+    /// после обрыва даёт НОВЫЙ ConnectionId, и пока агент не перерегистрируется, hub адресует
+    /// команды на закрытое соединение — heartbeat идёт, а управление мертво (СЗ 162003,
+    /// бэклог п.273).</summary>
+    void OnReconnected(Func<Task> handler);
 
     /// <summary>Подписка на команду revert от hub (sz → callback).</summary>
     void OnRevert(Func<string, Task> handler);

@@ -1,0 +1,307 @@
+﻿using System.Net;
+using System.Net.Http.Json;
+using SzDiag.Contracts;
+
+namespace SzDiag.HubClient;
+
+public sealed class HubApiClient : IHubApiClient
+{
+    /// <summary>Потолок для быстрых управляющих запросов (список СЗ, close, запуск прогона).
+    /// Долгие операции задают свой срок сами — см. <see cref="ExecAsync"/>.</summary>
+    private static readonly TimeSpan ShortRequestTimeout = TimeSpan.FromSeconds(30);
+
+    private readonly HttpClient _http;
+
+    public HubApiClient(HttpClient http, string managementToken)
+    {
+        _http = http;
+        // Дефолтные 100 секунд HttpClient.Timeout срезали длинный exec раньше, чем истекал
+        // срок, заданный пользователем через --timeout: 8-гигабайтная закачка на агенте
+        // падала с TaskCanceledException на 100-й секунде. Снимаем общий потолок и
+        // отмеряем время на каждом вызове отдельно.
+        _http.Timeout = Timeout.InfiniteTimeSpan;
+        if (!string.IsNullOrEmpty(managementToken))
+            _http.DefaultRequestHeaders.Add("X-SzDiag-Mgmt-Token", managementToken);
+    }
+
+    /// <summary>Токен, отменяющийся через <see cref="ShortRequestTimeout"/> — чтобы снятие
+    /// общего HttpClient.Timeout не превращало зависший hub в вечное ожидание.</summary>
+    private static CancellationTokenSource Short(CancellationToken ct)
+    {
+        var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        cts.CancelAfter(ShortRequestTimeout);
+        return cts;
+    }
+
+    public async Task<IReadOnlyList<SessionInfo>> GetSessionsAsync(CancellationToken ct = default)
+    {
+        using var cts = Short(ct);
+        return await _http.GetFromJsonAsync<List<SessionInfo>>("/api/sessions", cts.Token) ?? new();
+    }
+
+    public async Task<IReadOnlyList<TransferInfo>> GetTransfersAsync(CancellationToken ct = default)
+    {
+        using var cts = Short(ct);
+        var resp = await _http.GetAsync(TransferRoutes.List, cts.Token);
+        if (resp.StatusCode == HttpStatusCode.NotFound) return Array.Empty<TransferInfo>();
+        resp.EnsureSuccessStatusCode();
+        return await resp.Content.ReadFromJsonAsync<List<TransferInfo>>(cts.Token) ?? new();
+    }
+
+    public async Task<HubStatus?> GetStatusAsync(CancellationToken ct = default)
+    {
+        using var cts = Short(ct);
+        using var resp = await _http.GetAsync(HubStatusRoutes.Status, cts.Token);
+        if (resp.StatusCode == HttpStatusCode.NotFound) return null;
+        resp.EnsureSuccessStatusCode();
+        return await resp.Content.ReadFromJsonAsync<HubStatus>(cts.Token);
+    }
+
+    public async Task<HealthzResponse?> GetHealthAsync(CancellationToken ct = default)
+    {
+        using var cts = Short(ct);
+        try
+        {
+            return await _http.GetFromJsonAsync<HealthzResponse>("/healthz", cts.Token);
+        }
+        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException && !ct.IsCancellationRequested)
+        {
+            return null;
+        }
+    }
+
+    public async Task<CloseOutcome> CloseAsync(string sz, CancellationToken ct = default)
+    {
+        using var cts = Short(ct);
+        var resp = await _http.PostAsync($"/api/sessions/{sz}/close", null, cts.Token);
+        if (resp.StatusCode != HttpStatusCode.OK) return new CloseOutcome(false, null);
+        // Итог отката — не обязательное поле старого протокола: hub мог не успеть его
+        // получить от агента, и тело ответа тогда просто {"closed":true,"revert":null}.
+        return await resp.Content.ReadFromJsonAsync<CloseOutcome>(cts.Token) ?? new CloseOutcome(true, null);
+    }
+
+    public async Task<NoteResult> AddNoteAsync(string sz, string text, CancellationToken ct = default)
+    {
+        using var cts = Short(ct);
+        var resp = await _http.PostAsJsonAsync($"/api/sessions/{sz}/journal",
+            new JournalNoteRequest(text), cts.Token);
+        if (resp.StatusCode == HttpStatusCode.OK) return NoteResult.Ok;
+        // Эндпоинт принимает любую валидную СЗ без проверки сессии — 404 тут не «не нашли
+        // СЗ», а «такого маршрута на hub нет вовсе» (старый hub без journal-эндпоинта).
+        return resp.StatusCode == HttpStatusCode.NotFound ? NoteResult.HubTooOld : NoteResult.Rejected;
+    }
+
+    public async Task<TargetInfo?> GetTargetAsync(string sz, CancellationToken ct = default)
+    {
+        using var cts = Short(ct);
+        var resp = await _http.GetAsync($"/api/sessions/{sz}/target", cts.Token);
+        if (resp.StatusCode == HttpStatusCode.NotFound) return null;
+        resp.EnsureSuccessStatusCode();
+        return await resp.Content.ReadFromJsonAsync<TargetInfo>(cts.Token);
+    }
+
+    public async Task<TriggerResult> TriggerTestAsync(string sz, string? filter, string? config,
+        bool sameConfig, string? schedule = null, CancellationToken ct = default)
+    {
+        using var cts = Short(ct);
+        var resp = await _http.PostAsJsonAsync($"/api/sessions/{sz}/test",
+            new TestRunRequest(filter, config, sameConfig, schedule), cts.Token);
+        if (resp.StatusCode == HttpStatusCode.OK) return new TriggerResult(true, null);
+
+        // Текст причины от hub несёт подсказку про --same-config: без него пользователь
+        // видит «не запущен» и не понимает, чего от него хотят.
+        var body = await resp.Content.ReadAsStringAsync(cts.Token);
+        return new TriggerResult(false, string.IsNullOrWhiteSpace(body) ? null : body.Trim());
+    }
+
+    /// <summary>План расписания OCCT из раздачи (бэклог п.124/#60) — null: hub не ответил,
+    /// файла нет в раздаче, или это не расписание OCCT.</summary>
+    public async Task<OcctSchedulePlan?> GetOcctScheduleAsync(string? profile = null, CancellationToken ct = default)
+    {
+        using var cts = Short(ct);
+        var query = string.IsNullOrWhiteSpace(profile) ? "" : $"?profile={Uri.EscapeDataString(profile)}";
+        var resp = await _http.GetAsync($"/api/occt/schedule{query}", cts.Token);
+        if (!resp.IsSuccessStatusCode) return null;
+        return await resp.Content.ReadFromJsonAsync<OcctSchedulePlan>(cts.Token);
+    }
+
+    /// <summary>Разбор `occt-report.html` последнего прогона (бэклог п.124/#60) — null: hub не
+    /// ответил, отчёта ещё нет, либо файл не распознан этим парсером.</summary>
+    public async Task<OcctReportSummary?> GetTestResultAsync(string sz, CancellationToken ct = default)
+    {
+        using var cts = Short(ct);
+        var resp = await _http.GetAsync($"/api/sessions/{sz}/test-result", cts.Token);
+        if (!resp.IsSuccessStatusCode) return null;
+        return await resp.Content.ReadFromJsonAsync<OcctReportSummary>(cts.Token);
+    }
+
+    /// <summary>Выполнить скрипт на агенте и дождаться вывода. null — СЗ не онлайн.</summary>
+    /// <exception cref="TimeoutException">Агент не ответил (hub вернул 504).</exception>
+    public async Task<ExecResult?> ExecAsync(string sz, string script, int? timeoutSeconds = null,
+        CancellationToken ct = default, bool detached = false, bool isolated = false, bool asSystem = false)
+    {
+        // HttpClient.Timeout должен быть больше, чем ждёт hub, иначе клиент отвалится раньше
+        // и мы увидим невнятный TaskCanceledException вместо честного 504.
+        var wait = (timeoutSeconds ?? ExecLimits.DefaultTimeoutSeconds)
+                   + ExecLimits.HubGraceSeconds + 30;
+        using var req = new HttpRequestMessage(HttpMethod.Post, $"/api/sessions/{sz}/exec")
+        {
+            Content = JsonContent.Create(new ExecCommandRequest(script, timeoutSeconds, detached, isolated, asSystem)),
+        };
+        using var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        cts.CancelAfter(TimeSpan.FromSeconds(wait));
+
+        var resp = await _http.SendAsync(req, cts.Token);
+        if (resp.StatusCode == HttpStatusCode.NotFound) return null;
+        if (resp.StatusCode == HttpStatusCode.GatewayTimeout)
+            throw new TimeoutException($"агент СЗ {sz} не ответил на exec");
+        resp.EnsureSuccessStatusCode();
+        return await resp.Content.ReadFromJsonAsync<ExecResult>(cancellationToken: cts.Token);
+    }
+
+    /// <summary>Состояние фоновой exec-задачи. null — СЗ не онлайн.</summary>
+    /// <exception cref="TimeoutException">Агент не ответил (hub вернул 504).</exception>
+    public async Task<ExecJobStatus?> ExecStatusAsync(string sz, string jobId, int tailLines,
+        CancellationToken ct = default)
+    {
+        using var cts = Short(ct);
+        var resp = await _http.GetAsync($"/api/sessions/{sz}/exec/{jobId}?tail={tailLines}", cts.Token);
+        if (resp.StatusCode == HttpStatusCode.NotFound) return null;
+        if (resp.StatusCode == HttpStatusCode.GatewayTimeout)
+            throw new TimeoutException($"агент СЗ {sz} не вернул статус задачи");
+        resp.EnsureSuccessStatusCode();
+        return await resp.Content.ReadFromJsonAsync<ExecJobStatus>(cancellationToken: cts.Token);
+    }
+
+    /// <summary>Снять фоновую exec-задачу (убить дерево процессов). null — СЗ не онлайн.</summary>
+    /// <exception cref="TimeoutException">Агент не ответил (hub вернул 504).</exception>
+    public async Task<ExecJobStatus?> ExecCancelAsync(string sz, string jobId,
+        CancellationToken ct = default)
+    {
+        using var cts = Short(ct);
+        var resp = await _http.DeleteAsync($"/api/sessions/{sz}/exec/{jobId}", cts.Token);
+        if (resp.StatusCode == HttpStatusCode.NotFound) return null;
+        if (resp.StatusCode == HttpStatusCode.GatewayTimeout)
+            throw new TimeoutException($"агент СЗ {sz} не подтвердил отмену задачи");
+        resp.EnsureSuccessStatusCode();
+        return await resp.Content.ReadFromJsonAsync<ExecJobStatus>(cancellationToken: cts.Token);
+    }
+
+    /// <summary>Список фоновых exec-задач на агенте. null — СЗ не онлайн.</summary>
+    /// <exception cref="TimeoutException">Агент не ответил (hub вернул 504).</exception>
+    public async Task<ExecJobStatus?> ExecJobsAsync(string sz, CancellationToken ct = default)
+    {
+        using var cts = Short(ct);
+        var resp = await _http.GetAsync($"/api/sessions/{sz}/exec", cts.Token);
+        if (resp.StatusCode == HttpStatusCode.NotFound) return null;
+        if (resp.StatusCode == HttpStatusCode.GatewayTimeout)
+            throw new TimeoutException($"агент СЗ {sz} не вернул список задач");
+        resp.EnsureSuccessStatusCode();
+        return await resp.Content.ReadFromJsonAsync<ExecJobStatus>(cancellationToken: cts.Token);
+    }
+
+    /// <summary>Забрать файл(ы) с клиента на хост. null — СЗ не онлайн.</summary>
+    /// <exception cref="TimeoutException">Агент не закончил забор (hub вернул 504).</exception>
+    public async Task<PullResponse?> PullAsync(string sz, string path, long? maxBytes = null,
+        bool recurse = false, string? label = null, CancellationToken ct = default)
+    {
+        using var req = new HttpRequestMessage(HttpMethod.Post, $"/api/sessions/{sz}/pull")
+        {
+            Content = JsonContent.Create(new PullCommandRequest(path, maxBytes, recurse, label)),
+        };
+        // Ждём дольше hub — иначе вместо честного 504 вылезет TaskCanceledException.
+        using var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        cts.CancelAfter(TimeSpan.FromSeconds(PullLimits.TimeoutSeconds + 60));
+
+        var resp = await _http.SendAsync(req, cts.Token);
+        if (resp.StatusCode == HttpStatusCode.NotFound) return null;
+        if (resp.StatusCode == HttpStatusCode.GatewayTimeout)
+            throw new TimeoutException($"агент СЗ {sz} не закончил забор файлов");
+        resp.EnsureSuccessStatusCode();
+        return await resp.Content.ReadFromJsonAsync<PullResponse>(cancellationToken: cts.Token);
+    }
+
+    /// <summary>Доставить инструмент на клиента. null — СЗ не онлайн.</summary>
+    /// <exception cref="TimeoutException">Агент не отчитался (hub вернул 504).</exception>
+    public async Task<PushResult?> PushAsync(string sz, string tool, CancellationToken ct = default)
+    {
+        using var req = new HttpRequestMessage(HttpMethod.Post, $"/api/sessions/{sz}/push")
+        {
+            Content = JsonContent.Create(new PushCommandRequest(tool)),
+        };
+        // Ждём дольше hub: иначе вместо честного 504 вылезет TaskCanceledException.
+        using var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        cts.CancelAfter(TimeSpan.FromSeconds(PushLimits.TimeoutSeconds + 60));
+
+        var resp = await _http.SendAsync(req, cts.Token);
+        if (resp.StatusCode == HttpStatusCode.NotFound) return null;
+        if (resp.StatusCode == HttpStatusCode.GatewayTimeout)
+            throw new TimeoutException($"агент СЗ {sz} не завершил доставку '{tool}'");
+        resp.EnsureSuccessStatusCode();
+        return await resp.Content.ReadFromJsonAsync<PushResult>(cancellationToken: cts.Token);
+    }
+
+    /// <summary>Что hub может раздать (`szcli push --list`).</summary>
+    public async Task<ToolCatalogInfo?> GetToolsAsync(CancellationToken ct = default)
+    {
+        using var cts = Short(ct);
+        return await _http.GetFromJsonAsync<ToolCatalogInfo>("/api/tools", cts.Token);
+    }
+
+    /// <summary>Таймлайн вырубонов по СЗ (смены boot-time, зафиксированные hub).</summary>
+    public async Task<RebootTimeline?> GetRebootsAsync(string sz, CancellationToken ct = default)
+    {
+        using var cts = Short(ct);
+        return await _http.GetFromJsonAsync<RebootTimeline>($"/api/sessions/{sz}/reboots", cts.Token);
+    }
+
+    /// <summary>Отметить окно ручных работ с машиной (бэклог п.100).</summary>
+    public async Task<bool> AddMaintenanceAsync(MaintenanceWindow window, CancellationToken ct = default)
+    {
+        using var cts = Short(ct);
+        var resp = await _http.PostAsJsonAsync($"/api/sessions/{window.Sz}/maintenance", window, cts.Token);
+        return resp.StatusCode == HttpStatusCode.OK;
+    }
+
+    public async Task<IReadOnlyList<MaintenanceWindow>> GetMaintenanceAsync(string sz,
+        CancellationToken ct = default)
+    {
+        using var cts = Short(ct);
+        return await _http.GetFromJsonAsync<List<MaintenanceWindow>>(
+            $"/api/sessions/{sz}/maintenance", cts.Token) ?? new();
+    }
+
+    public async Task<bool> TriggerDiagAsync(string sz, string? sections = null, CancellationToken ct = default)
+    {
+        var url = string.IsNullOrWhiteSpace(sections)
+            ? $"/api/sessions/{sz}/diag"
+            : $"/api/sessions/{sz}/diag?sections={Uri.EscapeDataString(sections)}";
+        using var cts = Short(ct);
+        var resp = await _http.PostAsync(url, null, cts.Token);
+        return resp.StatusCode == HttpStatusCode.OK;
+    }
+
+    public async Task<string?> GetHubVersionAsync(CancellationToken ct = default)
+    {
+        try
+        {
+            using var cts = Short(ct);
+            var resp = await _http.GetAsync("/api/version", cts.Token);
+            if (resp.StatusCode != HttpStatusCode.OK) return null;
+            return await resp.Content.ReadAsStringAsync(cts.Token);
+        }
+        catch { return null; }   // hub недоступен — --version не должен падать из-за этого
+    }
+
+    public async Task<RestartAgentOutcome> RestartAgentAsync(string sz, CancellationToken ct = default)
+    {
+        using var cts = Short(ct);
+        var resp = await _http.PostAsync($"/api/sessions/{sz}/agent/restart", null, cts.Token);
+        // 404 здесь означает ровно одно: hub не знает такого маршрута вообще (старая сборка) —
+        // "СЗ не найдена" отдаётся телом 200 (review W2 I-9), а не кодом 404.
+        if (resp.StatusCode == HttpStatusCode.NotFound) return RestartAgentOutcome.HubTooOld;
+        if (resp.StatusCode != HttpStatusCode.OK) return RestartAgentOutcome.SessionNotFound;
+        var body = await resp.Content.ReadFromJsonAsync<RestartAgentResponse>(cts.Token);
+        return body?.Sent == true ? RestartAgentOutcome.Sent : RestartAgentOutcome.SessionNotFound;
+    }
+}

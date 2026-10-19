@@ -1,4 +1,4 @@
-using Spectre.Console;
+﻿using Spectre.Console;
 using SzDiag.Contracts;
 
 namespace SzDiag.Cli;
@@ -93,7 +93,7 @@ public static class SleepCycleCommand
     {
         AnsiConsole.MarkupLine("""
             Использование:
-              szcli sleep-cycle start <СЗ> [--sleep-min N] [--awake-sec N] [--max-hours N] [--confirm-risk]
+              szcli sleep-cycle start <СЗ> [[--sleep-min N]] [[--awake-sec N]] [[--max-hours N]] [[--confirm-risk]]
                 воспроизводящий тест «сон -> RTC-пробуждение»; сам умирает через --max-hours (по умолч. 8 ч)
               szcli sleep-cycle stop <СЗ>
                 остановить (только пока агент жив — офлайн-случай см. tools/recipes/client/pe-offline-kill-sleepcycle.ps1)

@@ -115,4 +115,30 @@ public class ExecParamsTests
         var pair = Assert.Single(result);
         Assert.Equal("999999", pair.Value);
     }
+    // 162003, 17.09: любой `-f` получает автоподстановку $Sz, и преамбула сверху сбивала
+    // param-блок с первой позиции — рецепт падал `CommandNotFoundException: param`.
+    [Fact]
+    public void Apply_ScriptStartsWithParamBlock_PreambleGoesAfterIt()
+    {
+        var script = "param([string]$On = '0')\nWrite-Output $On\n";
+
+        var result = ExecParams.Apply(script, new[] { ("On", "7") });
+
+        Assert.StartsWith("param([string]$On = '0')", result);
+        Assert.Contains("$On = '7'", result);
+        Assert.True(result.IndexOf("$On = '7'", System.StringComparison.Ordinal)
+                    > result.IndexOf("param(", System.StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void Apply_ParamBlockWithAttributes_FindsRealEnd()
+    {
+        var script = "# комментарий\nparam([ValidateSet('a','b')][string]$Mode = 'a')\nWrite-Output $Mode\n";
+
+        var result = ExecParams.Apply(script, new[] { ("Mode", "b") });
+
+        var preamble = result.IndexOf("$Mode = 'b'", System.StringComparison.Ordinal);
+        Assert.True(preamble > result.IndexOf("$Mode = 'a')", System.StringComparison.Ordinal));
+        Assert.DoesNotContain("param([ValidateSet('a','b')][string]# --param", result);
+    }
 }

@@ -5,13 +5,16 @@
 > ежедневной работы — [../CLAUDE.md](../CLAUDE.md). Здесь — протокол, точки расширения,
 > таблицы параметров и рецепты. Обновлено 2026-09-04.
 
-## Проекты (9 в `src/` + зеркальные тесты в `tests/`)
+## Проекты (12 в `src/` + зеркальные тесты в `tests/`)
 
 | Проект | Роль | Ключевые типы |
 |---|---|---|
 | `SzDiag.Contracts` | DTO + имена протокола (единый источник) + автообнаружение | `HubRoutes`, `DiscoveryProtocol`, `HubDiscovery`, DTO-записи |
 | `SzDiag.Hub` | ASP.NET Core на хосте: SignalR `/agents` + `/api/*` + `/agent/*` | `AgentHub`, `ManagementApi`, `AgentPackageApi`, `SessionRegistry` |
-| `SzDiag.Cli` (`szcli`) | тонкий клиент к `/api` | `HubApiClient`, команды в `Program.cs` |
+| `SzDiag.Cli` (`szcli`) | тонкий клиент к `/api` | команды в `Program.cs` |
+| `SzDiag.HubClient` | клиент `/api`, общий для CLI и Desk | `HubApiClient`, `IHubApiClient`, `SzLiveness` |
+| `SzDiag.Desk` | окно на Avalonia: список СЗ, чат сессии Claude, инспектор, передачи, статусбар | `HubPoller`, `MainViewModel`, `ChatViewModel`, `FeedBuilder`, `DeskClaudeHost` |
+| `SzDiag.Claude` | ядро сессий Claude без UI: процесс, парсер stream-json, сессии, разрешения через MCP | `ClaudeSession`, `SessionManager`, `StreamJsonParser`, `PermissionBroker`, `DeskMcpServer` |
 | `SzDiag.Agent` | консоль на клиенте (админ, `app.manifest`) | `AgentSession`, `WindowsSystemAccessManager`, `PortableSshServer` |
 | `SzDiag.Updater` | точка входа на клиенте: самообновление агента с hub | `HttpUpdateClient`, `PackageApplier`, `AgentLauncher` |
 | `SzDiag.ConsoleUi` | консольный UI, общий для hub/агента/CLI | `StickyHeader`, `SyncedConsoleWriter`, `MarkupText` |
@@ -30,7 +33,8 @@
 
 | Метод (`HubRoutes`) | Сигнатура на hub | Что делает |
 |---|---|---|
-| `Register` | `Register(RegisterRequest{Sz,Hostname})` | IP из соединения; `SessionRegistry.Register` + `Kb.EnsureSkeleton` + `store.RecordOpenAsync` |
+| `Register` | `Register(RegisterRequest{Sz,Hostname,…,LanIp,AccessHost,AccessMode,SshHostKeyFingerprint})` → `RegisterResponse{SessionSecret}` | `SessionRegistry.Register` + `Kb.EnsureSkeleton` + `store.RecordOpenAsync`; **возвращает секрет сессии** — им headless-откат доказывает владение СЗ |
+| `ReportAccess` | `ReportAccess(AccessReportRequest{Sz,AccessHost,AccessMode,SshHostKeyFingerprint})` | Чем машина доступна сейчас: `Registry.SetAccess` + запись `known_hosts` по СЗ. Отдельный метод, а не поле heartbeat: SignalR не умеет перегрузки, а имя quick tunnel меняется в течение сессии (после ребута оно **другое**) |
 | `Heartbeat` | `Heartbeat(string sz)` | `Registry.Heartbeat` (обновляет `LastHeartbeat`, статус Online) |
 | `ReportActivity` | `ReportActivity(sz, activity, since)` | `Registry.SetActivity`; `since=null` = простой. Fire-and-forget |
 | `UploadReportFile` | `UploadReportFile(UploadReportPart{Sz,Timestamp,FileName,Content})` | `ReportStore.Save` → `kb/СЗ/<sz>/reports/<ts>/<file>` |
@@ -107,7 +111,26 @@ RecordCloseAsync` + `Remove(sz)`; неудача — `Status=Offline` + `Session
 RevertNote` выставляет и живой SignalR-путь `RevertResult` выше — единое состояние сессии
 независимо от того, кто откат инициировал (self-revert по `C`, close с хоста, watchdog).
 
+### Передачи push/pull `GET /api/transfers` (`Hub/TransferTracker.cs`)
+
+Под management-токеном, `List<TransferInfo>` (`Id`, `Sz`, `Direction` Push/Pull, `What` —
+инструмент или путь, `TotalBytes` (null — неизвестен), `DoneBytes`, `BytesPerSecond` — средняя
+с начала, `StartedAt`, `State` Running/Done/Failed, `Note` — итог или причина, `FinishedAt`),
+новые сверху; enum'ы числами. Учёт in-memory, завершённые держатся 10 минут
+(`TransferTracker.KeepFinished`). `PushCoordinator`/`PullCoordinator` заводят передачу по
+`requestId` и **всегда** закрывают её в `finally` (исход по умолчанию — «прервано», чтобы
+исключение не оставило `Running` навсегда). Pull считает байты при приёме чанков; push — по
+отдаче файлов в `/tools/{tool}/file`: агент передаёт `requestId` параметром `req`
+(`ToolRoutes.Manifest/File(tool, …, requestId)`), манифест выставляет `TotalBytes`, файл
+отдаётся через `CountingReadStream`. Старый агент без `req` — раздача работает как раньше,
+передача закрывается итогом без байт. Повторный push уже доставленного — `Done` с `Note`
+«скачано 0, пропущено N». Клиент: `IHubApiClient.GetTransfersAsync` (404 старого hub → пустой
+список).
+
 ### Диагностика самого hub `/healthz` (`Hub/HealthApi.cs`)
+
+DTO `HealthzResponse` — в `SzDiag.Contracts` (Desk читает его через
+`IHubApiClient.GetHealthAsync`; null — hub не ответил).
 
 **Без токена** (`Program.cs` фильтрует токен-мидлварой только `HubRoutes.Path`, `/healthz` вне
 неё — сознательно новая неаутентифицированная поверхность, данных не отдаёт). Отвечает даже
@@ -267,6 +290,19 @@ staging) → `AgentLauncher.LaunchAndWait` (запуск `agent.exe` в насл
   `Registry.TryGetConnectionId(sz)`, зовут `IAgentCommandSender`; `false` при неизвестном connId.
 - **Аутентификация**: `AgentToken` (`X-SzDiag-Token`, middleware на `/agents` + discovery),
   `ManagementToken` (`X-SzDiag-Mgmt-Token`, фильтр на `/api`). Оба из секции `Hub` конфига.
+- **`HubTunnelService`** (`BackgroundService`) — именованный Cloudflare Tunnel, публикующий
+  hub наружу (`hub.<домен>`). Поднимает `cloudflared` дочерним процессом на старте, снимает
+  при остановке, перезапускает через `RestartDelay`, если тот упал сам. Секция
+  `Hub.Tunnel`: `Enabled` (рубильник), `Name` (имя/UUID туннеля), `ConfigPath` (yml с ingress),
+  `ExecutablePath` (пусто — ищется в PATH и `Program Files (x86)\cloudflared`), `PidFile`.
+  Служба Windows/автозапуск по входу **не используются намеренно**: туннель без hub отдаёт
+  502, а поднятый hub без туннеля недоступен снаружи — 16.09.2026 так и было (hub слушал,
+  `hub.<домен>` отвечал 530/1033, потому что `cloudflared` никто не запустил).
+  Два страховочных пути от осиротевшего процесса: job object с `KILL_ON_JOB_CLOSE`
+  (`KillOnCloseJob`) снимает `cloudflared` даже при `Stop-Process -Force` по hub, а pid-файл
+  рядом с exe даёт следующему старту добить того, кто всё же выжил. `build-dist.ps1
+  -TunnelName/-TunnelConfig/-TunnelExe` пишет секцию; без параметров она **переносится из
+  существующего** `dist\host\hub\appsettings.json`, чтобы пересборка не разоружила хаб молча.
 
 ## CLI (`szcli`, `SzDiag.Cli`)
 
@@ -320,6 +356,14 @@ staging) → `AgentLauncher.LaunchAndWait` (запуск `agent.exe` в насл
   поднят либо нет токена · `4` учётная программа не запущена или без логина · `5` захват
   занят (лечится `sz release`) · `6` не найдено либо неоднозначно · `7` интерфейс не
   распознан (обычно поверх висит окно с описанием обновления).
+- `sz get <СЗ> [--json]` · `sz orders <СЗ|телефон> [--limit N] [--json]` ·
+  `sz call <sz.get|api.*> [ключ=значение ...]` — REST-путь TeleAuto v1.6.0+ (`ErpRest`): бэкенд Telemart
+  напрямую, без окон, захвата и `ErpSession`, таймаут 120 с. `sz get` пишет сырой ответ в
+  `kb/СЗ/<номер>/erp-rest.json` (не `erp.json`: у `sz fetch` там другая форма) и больше ничего
+  в kb не трогает. `sz call` пускает только `sz.get` и `api.*` — UI-инструменты кликают по экрану;
+  аргументы — `ключ=значение` (json из PowerShell через `.cmd` теряет кавычки, бэклог п.269).
+  Коды сверх `sz fetch`: `8` TeleAuto без PIN (`locked`) · `9` нет VPN (`unreachable`) ·
+  `10` токен не выдан (`auth_failed`). Поля и ветки состава — `docs/teleauto-rest-api.md`.
 
 ## KB (`SzDiag.Kb`, Obsidian-vault, корень `kb/` — в .gitignore)
 
@@ -336,6 +380,90 @@ staging) → `AgentLauncher.LaunchAndWait` (запуск `agent.exe` в насл
 `IGpuScraper`→запись). `VgaBiosScraper` (`TechPowerUpClient`+`VgaBiosParser` на AngleSharp)
 дорезолвивает точную партнёрскую плату (SKU) и спеки прошивки по subsystem ID. `gpu-specs`-каталог
 за CAPTCHA — вне scope (`NotImplementedGpuScraper` — заглушка).
+
+## Сессии Claude в Desk (`SzDiag.Claude` + `SzDiag.Desk`)
+
+**Запуск процесса** (`ClaudeLaunch`): `claude -p --input-format stream-json --output-format
+stream-json --verbose --permission-mode <auto|default> --permission-prompt-tool mcp__desk__permission_prompt
+--mcp-config run\<ключ>.mcp.json --append-system-prompt <SzBriefing.For(сз)> [--resume <id>]`,
+рабочий каталог — корень репо, stdin UTF-8 без BOM, маркеры родительской сессии
+(`ClaudeLaunch.InheritedSessionMarkers`) вычищаются. Режим — `PermissionMode` конфига Desk
+(`auto` по умолчанию). **Профиль** — `ClaudeProfiles.Discover(домашняя папка)`: каталоги `.claude*`
+с `.credentials.json` (`claude` = `~/.claude` без `CLAUDE_CONFIG_DIR`, `claude2` = `~/.claude2`);
+выбирается кнопкой при «Начать сессию», пишется в `SessionRecord.Profile` и закреплён за разговором
+(`DeskClaudeHost.ProfileFor`: пропавший с машины профиль — запуск невозможен, а не подмена). Процесс
+стартует при **первом сообщении**, не при открытии чата. Схема событий — итоги спайка
+(`docs/superpowers/specs/2026-09-25-desk-spike-notes.md`), фикстуры — `tests/SzDiag.Claude.Tests/Fixtures`.
+
+**Файлы рядом с exe Desk:** `desk-sessions.json` (реестр `ключ → session_id, CreatedAt, Archived, Profile`),
+`desk-tokens.json` (токены и стоимость за локальные сутки), `sessions\<ключ>.jsonl` (журнал: сырой
+stream-json без служебных строк + строки `desk_user/desk_note/desk_permission_asked|answered/desk_crash`;
+лента после перезапуска Desk строится только из него), `run\<ключ>.mcp.json` (порт и токен MCP —
+переписываются на каждый запуск процесса), `run\resume-<ключ>.cmd` («открыть в терминале»).
+
+**Состояния** (`SessionState`): `Stopped` → первое сообщение → `Working` → `result` → `Idle`
+(следующее из очереди — снова `Working`); запрос разрешения — `WaitingPermission`; неожиданный
+выход процесса — `Crashed` (карточка с хвостом stderr, «перезапустить» шлёт очередь); `Archived` —
+СЗ пропала из `/api/sessions` (только переход «была → пропала», только после удачного опроса
+списка СЗ, только если её нет дольше `MainViewModel.ArchiveAfter` = 3 мин — рестарт hub на
+время опустошает список — и не посреди хода), новое сообщение снимает архив и продолжает
+`--resume`. «■» во время хода: то, что отправлено после «■», уходит сразу после прерванного хода. «■» — control-запрос
+`interrupt`; нет `result` за 10 с — процесс останавливается, очередь возвращается в поле ввода.
+
+**Разрешения:** `DeskMcpServer` (127.0.0.1, случайный порт, `X-Desk-Token` на запуск, stateless)
+держит запрос `permission_prompt` открытым, пока человек не ответит; ключ сессии — из пути
+`/mcp/<ключ>`. `timeout` сервера в конфиге — сутки (без него `claude` рвёт тулзу через 300 с).
+Остановка сессии/Desk и «■» отвечают на висящие запросы отказом.
+
+**Обмен между сессиями (`PeerExchange`, часть 4).** Инструменты MCP-сервера `desk`:
+
+| Инструмент | Аргументы | Что делает | Ошибки (`IsError`) |
+|---|---|---|---|
+| `permission_prompt` | `tool_name`, `input`, `tool_use_id` | ждёт решения оператора | — |
+| `peers` | — | другие живые СЗ с сессией Desk: `<СЗ> · железо · статус · сессия <State> · похоже: …` | — |
+| `ask_peer` | `key`, `question`, `live` = false | без `live` — выжимка kb (`діагностика.md` хвост 3000 симв. + 30 строк `журнал.md`); `live` — вопрос в сессию соседа, ответ = финальный текст её хода | своя СЗ; в kb пусто; нет активной сессии; глубина 1 (сам отвечаешь соседу); встречный вопрос; уже есть вопрос без ответа; лимит `PeerLivePerHour` (20/ч); таймаут `PeerTimeoutMinutes` (5 мин); сосед прервал ход/упал/остановлен |
+
+`peers`/`ask_peer` передаются в `--allowedTools` (`ClaudeLaunch.PeerTools`) — без карточки
+разрешения. Живой вопрос встаёт в отдельную очередь соседа **впереди** очереди оператора; сосед
+переходит в `SessionState.AnsweringPeer`, в его ленте — `💬 от <СЗ>: …` (строка журнала
+`desk_peer_question`). Отмена/таймаут снимает неотправленный вопрос. Пары в полёте —
+`PeerExchange.Active` (метка `💬` в списке СЗ).
+
+Данные о соседях — `SzPeerDirectory` (Desk): живые СЗ из `HwProfileCache.Live`, у которых есть
+неархивная запись сессии; выжимка — только для ключа `^\d{6}$`. Профиль железа — `HwProfile.Script`
+синхронным exec раз на `BootTime`, по одной СЗ за опрос, неудача — повтор через 5 мин;
+похожесть — `HwProfile.Similarity` (CPU / плата / память целым профилем «планки × объём @ частота»).
+
+**Рецепт: две одинаковые сборки** (как 161432). Обе СЗ в Desk с сессиями → на карточках `≈`.
+В сессии A: «спроси соседа, что он нашёл» (`ask_peer` без live — выжимка), при нужде — «спроси
+живьём, на каком профиле памяти его прогон прошёл чисто». Сравнение идёт через соседа, а не
+через `szcli … <чужая СЗ>`: сессия привязана к своей машине.
+
+### Инспектор Desk (`ViewModels/Inspector`)
+
+Вкладки — `IInspectorTab` (`Interval`, `RefreshOnReboot`, `RefreshAsync`, `Clear`);
+`InspectorViewModel` обновляет **только видимую**: при открытии, по интервалу (тик раз в секунду
+из окна) и вкладку вырубонов — при росте ⚡N выбранной СЗ. Порядок: Обзор (0, без опроса),
+Вырубоны (`/api/sessions/{sz}/reboots`, при открытии), Задачи (`ExecJobsAsync` + хвост выбранной
+`ExecStatusAsync`, 3 с), Сенсоры (синхронный exec хвоста `SensorPaths.LhmCsv`, 5 с; «не пишутся» —
+строка не менялась 30 с по часам бокса), Журнал (`KbPaths.Journal` с диска, `FileSystemWatcher`),
+Железо (`szcli hw passport`, кэш на СЗ), Действия. Таймаут клиента hub (30 с) приходит как
+`TaskCanceledException` — вкладки показывают «агент не ответил», прежние данные не стираются;
+инспектор глотает отмену только при смене СЗ.
+
+**`SzcliRunner`** — `cli\SzDiag.Cli.exe` рядом с найденным `szcli.cmd` (`DeskClaudeHost.Szcli`),
+`NO_COLOR=1`, UTF-8, ANSI вычищается; коды `-1` — szcli не найден (собери dist), `-2` — прервано.
+**`FreezeProbe`** — `cli\freeze\<СЗ>.json` рядом с szcli, тот же признак, что у `szcli list`.
+Действия (`ActionsViewModel`): `diag run`, `test run … --config` (метка обязательна), `freeze`,
+`unfreeze` (подтверждение), `note`, `sz fetch`, `close` / `close --force "причина"` (подтверждение);
+пока идёт одна команда, остальные не запускаются. `CliXml` и `SensorPaths` — в HubClient/Contracts,
+общие с CLI.
+
+**`GET /api/status`** (`HubStatus`, под management-токеном): `AgentPackageVersion` — из
+`agent-dist/version.txt`; `KbBackup` (`Enabled`, `LastRunAt`, `Outcome` строкой, `Message`) и
+`Tunnel` (`State` из `TunnelStates`: off / not-found / running / restarting, `Since`) — в
+`HubStatusTracker` отчитываются `KbBackupService` и `HubTunnelService`. Старый hub (404) —
+статусбар без деталей.
 
 ## Рецепты расширения (точные места)
 
@@ -360,6 +488,10 @@ staging) → `AgentLauncher.LaunchAndWait` (запуск `agent.exe` в насл
 
 - **Откат без следов**: каждый шаг `Open` ⇒ флаг + парная ветка `Revert`. Забыл → следы на клиенте.
 - **Токены разные**: агентский `X-SzDiag-Token` ≠ управляющий `X-SzDiag-Mgmt-Token`.
+- **Секрет сессии** `X-SzDiag-Session` — третий заголовок, не токен: выдаётся hub на `Register`
+  под конкретную СЗ, живёт в `state.json` агента и предъявляется на `/agent/revert-status`.
+  Нужен потому, что агентский токен общий на весь флот, а за Cloudflare Tunnel у всех
+  агентов ещё и одинаковый `RemoteIpAddress` — прежняя сверка по IP там не различает машины.
 - **UTF-8 с BOM** для файлов сборки (PowerShell 5.1 ломает кириллицу).
 - **Пути от `AppContext.BaseDirectory`**, не от CWD.
 - **`/api`-пути не в `HubRoutes`** — захардкожены в `HubApiClient` (менять в двух местах: hub-эндпоинт + клиент).

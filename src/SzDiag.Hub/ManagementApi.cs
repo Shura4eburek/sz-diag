@@ -177,6 +177,18 @@ public static class ManagementApi
         group.MapGet("/tools", (ToolCatalog catalog) => Results.Ok(
             new ToolCatalogInfo(catalog.Root, Directory.Exists(catalog.Root), catalog.List())));
 
+        // Прогресс push/pull для Desk (спека 2026-09-25): учёт на hub, поэтому видны и передачи,
+        // запущенные через szcli.
+        group.MapGet("/transfers", (TransferTracker transfers) => Results.Ok(transfers.Snapshot()));
+
+        // Детали статусбара Desk (спека 2026-09-25): пакет агента, бэкап kb, туннель.
+        group.MapGet("/status", (HubStatusTracker status, IOptions<HubOptions> options) =>
+        {
+            var path = Path.Combine(options.Value.AgentDistRoot, "version.txt");
+            var version = File.Exists(path) ? File.ReadAllText(path).Trim() : null;
+            return Results.Ok(status.Snapshot(string.IsNullOrEmpty(version) ? null : version));
+        });
+
         // План расписания OCCT из раздачи, а не из репозитория (бэклог п.124/#60, СЗ 161346):
         // `deploy/occt/*.json` в репо и `Hub.ToolsRoot/occt/*.json` на боксе молча расходились
         // (5+5 минут против заявленных 90+90) — печатать план имеет смысл только по тому, что
@@ -266,7 +278,25 @@ public static class ManagementApi
             var s = reg.GetActive().FirstOrDefault(x => x.Sz == sz);
             if (s is null) return Results.NotFound();
             var user = opts.Value.ServiceAccount;
-            return Results.Ok(new TargetInfo(sz, s.Ip, user, $"ssh {user}@{s.Ip}"));
+
+            // Туннельный режим без имени — машина сейчас недостижима по SSH. Сессия при этом
+            // может быть жива: управляющий канал отдельный, exec продолжает работать. Отдаём
+            // причину, а не строку, которая гарантированно не сработает.
+            if (s.AccessMode == AccessMode.Tunnel && string.IsNullOrWhiteSpace(s.AccessHost))
+                return Results.Ok(new TargetInfo(sz, s.Ip, user, "", AccessMode: s.AccessMode,
+                    Unavailable: "туннель не поднят — SSH недоступен; exec-канал работает"));
+
+            var host = s.AccessMode == AccessMode.Tunnel ? s.AccessHost! : s.Ip;
+            // Ключ приколот только когда агент его прислал: у старых сборок его нет, и
+            // ломать им рабочий путь нельзя.
+            string? knownHosts = null;
+            if (!string.IsNullOrWhiteSpace(s.SshHostKeyFingerprint))
+            {
+                var candidate = KnownHostsWriter.PathFor(opts.Value.KnownHostsRoot, sz);
+                if (File.Exists(candidate)) knownHosts = candidate;
+            }
+            return Results.Ok(new TargetInfo(sz, s.Ip, user, $"ssh {user}@{host}",
+                s.AccessHost, s.AccessMode, KnownHostsPath: knownHosts));
         });
     }
 }

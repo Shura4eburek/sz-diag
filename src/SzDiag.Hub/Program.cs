@@ -63,9 +63,13 @@ builder.Services.AddSingleton<IKbBackup>(sp =>
     return new KbGitBackup(
         opts.KnowledgeBaseRoot, opts.KbBackup.Remote, opts.KbBackup.Branch, opts.KbBackup.CommandTimeout);
 });
+builder.Services.AddSingleton(new HubStatusTracker(TimeProvider.System));
 builder.Services.AddHostedService<KbBackupService>();
 builder.Services.AddHostedService<OfflineSweeper>();
 builder.Services.AddHostedService<ThreadPoolWatchdog>();
+// Туннель наружу живёт ровно столько, сколько hub: поднятый hub без туннеля недоступен
+// снаружи, туннель без hub отдаёт 502.
+builder.Services.AddHostedService<HubTunnelService>();
 builder.Services.AddHostedService(sp =>
     new HubDiscoveryResponder(sp.GetRequiredService<IOptions<HubOptions>>()));
 builder.Services.AddSingleton<IAgentCommandSender, SignalRAgentCommandSender>();
@@ -74,13 +78,17 @@ builder.Services.AddSingleton<TestRunTrigger>();
 builder.Services.AddSingleton<DiagRunTrigger>();
 builder.Services.AddSingleton<RestartAgentTrigger>();
 builder.Services.AddSingleton<ExecCoordinator>();
+builder.Services.AddSingleton(new TransferTracker(TimeProvider.System));
 builder.Services.AddSingleton(sp =>
 {
     var opts = sp.GetRequiredService<IOptions<HubOptions>>().Value;
     return new PullCoordinator(sp.GetRequiredService<SessionRegistry>(),
-        sp.GetRequiredService<IAgentCommandSender>(), opts.PullRoot);
+        sp.GetRequiredService<IAgentCommandSender>(), opts.PullRoot,
+        transfers: sp.GetRequiredService<TransferTracker>());
 });
-builder.Services.AddSingleton<PushCoordinator>();
+// Фабрикой: DI не подставит трекер в параметр со значением по умолчанию надёжно.
+builder.Services.AddSingleton(sp => new PushCoordinator(sp.GetRequiredService<SessionRegistry>(),
+    sp.GetRequiredService<IAgentCommandSender>(), transfers: sp.GetRequiredService<TransferTracker>()));
 builder.Services.AddSingleton(sp =>
     new ToolCatalog(sp.GetRequiredService<IOptions<HubOptions>>().Value.ToolsRoot));
 builder.Services.AddSignalR(o =>

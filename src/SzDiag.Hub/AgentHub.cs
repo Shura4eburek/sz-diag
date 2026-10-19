@@ -37,7 +37,7 @@ public sealed class AgentHub : Microsoft.AspNetCore.SignalR.Hub
         _options = options.Value;
     }
 
-    public async Task Register(RegisterRequest request)
+    public async Task<RegisterResponse> Register(RegisterRequest request)
     {
         var ip = Context.GetHttpContext()?.Connection.RemoteIpAddress?.ToString() ?? "unknown";
         var now = DateTimeOffset.UtcNow;
@@ -105,6 +105,11 @@ public sealed class AgentHub : Microsoft.AspNetCore.SignalR.Hub
         _kb.EnsureSkeleton(request.Sz);
         await _store.RecordOpenAsync(
             new SessionRecord(request.Sz, ip, request.Hostname, now, null));
+
+        // Секрет сессии — единственное, чем headless-откат (watchdog, после ребута) сможет
+        // доказать, что отчитывается владелец СЗ: живого SignalR там нет, токен `/agent/*`
+        // общий на весь флот, а за туннелем у всех агентов одинаковый IP.
+        return new RegisterResponse(_registry.IssueSecret(request.Sz));
     }
 
     /// <summary>Агент принёс события питания из журнала клиента. Hub сливает их со своими:
@@ -134,9 +139,44 @@ public sealed class AgentHub : Microsoft.AspNetCore.SignalR.Hub
         }
     }
 
+    /// <summary>Агент сообщает, чем машина доступна сейчас. Зовётся при открытии доступа и
+    /// заново при каждой смене имени туннеля (ребут, переподнятие после обрыва): quick tunnel
+    /// не сохраняет hostname между запусками, поэтому одного значения из Register мало.</summary>
+    public Task ReportAccess(AccessReportRequest request)
+    {
+        // Токен /agents общий на всех агентов, поэтому Sz из тела проверяем, как и на соседних
+        // путях: без этого произвольная строка уезжает дальше по коду как номер СЗ.
+        if (!SzNumber.IsValid(request.Sz)) return Task.CompletedTask;
+
+        _registry.SetAccess(request.Sz, request.AccessHost, request.AccessMode,
+            request.SshHostKeyFingerprint);
+
+        // Пиннинг host-ключа: имя quick tunnel'а публично и не аутентифицировано, и без
+        // known_hosts подмену не отличить. Ключ пришёл управляющим каналом (аутентифицирован,
+        // по TLS), а не с того конца, к которому мы будем подключаться, — в этом и смысл.
+        if (!string.IsNullOrWhiteSpace(request.SshHostKeyFingerprint)
+            && !string.IsNullOrWhiteSpace(request.AccessHost))
+        {
+            try
+            {
+                KnownHostsWriter.Write(_options.KnownHostsRoot, request.Sz,
+                    request.AccessHost, request.SshHostKeyFingerprint);
+            }
+            catch (Exception ex)
+            {
+                // Не смогли записать — сессия не страдает, но строгую проверку включить
+                // будет нечем: `target` отдаст прежний вариант без пиннинга.
+                Console.WriteLine($"[hub] СЗ {request.Sz}: не записал known_hosts: {ex.Message}");
+            }
+        }
+        return Task.CompletedTask;
+    }
+
     public Task Heartbeat(string sz)
     {
-        _registry.Heartbeat(sz);
+        // ConnectionId берём из ЖИВОГО соединения: после реконнекта он новый, а Register
+        // агент второй раз не зовёт — без этого управление уходит в никуда (бэклог п.273).
+        _registry.Heartbeat(sz, Context.ConnectionId);
         return Task.CompletedTask;
     }
 

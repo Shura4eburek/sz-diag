@@ -20,12 +20,22 @@ public sealed class RevertStatusReporter
 
     /// <summary>Не бросает: любая ошибка сети/hub возвращается строкой, а не исключением —
     /// вызывающий (watchdog-код в Program.cs) не должен зависеть от доступности hub.</summary>
-    public async Task<string?> ReportAsync(string sz, bool success, string summary, CancellationToken ct = default)
+    /// <param name="sessionSecret">Секрет сессии из state.json. Единственное, чем этот путь
+    /// доказывает hub владение СЗ: токен `/agent/*` общий на весь флот, а за туннелем у всех
+    /// агентов ещё и одинаковый IP. null — агент старой сборки, hub откатится на сверку по IP.</param>
+    public async Task<string?> ReportAsync(string sz, bool success, string summary,
+        string? sessionSecret = null, CancellationToken ct = default)
     {
         try
         {
-            var resp = await _http.PostAsJsonAsync(HubRoutes.AgentRevertStatusRoute,
-                new RevertStatusReport(sz, success, summary), ct);
+            using var request = new HttpRequestMessage(HttpMethod.Post, HubRoutes.AgentRevertStatusRoute)
+            {
+                Content = JsonContent.Create(new RevertStatusReport(sz, success, summary)),
+            };
+            if (!string.IsNullOrEmpty(sessionSecret))
+                request.Headers.Add(HubRoutes.SessionSecretHeader, sessionSecret);
+
+            var resp = await _http.SendAsync(request, ct);
             return resp.IsSuccessStatusCode ? null : $"hub ответил {(int)resp.StatusCode}";
         }
         catch (Exception ex)

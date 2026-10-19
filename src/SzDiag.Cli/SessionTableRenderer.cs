@@ -51,7 +51,7 @@ public static class SessionTableRenderer
     /// boot-time — единственное надёжное подтверждение реального отказа, бэклог п.42; молчание
     /// heartbeat само по себе им не является — Important-1, ревью волны 1, CLAUDE.md: «под
     /// многочасовым OCCT 10 минут молчания — штатная картина»).</summary>
-    public static readonly TimeSpan LikelyFailureThreshold = TimeSpan.FromMinutes(10);
+    public static readonly TimeSpan LikelyFailureThreshold = SzLiveness.LikelyFailureThreshold;
 
     /// <summary>Ячейка статуса: живая СЗ — просто «online», офлайн — с явной меткой «лаг?»
     /// или «нет связи», а не голое «offline», за которым раньше это различие было видно
@@ -75,13 +75,14 @@ public static class SessionTableRenderer
         // чего колонка резервирует место под невидимый символ и текст съезжает.
         // Неудачный watchdog/headless-откат (бэклог п.59) обязан выглядеть иначе, чем
         // штатный offline: доступ (sshd, учётка, фаервол) мог остаться на клиенте навсегда.
-        if (!string.IsNullOrEmpty(s.RevertNote)) return "[red]⚠ откат[/]";
-        if (s.Status == SessionStatus.Online) return $"[green]online[/]{sessionZero}";
-
         var silentFor = now - s.LastHeartbeat;
-        return silentFor >= LikelyFailureThreshold
-            ? $"[yellow]offline (нет связи {FormatElapsed(silentFor)})[/]{sessionZero}"
-            : $"[grey]offline (лаг?)[/]{sessionZero}";
+        return SzLiveness.Classify(s, now) switch
+        {
+            SzLivenessState.RevertFailed => "[red]⚠ откат[/]",
+            SzLivenessState.Online => $"[green]online[/]{sessionZero}",
+            SzLivenessState.NoContact => $"[yellow]offline (нет связи {FormatElapsed(silentFor)})[/]{sessionZero}",
+            _ => $"[grey]offline (лаг?)[/]{sessionZero}",
+        };
     }
 
     /// <summary>Ячейка uptime: сколько машина работает с загрузки ОС. Свежий ребут (менее часа

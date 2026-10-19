@@ -69,6 +69,39 @@ public class ManagementApiTests : IClassFixture<WebApplicationFactory<Program>>,
         Assert.Equal("10.0.0.77", target!.Ip);
         Assert.Equal("svc-diag", target.User);
         Assert.Equal("ssh svc-diag@10.0.0.77", target.Ssh);
+        Assert.Null(target.Unavailable);
+    }
+
+    [Fact]
+    public async Task Target_ТуннельныйРежим_АдресуетПоИмениТуннеля()
+    {
+        _factory.Services.GetRequiredService<SessionRegistry>()
+            .Register("156900", "127.0.0.1", "PC-10", "conn-10",
+                accessHost: "aaa-bbb.trycloudflare.com", accessMode: AccessMode.Tunnel);
+
+        var target = await Client().GetFromJsonAsync<TargetInfo>("/api/sessions/156900/target");
+
+        // Ip за туннелем — адрес cloudflared, подключаться по нему нельзя.
+        Assert.Equal("aaa-bbb.trycloudflare.com", target!.AccessHost);
+        Assert.Equal(AccessMode.Tunnel, target.AccessMode);
+        Assert.Contains("aaa-bbb.trycloudflare.com", target.Ssh);
+        Assert.Null(target.Unavailable);
+    }
+
+    // Честность отчётов: печатать заведомо нерабочую строку — врать. Сессия при этом жива,
+    // управляющий канал отдельный от SSH.
+    [Fact]
+    public async Task Target_ТуннельНеПоднят_НазываетПричинуВместоСтроки()
+    {
+        _factory.Services.GetRequiredService<SessionRegistry>()
+            .Register("156901", "127.0.0.1", "PC-11", "conn-11",
+                accessHost: null, accessMode: AccessMode.Tunnel);
+
+        var target = await Client().GetFromJsonAsync<TargetInfo>("/api/sessions/156901/target");
+
+        Assert.NotNull(target!.Unavailable);
+        Assert.Contains("туннель не поднят", target.Unavailable);
+        Assert.Equal("", target.Ssh);
     }
 
     // review W2 I-9: "СЗ не найдена" и "hub не знает такого маршрута" раньше давали один и

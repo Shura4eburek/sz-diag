@@ -1,0 +1,108 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:v="using:SzDiag.Desk.Views"
+        xmlns:vm="using:SzDiag.Desk.ViewModels"
+        x:Class="SzDiag.Desk.Views.MainWindow"
+        x:DataType="vm:MainViewModel"
+        Title="SzDiag" Width="1280" Height="780" MinWidth="900" MinHeight="520"
+        ExtendClientAreaToDecorationsHint="True"
+        ExtendClientAreaChromeHints="NoChrome"
+        ExtendClientAreaTitleBarHeightHint="36">
+  <DockPanel>
+    <Border DockPanel.Dock="Top" BorderBrush="{StaticResource Line}" BorderThickness="0,0,0,1">
+      <v:TitleBar x:Name="TitleBar" />
+    </Border>
+    <Border x:Name="StatusPane" DockPanel.Dock="Bottom" Height="26"
+            Background="{StaticResource Bg.Status}" BorderBrush="{StaticResource Line}" BorderThickness="0,1,0,0">
+      <v:StatusBarView DataContext="{Binding Status}" />
+    </Border>
+    <Grid ColumnDefinitions="210,*,Auto">
+      <Border x:Name="LeftPane" Background="{StaticResource Bg.Side}"
+              BorderBrush="{StaticResource Line}" BorderThickness="0,0,1,0">
+        <v:SzListView />
+      </Border>
+      <DockPanel x:Name="CenterPane" Grid.Column="1">
+        <Border DockPanel.Dock="Top" BorderBrush="{StaticResource Line}" BorderThickness="0,0,0,1"
+                Padding="16,8,12,8">
+          <Grid ColumnDefinitions="*,Auto,Auto">
+            <StackPanel Orientation="Horizontal" Spacing="10" VerticalAlignment="Center">
+              <TextBlock Text="{Binding Title}" FontWeight="SemiBold" />
+              <Border IsVisible="{Binding ActiveChat.Profile, Converter={x:Static ObjectConverters.IsNotNull}, FallbackValue=False}"
+                      CornerRadius="5" Padding="6,1" Background="{StaticResource Bg.Panel}" VerticalAlignment="Center">
+                <TextBlock Text="{Binding ActiveChat.Profile, FallbackValue=''}" FontSize="10.5"
+                           Foreground="{StaticResource Text.Secondary}" />
+              </Border>
+              <TextBlock Text="{Binding ActiveChat.StateText, FallbackValue=''}" Classes="secondary"
+                         IsVisible="{Binding ActiveChat, Converter={x:Static ObjectConverters.IsNotNull}}" />
+            </StackPanel>
+            <Button x:Name="TerminalButton" Grid.Column="1" Content="открыть в терминале" Margin="0,0,8,0"
+                    ToolTip.Tip="claude --resume в Windows Terminal; процесс в Desk при этом останавливается"
+                    Command="{Binding ActiveChat.OpenInTerminalCommand, FallbackValue={x:Null}}"
+                    IsVisible="{Binding ActiveChat, Converter={x:Static ObjectConverters.IsNotNull}}" />
+            <ToggleButton x:Name="InspectorToggle" Grid.Column="2" Classes="icon"
+                          IsChecked="{Binding IsInspectorOpen}" ToolTip.Tip="Инспектор СЗ">
+              <Path Data="M1.5,2.5 H14.5 V13.5 H1.5 Z M10,2.5 V13.5" Stroke="{Binding $parent[ToggleButton].Foreground}"
+                    StrokeThickness="1.4" Width="16" Height="16" Stretch="None" />
+            </ToggleButton>
+          </Grid>
+        </Border>
+        <v:TransfersView DockPanel.Dock="Bottom" IsVisible="{Binding HasTransfers}" />
+        <Panel>
+          <!-- СЗ без агента (машина не грузится): номер руками — сессия ради разбора в kb. -->
+          <StackPanel x:Name="OfflineSessionPanel" IsVisible="{Binding ShowPlaceholder}" Spacing="8"
+                      HorizontalAlignment="Center" VerticalAlignment="Center">
+            <TextBlock Text="Выбери СЗ слева" Classes="secondary" HorizontalAlignment="Center" />
+            <TextBlock Text="или начни сессию без агента:" Classes="secondary" HorizontalAlignment="Center"
+                       Margin="0,12,0,0" IsVisible="{Binding HasProfiles}" />
+            <TextBox x:Name="OfflineSzBox" Text="{Binding OfflineSz}" Watermark="номер СЗ, 6 цифр"
+                     Width="230" MaxLength="6" HorizontalAlignment="Center" IsVisible="{Binding HasProfiles}" />
+            <TextBlock Text="{Binding OfflineSzError}" Foreground="#ff6b61" HorizontalAlignment="Center"
+                       IsVisible="{Binding OfflineSzError, Converter={x:Static ObjectConverters.IsNotNull}}" />
+            <ItemsControl ItemsSource="{Binding Profiles}" HorizontalAlignment="Center">
+              <ItemsControl.ItemsPanel>
+                <ItemsPanelTemplate>
+                  <StackPanel Orientation="Horizontal" Spacing="8" />
+                </ItemsPanelTemplate>
+              </ItemsControl.ItemsPanel>
+              <ItemsControl.ItemTemplate>
+                <DataTemplate x:DataType="x:String">
+                  <Button Content="{Binding}" MinWidth="110" HorizontalContentAlignment="Center"
+                          Command="{Binding $parent[Window].((vm:MainViewModel)DataContext).StartOfflineSessionCommand}"
+                          CommandParameter="{Binding}" />
+                </DataTemplate>
+              </ItemsControl.ItemTemplate>
+            </ItemsControl>
+          </StackPanel>
+          <!-- Кнопка на каждый найденный профиль Claude: профиль закрепляется за разговором. -->
+          <StackPanel x:Name="StartSessionPanel" IsVisible="{Binding CanStartSession}" Spacing="8"
+                      HorizontalAlignment="Center" VerticalAlignment="Center">
+            <TextBlock Text="Начать сессию Claude" Classes="secondary" HorizontalAlignment="Center" />
+            <ItemsControl ItemsSource="{Binding Profiles}">
+              <ItemsControl.ItemsPanel>
+                <ItemsPanelTemplate>
+                  <StackPanel Orientation="Horizontal" Spacing="8" />
+                </ItemsPanelTemplate>
+              </ItemsControl.ItemsPanel>
+              <ItemsControl.ItemTemplate>
+                <DataTemplate x:DataType="x:String">
+                  <Button Content="{Binding}" MinWidth="110" HorizontalContentAlignment="Center"
+                          Command="{Binding $parent[Window].((vm:MainViewModel)DataContext).StartSessionCommand}"
+                          CommandParameter="{Binding}" />
+                </DataTemplate>
+              </ItemsControl.ItemTemplate>
+            </ItemsControl>
+          </StackPanel>
+          <!-- Видимость — на обёртке: у ChatView свой DataContext (модель чата), а решает модель окна. -->
+          <Border IsVisible="{Binding ActiveChat, Converter={x:Static ObjectConverters.IsNotNull}}">
+            <v:ChatView x:Name="ChatPane" DataContext="{Binding ActiveChat}" />
+          </Border>
+        </Panel>
+      </DockPanel>
+      <Border x:Name="InspectorPane" Grid.Column="2" Width="290" Background="{StaticResource Bg.TitleBar}"
+              BorderBrush="{StaticResource Line}" BorderThickness="1,0,0,0"
+              IsVisible="{Binding IsInspectorOpen}">
+        <v:InspectorView />
+      </Border>
+    </Grid>
+  </DockPanel>
+</Window>

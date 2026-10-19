@@ -1,4 +1,4 @@
-using System.Security.Cryptography;
+﻿using System.Security.Cryptography;
 using SzDiag.Contracts;
 
 namespace SzDiag.Agent;
@@ -14,15 +14,24 @@ public sealed class WindowsSystemAccessManager : ISystemAccessManager
     private const string AdminsSid = "S-1-5-32-544";
     private const string TokenPolicyPath = @"HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System";
 
+    /// <summary>Сколько ждём имя от quick tunnel'а. Больше — задерживаем открытие доступа
+    /// ради необязательного шага; меньше — не успеваем на медленной сети клиента.</summary>
+    private static readonly TimeSpan TunnelStartTimeout = TimeSpan.FromSeconds(30);
+
     private readonly IPowerShellRunner _ps;
     private readonly ISshServer _sshd;
     private readonly string _statePath;
+    private readonly IAccessTunnel? _tunnel;
 
-    public WindowsSystemAccessManager(IPowerShellRunner ps, ISshServer sshd, string statePath)
+    /// <param name="tunnel">null — прямой режим: машина в одной сети с боксом, публиковать
+    /// sshd наружу не нужно.</param>
+    public WindowsSystemAccessManager(IPowerShellRunner ps, ISshServer sshd, string statePath,
+        IAccessTunnel? tunnel = null)
     {
         _ps = ps;
         _sshd = sshd;
         _statePath = statePath;
+        _tunnel = tunnel;
     }
 
     /// <summary>Постороннее <c>szdiag-*</c> на клиенте ДО открытия доступа своей сессии
@@ -130,6 +139,9 @@ public sealed class WindowsSystemAccessManager : ISystemAccessManager
         state.GeneratedHostKeys = true;
         state.WroteAuthorizedKey = true;
         state.CreatedSshdTask = true;
+        // Публичный host-ключ — для пиннинга на hub: имя туннеля публично и не
+        // аутентифицировано, без known_hosts подмену не отличить.
+        state.SshHostPublicKey = SshHostKeyReader.TryRead(_sshd.WorkDir);
         Persist();
 
         // 7. Watchdog scheduled task (запускает этот exe с --revert по таймауту)
@@ -151,6 +163,36 @@ public sealed class WindowsSystemAccessManager : ISystemAccessManager
         state.CreatedDesktopShortcut = LocalRevertShortcut.Create(_ps, spec.Sz, exe, _statePath);
         Persist();
 
+        // 10. Публикация sshd наружу через quick tunnel — последним, туннель бессмысленен
+        // без живого sshd. Шаг необязательный: не поднялся — доступ остаётся открытым,
+        // заявка продолжает работать через exec-канал, а `target` честно скажет, что SSH
+        // недоступен, вместо неработающей строки.
+        if (_tunnel is not null)
+        {
+            try
+            {
+                state.TunnelTaskName = $"szdiag-cfd-{spec.Sz}";
+                var host = _tunnel.Start(spec.SshPort, state.TunnelTaskName, TunnelStartTimeout);
+                if (!string.IsNullOrWhiteSpace(host))
+                {
+                    state.StartedQuickTunnel = true;
+                    state.QuickTunnelHost = host;
+                }
+                else
+                {
+                    // Имя не появилось — задачу Start уже снял за собой, флаг не ставим.
+                    state.TunnelTaskName = "";
+                }
+            }
+            catch
+            {
+                // Туннель — не причина не открыть доступ. Молчать не страшно: режим уедет
+                // на hub как Direct, и `szcli target` честно скажет, что SSH недоступен.
+                state.TunnelTaskName = "";
+            }
+            Persist();
+        }
+
         return state;
     }
 
@@ -167,6 +209,15 @@ public sealed class WindowsSystemAccessManager : ISystemAccessManager
             try { action(); done.Add(name); }
             catch (Exception ex) { failed.Add(new RevertStepFailure(name, ex.ToString())); }
         }
+
+        // Туннель снимаем ПЕРВЫМ, раньше sshd: иначе на время отката наружу остаётся
+        // опубликованная дверь в уже разваливающийся доступ.
+        Step("quick tunnel", state.StartedQuickTunnel && _tunnel is not null, () =>
+        {
+            _tunnel!.Stop(state.TunnelTaskName);
+            state.StartedQuickTunnel = false;
+            state.QuickTunnelHost = "";
+        });
 
         // Ярлык «закрыть доступ» снимаем в самом начале: он ведёт на этот же откат, и
         // оставшийся на рабочем столе клиента ярлык — такой же след, как задача или учётка.
@@ -239,11 +290,39 @@ public sealed class WindowsSystemAccessManager : ISystemAccessManager
         // задача). User/firewall/token policy/watchdog переживают ребут.
         var keyLine = $"{spec.ServicePublicKey.Trim()} {state.AuthorizedKeyComment}";
         _sshd.Start(spec.SshPort, keyLine, state.SshdTaskName);
+        state.SshHostPublicKey = SshHostKeyReader.TryRead(_sshd.WorkDir);
 
         // Пересоздать watchdog с новым дедлайном (-Force): серия ребутов под стрессом
         // продлевает сессию, а не грохает её протухшим -Once из прошлой загрузки.
         _ps.Run(BuildWatchdogTaskCommand(state.WatchdogTaskName, Environment.ProcessPath!,
             _statePath, DateTime.Now.Add(spec.WatchdogTimeout)));
+
+        // Туннель умирает от ребута так же, как sshd, и имя после переподнятия будет ДРУГИМ:
+        // quick tunnel не сохраняет hostname между запусками. Не переподнять — оставить hub
+        // с адресом мёртвого туннеля; новое имя агент отдаст через ReportAccess.
+        if (_tunnel is not null && state.StartedQuickTunnel)
+        {
+            try
+            {
+                state.TunnelTaskName = $"szdiag-cfd-{spec.Sz}";
+                var host = _tunnel.Start(spec.SshPort, state.TunnelTaskName, TunnelStartTimeout);
+                state.StartedQuickTunnel = !string.IsNullOrWhiteSpace(host);
+                state.QuickTunnelHost = host ?? "";
+            }
+            catch
+            {
+                // Как в Open: туннель не причина срывать возврат сессии после ребута.
+                state.StartedQuickTunnel = false;
+                state.QuickTunnelHost = "";
+            }
+        }
+    }
+
+    public void PersistSessionSecret(RevertState state, string? secret)
+    {
+        if (string.IsNullOrEmpty(secret)) return;   // hub старой сборки — секрета нет
+        state.SessionSecret = secret;
+        RevertStateStore.Save(_statePath, state);
     }
 
     /// <summary>Если на диске остался state.json от ДРУГОЙ (незакрытой) СЗ — откатить её,

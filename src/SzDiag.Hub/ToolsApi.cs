@@ -27,20 +27,31 @@ public static class ToolsApi
 
         group.MapGet("/list", (ToolCatalog catalog) => Results.Ok(catalog.List()));
 
-        group.MapGet("/{tool}/manifest", (string tool, ToolCatalog catalog) =>
+        group.MapGet("/{tool}/manifest", (string tool, string? req, ToolCatalog catalog, TransferTracker transfers) =>
         {
             var manifest = catalog.Manifest(tool);
-            return manifest is null ? Results.NotFound() : Results.Ok(manifest);
+            if (manifest is null) return Results.NotFound();
+            if (req is not null) transfers.SetTotal(req, manifest.TotalBytes);
+            return Results.Ok(manifest);
         });
 
-        group.MapGet("/{tool}/file", (string tool, string path, ToolCatalog catalog) =>
+        group.MapGet("/{tool}/file", (string tool, string path, string? req, ToolCatalog catalog,
+            TransferTracker transfers) =>
         {
             var full = catalog.ResolveFile(tool, path);
             // 404 и на «нет файла», и на попытку выйти за папку инструмента: подсказывать,
             // что путь существует, но запрещён, незачем.
-            return full is null
-                ? Results.NotFound()
-                : Results.File(full, "application/octet-stream", Path.GetFileName(full));
+            if (full is null) return Results.NotFound();
+            Stream body = OpenToolFile(full);
+            if (req is not null) body = new CountingReadStream(body, n => transfers.Add(req, n));
+            return Results.File(body, "application/octet-stream", Path.GetFileName(full));
         });
     }
+
+    /// <summary>Асинхронный поток на чтение: синхронный FileStream гоняет ReadAsync через пул
+    /// потоков, а 300 МБ OCCT — это тысячи чтений на том самом пуле, который у hub уже
+    /// захлёбывался (бэклог п.50). Раньше Results.File(path) отдавал файл сам, без этого.</summary>
+    public static Stream OpenToolFile(string path)
+        => new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read, 81920,
+            FileOptions.Asynchronous | FileOptions.SequentialScan);
 }

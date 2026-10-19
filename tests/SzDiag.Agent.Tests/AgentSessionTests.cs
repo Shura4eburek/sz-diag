@@ -1,4 +1,5 @@
-using SzDiag.Agent;
+﻿using SzDiag.Agent;
+using SzDiag.Contracts;
 using Xunit;
 
 namespace SzDiag.Agent.Tests;
@@ -21,6 +22,12 @@ public class AgentSessionTests
             return new RevertOutcome(new[] { "sshd", "учётка svc-diag" }, Array.Empty<RevertStepFailure>());
         }
         public void Resume(RevertState state, AccessSpec spec) => ResumeCalls++;
+        public string? PersistedSecret { get; private set; }
+        public void PersistSessionSecret(RevertState state, string? secret)
+        {
+            PersistedSecret = secret;
+            state.SessionSecret = secret;
+        }
     }
 
     private sealed class FakeHubLink : IHubLink
@@ -33,10 +40,19 @@ public class AgentSessionTests
 
         public Task ConnectAsync(CancellationToken ct = default) { Connected = true; return Task.CompletedTask; }
         public DateTimeOffset? RegisteredBootTime { get; private set; }
-        public Task RegisterAsync(string sz, string hostname, DateTimeOffset? bootTime = null, string? lastShutdown = null, string? agentUser = null, int? agentSessionId = null, CancellationToken ct = default) { RegisteredSz = sz; RegisteredBootTime = bootTime; return Task.CompletedTask; }
+        public string? SecretToIssue { get; init; }
+        public int RegisterCalls { get; private set; }
+        public Task<string?> RegisterAsync(string sz, string hostname, DateTimeOffset? bootTime = null, string? lastShutdown = null, string? agentUser = null, int? agentSessionId = null, CancellationToken ct = default) { RegisteredSz = sz; RegisteredBootTime = bootTime; RegisterCalls++; return Task.FromResult(SecretToIssue); }
         public Task ReportPowerEventsAsync(SzDiag.Contracts.PowerEventsReport report, CancellationToken ct = default) => Task.CompletedTask;
         public Task HeartbeatAsync(string sz, CancellationToken ct = default) { Heartbeats++; return Task.CompletedTask; }
+        public SzDiag.Contracts.AccessReportRequest? AccessReport { get; private set; }
+        public Task ReportAccessAsync(SzDiag.Contracts.AccessReportRequest report, CancellationToken ct = default) { AccessReport = report; AccessReportCount++; return Task.CompletedTask; }
         public void OnRevert(Func<string, Task> handler) => _onRevert = handler;
+        private Func<Task>? _onReconnected;
+        public void OnReconnected(Func<Task> handler) => _onReconnected = handler;
+        /// <summary>Сымитировать восстановление соединения так, как это делает SignalR.</summary>
+        public Task RaiseReconnectedAsync() => _onReconnected?.Invoke() ?? Task.CompletedTask;
+        public int AccessReportCount { get; private set; }
         public List<SzDiag.Contracts.UploadReportPart> Uploaded { get; } = new();
         private Func<string, string?, string?, Task>? _onRunTests;
         public void OnRunTests(Func<string, string?, string?, Task> handler) => _onRunTests = handler;
@@ -91,6 +107,113 @@ public class AgentSessionTests
         Assert.Equal(1, mgr.OpenCalls);
         Assert.True(link.Connected);
         Assert.Equal("156864", link.RegisteredSz);
+    }
+
+    // Реконнект обязан перерегистрировать агента (СЗ 162003, бэклог п.273): SignalR после
+    // обрыва выдаёт новый ConnectionId, и пока hub его не узнал, exec/push/close уходят на
+    // закрытое соединение — снаружи это «heartbeat свежий, агент не отвечает».
+    [Fact]
+    public async Task Reconnected_ПеререгистрируетАгентаИСообщаетДоступ()
+    {
+        var mgr = new FakeManager();
+        var link = new FakeHubLink();
+        var session = new AgentSession(mgr, link, Spec(), "PC-1");
+        await session.StartAsync();
+        var registersAfterStart = link.RegisterCalls;
+        var accessAfterStart = link.AccessReportCount;
+
+        await link.RaiseReconnectedAsync();
+
+        Assert.Equal(registersAfterStart + 1, link.RegisterCalls);
+        Assert.Equal(accessAfterStart + 1, link.AccessReportCount);
+        Assert.Equal(1, mgr.OpenCalls);   // доступ повторно НЕ открываем: это только адрес
+    }
+
+    [Fact]
+    public async Task Reconnected_ПослеResume_ТожеПеререгистрирует()
+    {
+        var mgr = new FakeManager();
+        var link = new FakeHubLink();
+        var session = new AgentSession(mgr, link, Spec(), "PC-1");
+        await session.ResumeAsync(new RevertState { Sz = "156864" });
+        var before = link.RegisterCalls;
+
+        await link.RaiseReconnectedAsync();
+
+        Assert.Equal(before + 1, link.RegisterCalls);
+    }
+
+    // Секрет обязан осесть в state.json: headless-откат (watchdog, после ребута) идёт без
+    // живого SignalR, и доказать hub владение СЗ там больше нечем.
+    [Fact]
+    public async Task StartAsync_СохраняетСекретСессии()
+    {
+        var mgr = new FakeManager();
+        var link = new FakeHubLink { SecretToIssue = "секрет-от-хаба" };
+        var session = new AgentSession(mgr, link, Spec(), "PC-1");
+
+        await session.StartAsync();
+
+        Assert.Equal("секрет-от-хаба", mgr.PersistedSecret);
+    }
+
+    [Fact]
+    public async Task ResumeAsync_ОбновляетСекретПослеРебута()
+    {
+        // Hub мог перезапуститься, пока клиент ребутился: секрет будет новым.
+        var mgr = new FakeManager();
+        var link = new FakeHubLink { SecretToIssue = "новый-секрет" };
+        var session = new AgentSession(mgr, link, Spec(), "PC-1");
+
+        await session.ResumeAsync(new RevertState { Sz = "156864", SessionSecret = "старый" });
+
+        Assert.Equal("новый-секрет", mgr.PersistedSecret);
+    }
+
+    // Hub перестал угадывать адрес клиента из RemoteIpAddress: без этого отчёта он не знает,
+    // чем машина доступна, и `szcli target` не может построить рабочую строку.
+    [Fact]
+    public async Task StartAsync_СообщаетHubРежимДоступа()
+    {
+        var link = new FakeHubLink();
+        var session = new AgentSession(new FakeManager(), link, Spec(), "PC-1");
+
+        await session.StartAsync();
+
+        Assert.NotNull(link.AccessReport);
+        Assert.Equal("156864", link.AccessReport!.Sz);
+    }
+
+    [Fact]
+    public async Task StartAsync_HubНайденBroadcastом_РежимПрямой()
+    {
+        // Машина в одной сети с боксом — туннель только замедлит и добавит зависимость.
+        var link = new FakeHubLink();
+        var session = new AgentSession(new FakeManager(), link, Spec(), "PC-1",
+            foundHubByBroadcast: true);
+
+        await session.StartAsync();
+
+        Assert.Equal(AccessMode.Direct, link.AccessReport!.AccessMode);
+    }
+
+    // После ребута имя quick tunnel'а другое: не отчитаться заново — оставить hub с адресом
+    // мёртвого туннеля.
+    [Fact]
+    public async Task ResumeAsync_СообщаетHubРежимДоступаЗаново()
+    {
+        var link = new FakeHubLink();
+        var session = new AgentSession(new FakeManager(), link, Spec(), "PC-1");
+
+        await session.ResumeAsync(new RevertState
+        {
+            Sz = "156864",
+            StartedQuickTunnel = true,
+            QuickTunnelHost = "новое-после-ребута.trycloudflare.com",
+        });
+
+        Assert.Equal("новое-после-ребута.trycloudflare.com", link.AccessReport!.AccessHost);
+        Assert.Equal(AccessMode.Tunnel, link.AccessReport.AccessMode);
     }
 
     [Fact]

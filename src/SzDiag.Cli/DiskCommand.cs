@@ -1,4 +1,4 @@
-using Spectre.Console;
+﻿using Spectre.Console;
 using SzDiag.Contracts;
 
 namespace SzDiag.Cli;
@@ -106,9 +106,9 @@ public static class DiskCommand
     {
         AnsiConsole.MarkupLine("""
             Использование:
-              szcli disk scan <СЗ> [--map] [--points N] [--sample-mb N]        карта скорости по всему диску (по умолчанию)
-              szcli disk scan <СЗ> --zone НАЧАЛО-КОНЕЦ [--zone-step-mb N]      сплошное чтение зоны (ГБ, напр. 440-520)
-              szcli disk scan <СЗ> [--drive N] [--minutes N] [--slow-mbs N]    общие параметры (диск/лимит времени/порог просадки)
+              szcli disk scan <СЗ> [[--map]] [[--points N]] [[--sample-mb N]]        карта скорости по всему диску (по умолчанию)
+              szcli disk scan <СЗ> --zone НАЧАЛО-КОНЕЦ [[--zone-step-mb N]]      сплошное чтение зоны (ГБ, напр. 440-520)
+              szcli disk scan <СЗ> [[--drive N]] [[--minutes N]] [[--slow-mbs N]]    общие параметры (диск/лимит времени/порог просадки)
               [grey]результат смотреть:[/] szcli exec <СЗ> --result <jobId>
             """);
         return 2;

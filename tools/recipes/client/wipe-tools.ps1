@@ -48,6 +48,14 @@ $targets = @(
     'C:\OCCT'   # рабочая папка рецептов: логи прогонов, sensors.csv, iotest.bin
 )
 
+# cloudflared сознательно НЕ в списке выше: он держит канал доступа (quick tunnel), и снос
+# посреди сессии рубит SSH. Но когда его привезли `szcli push`, `szcli close` считает его
+# остатком и отказывается закрывать СЗ (160697, 17.09): агент сносит бинарь сам только если
+# клал его сам (`RevertState.DeployedCloudflared`). Перед самым закрытием — сносим тут.
+# Включается переменной выше по скрипту: szcli exec <СЗ> -f wipe-tools.ps1 --param WithCloudflared=1
+if (-not (Get-Variable WithCloudflared -Scope Script -ErrorAction SilentlyContinue)) { $WithCloudflared = $null }
+if ($WithCloudflared) { $targets += "$base\tools\cloudflared" }
+
 $freed = 0
 foreach ($d in $targets) {
     if (-not (Test-Path $d)) { continue }

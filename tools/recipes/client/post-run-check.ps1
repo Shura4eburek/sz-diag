@@ -15,7 +15,7 @@ $since = (Get-Date).AddHours(-$Hours)
 ''
 
 '=== Процессы теста ==='
-$names = 'OCCTCmd','OCCT','furmark','TM5','3DMarkCmd','lhmmon'
+$names = 'OCCTCmd','OCCTEnterprise','OCCT','furmark','TM5','3DMarkCmd','lhmmon'
 $any = $false
 foreach ($n in $names) {
     $p = Get-Process $n -ErrorAction SilentlyContinue
