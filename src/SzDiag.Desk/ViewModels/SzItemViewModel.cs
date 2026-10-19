@@ -23,7 +23,7 @@ public sealed partial class SzItemViewModel : ObservableObject
 
     public bool HasSession => SessionState is not null;
 
-    /// <summary>Windows Update заморожен (бейдж 🧊): не забыть unfreeze до закрытия.</summary>
+    /// <summary>Windows Update заморожен (бейдж-снежинка): не забыть unfreeze до закрытия.</summary>
     [ObservableProperty] private bool _isFrozen;
 
     /// <summary>CPU · плата · память — из профиля железа (снимается раз на boot).</summary>
@@ -35,7 +35,7 @@ public sealed partial class SzItemViewModel : ObservableObject
     [ObservableProperty] private string _similarTip = "";
     public bool HasSimilar => SimilarText.Length > 0;
 
-    /// <summary>`💬&lt;СЗ&gt;` — сессии переписываются прямо сейчас (фиолетовая метка спеки).</summary>
+    /// <summary>Номер соседней СЗ, с которой сессии переписываются прямо сейчас (рисуется с иконкой чата).</summary>
     [ObservableProperty] [NotifyPropertyChangedFor(nameof(HasPeer))] private string _peerText = "";
     public bool HasPeer => PeerText.Length > 0;
 

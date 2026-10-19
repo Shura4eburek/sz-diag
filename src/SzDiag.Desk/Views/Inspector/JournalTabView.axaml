@@ -4,10 +4,10 @@
              x:Class="SzDiag.Desk.Views.Inspector.JournalTabView"
              x:DataType="vm:JournalTabViewModel">
   <DockPanel>
-    <TextBlock DockPanel.Dock="Top" Text="{Binding FilePath}" Classes="secondary" FontSize="10"
-               TextTrimming="CharacterEllipsis" Margin="0,0,0,6" />
+    <TextBlock DockPanel.Dock="Top" Text="{Binding FilePath}" Classes="code-small secondary"
+               TextTrimming="CharacterEllipsis" ToolTip.Tip="{Binding FilePath}" Margin="0,0,0,6" />
     <ScrollViewer x:Name="JournalScroll">
-      <SelectableTextBlock Text="{Binding Text}" FontFamily="{StaticResource MonoFont}" FontSize="11" TextWrapping="Wrap" />
+      <SelectableTextBlock Text="{Binding Text}" Classes="code-small" TextWrapping="Wrap" />
     </ScrollViewer>
   </DockPanel>
 </UserControl>

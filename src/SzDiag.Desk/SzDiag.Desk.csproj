@@ -3,6 +3,8 @@
   <ItemGroup>
     <!-- Лёгкий CLAUDE.md сессий заявок: Desk рендерит его в каталог сессий при старте. -->
     <EmbeddedResource Include="Assets\sz-session-CLAUDE.md" LogicalName="sz-session-CLAUDE.md" />
+    <!-- Шрифты дизайн-системы Shirabe внутри exe: бокс может быть без интернета и без них в системе. -->
+    <AvaloniaResource Include="Assets\Fonts\*.ttf" />
   </ItemGroup>
 
   <ItemGroup>
@@ -16,6 +18,7 @@
     <!-- Avalonia держим на 11.x, как в спеке: 12.x — мажор с ломающими изменениями API окна. -->
     <PackageReference Include="Avalonia" Version="11.3.22" />
     <PackageReference Include="Avalonia.Desktop" Version="11.3.22" />
+    <PackageReference Include="Avalonia.Fonts.Inter" Version="11.3.22" />
     <PackageReference Include="Avalonia.Themes.Fluent" Version="11.3.22" />
     <PackageReference Include="Markdown.Avalonia.Tight" Version="11.0.3" />
     <PackageReference Include="CommunityToolkit.Mvvm" Version="8.4.2" />

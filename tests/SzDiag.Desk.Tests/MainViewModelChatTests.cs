@@ -253,7 +253,7 @@ public class MainViewModelChatTests : IDisposable
         Assert.Contains(session.History, e => e is DeskNote n && n.Text.StartsWith("связь с машиной пропала"));
 
         vm.Apply(Snap(S("161432", reboots: 1)));
-        Assert.Contains(session.History, e => e is DeskNote n && n.Text.Contains("boot сменился") && n.Text.Contains("⚡1"));
+        Assert.Contains(session.History, e => e is DeskNote n && n.Text.Contains("boot сменился") && n.Text.Contains("вырубонов: 1"));
     }
 
     [Fact]
@@ -271,9 +271,9 @@ public class MainViewModelChatTests : IDisposable
     public void Tokens_InStatusBar()
     {
         var vm = New();
-        Assert.Equal("токены сегодня: 0 · $0.00", vm.Status.TokensText);
+        Assert.Equal("токены сегодня: 0 · $0,00", vm.Status.TokensText);
         _h.Tokens.Add(new TokenUsage(1000, 500, 0, 0), 0.12m);
-        Assert.Equal("токены сегодня: 1.5K · $0.12", vm.Status.TokensText);
+        Assert.Equal("токены сегодня: 1,5k · $0,12", vm.Status.TokensText);
     }
 
     [Fact]
@@ -305,9 +305,9 @@ public class MainViewModelChatTests : IDisposable
     [Theory]
     [InlineData(0, "0")]
     [InlineData(999, "999")]
-    [InlineData(12_345, "12.3K")]
-    [InlineData(2_500_000, "2.5M")]
+    [InlineData(12_345, "12,3k")]
+    [InlineData(2_500_000, "2,5M")]
     public void FormatTokens(long total, string expected)
-        => Assert.Equal($"токены сегодня: {expected} · $1.50",
+        => Assert.Equal($"токены сегодня: {expected} · $1,50",
             StatusBarViewModel.FormatTokens(new TokenUsage(total, 0, 0, 0), 1.5m));
 }

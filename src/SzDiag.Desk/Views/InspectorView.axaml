@@ -6,17 +6,22 @@
              x:Class="SzDiag.Desk.Views.InspectorView"
              x:DataType="vm:MainViewModel">
   <UserControl.Styles>
-    <!-- 7 вкладок в 290 px: мелкий шрифт и перенос заголовков в две строки. -->
+    <!-- 7 вкладок в 308 px: переносятся во второй ряд, высота ряда — size.tab. -->
+    <Style Selector="TabControl#InspectorTabs /template/ ItemsPresenter#PART_ItemsPresenter">
+      <Setter Property="Margin" Value="0" />
+    </Style>
     <Style Selector="TabItem">
-      <Setter Property="FontSize" Value="12" />
-      <Setter Property="MinHeight" Value="0" />
-      <Setter Property="Padding" Value="8,4" />
+      <Setter Property="Padding" Value="7,0" />
     </Style>
   </UserControl.Styles>
   <Panel>
-    <TextBlock IsVisible="{Binding Selected, Converter={x:Static ObjectConverters.IsNull}}"
-               Text="Выбери СЗ слева" Classes="secondary" HorizontalAlignment="Center" VerticalAlignment="Center" />
-    <TabControl x:Name="InspectorTabs" Margin="8,6"
+    <StackPanel IsVisible="{Binding Selected, Converter={x:Static ObjectConverters.IsNull}}" Spacing="6"
+                HorizontalAlignment="Center" VerticalAlignment="Center">
+      <Path Classes="icon lg" Data="{StaticResource Icon.Info}" Stroke="{StaticResource Text.Disabled}" HorizontalAlignment="Center" />
+      <TextBlock Text="Заявка не выбрана" Classes="body-medium" HorizontalAlignment="Center" />
+      <TextBlock Text="Инспектор покажет её состояние и действия" Classes="small secondary" HorizontalAlignment="Center" />
+    </StackPanel>
+    <TabControl x:Name="InspectorTabs" Padding="0" Margin="8,0,8,8"
                 IsVisible="{Binding Selected, Converter={x:Static ObjectConverters.IsNotNull}}"
                 SelectedIndex="{Binding Inspector.SelectedIndex, FallbackValue=0}">
       <TabControl.ItemsPanel>
@@ -25,79 +30,92 @@
         </ItemsPanelTemplate>
       </TabControl.ItemsPanel>
       <TabItem Header="Обзор">
-        <!-- Сводка по макету B v2: состояние и железо, ⚡, последние сенсоры, передачи, быстрые действия.
+        <!-- Сводка: состояние и железо, вырубоны, последние сенсоры, передачи, быстрые действия.
              Сам «Обзор» exec к клиенту не шлёт: сенсоры — последние снятые вкладкой «Сенсоры». -->
-        <ScrollViewer Margin="0,6,0,0">
+        <ScrollViewer Margin="0,8,0,0">
           <StackPanel Spacing="8">
-            <Border Background="{StaticResource Bg.Panel}" CornerRadius="10" Padding="11">
+            <Border Classes="card">
               <StackPanel Spacing="4">
                 <Grid ColumnDefinitions="*,Auto">
-                  <TextBlock Text="{Binding Selected.Sz}" FontWeight="SemiBold" FontSize="14" />
-                  <Border Grid.Column="1" IsVisible="{Binding Selected.HasReboots, FallbackValue=False}" CornerRadius="5"
-                          Padding="6,1" Background="#22ff453a" VerticalAlignment="Center">
-                    <TextBlock Text="{Binding Selected.RebootCount, StringFormat='⚡{0}'}" FontSize="11" Foreground="#ff6b61" />
+                  <TextBlock Text="{Binding Selected.Sz}" Classes="title" />
+                  <Border Grid.Column="1" Classes="badge" IsVisible="{Binding Selected.HasReboots, FallbackValue=False}"
+                          ToolTip.Tip="Вырубонов за заявку">
+                    <StackPanel Orientation="Horizontal" Spacing="2">
+                      <Path Classes="icon sm" Data="{StaticResource Icon.Bolt}" Stroke="{StaticResource Status.Error}" />
+                      <TextBlock Text="{Binding Selected.RebootCount}" Classes="caption error" VerticalAlignment="Center" />
+                    </StackPanel>
                   </Border>
                 </Grid>
-                <TextBlock Text="{Binding Selected.Liveness, Converter={x:Static v:Converters.LivenessToText}}"
-                           Foreground="{Binding Selected.Liveness, Converter={x:Static v:Converters.LivenessToBrush}}" />
-                <TextBlock Text="{Binding Selected.HwLine}" TextWrapping="Wrap" IsVisible="{Binding Selected.HasHwLine, FallbackValue=False}" />
-                <TextBlock Classes="secondary" TextWrapping="Wrap" Text="{Binding Selected.Info.Activity, StringFormat='занята: {0}'}"
+                <StackPanel Orientation="Horizontal" Spacing="6">
+                  <v:StatusDot Kind="{Binding Selected.Liveness, Converter={x:Static v:Converters.LivenessToDot}, FallbackValue={x:Static v:DotKind.Done}}" />
+                  <TextBlock Text="{Binding Selected.Liveness, Converter={x:Static v:Converters.LivenessToText}}" Classes="body"
+                             Foreground="{Binding Selected.Liveness, Converter={x:Static v:Converters.LivenessToBrush}}" />
+                </StackPanel>
+                <TextBlock Text="{Binding Selected.HwLine}" Classes="body" TextWrapping="Wrap"
+                           IsVisible="{Binding Selected.HasHwLine, FallbackValue=False}" />
+                <TextBlock Classes="small secondary" TextWrapping="Wrap" Text="{Binding Selected.Info.Activity, StringFormat='Занята: {0}'}"
                            IsVisible="{Binding Selected.Info.Activity, Converter={x:Static StringConverters.IsNotNullOrEmpty}, FallbackValue=False}" />
-                <TextBlock Foreground="{StaticResource Warn}" Text="🧊 Windows Update заморожен — не забудь unfreeze" TextWrapping="Wrap"
-                           IsVisible="{Binding Selected.IsFrozen, FallbackValue=False}" />
-                <TextBlock Classes="secondary" Text="{Binding Selected.Info.Hostname, StringFormat='хост: {0}'}" />
-                <TextBlock Classes="secondary" Text="{Binding Selected.Info.AccessMode, StringFormat='доступ: {0}', TargetNullValue='доступ: direct'}" />
-                <TextBlock Classes="secondary" Text="{Binding Selected.Info.LanIp, StringFormat='LAN: {0}'}"
+                <StackPanel Orientation="Horizontal" Spacing="6" IsVisible="{Binding Selected.IsFrozen, FallbackValue=False}">
+                  <Path Classes="icon sm" Data="{StaticResource Icon.Snow}" Stroke="{StaticResource Status.Warning}" />
+                  <TextBlock Classes="small warning" Text="Windows Update заморожен — не забудь unfreeze" TextWrapping="Wrap" />
+                </StackPanel>
+                <TextBlock Classes="small secondary" Text="{Binding Selected.Info.Hostname, StringFormat='Хост: {0}'}" />
+                <TextBlock Classes="small secondary" Text="{Binding Selected.Info.AccessMode, StringFormat='Доступ: {0}', TargetNullValue='Доступ: direct'}" />
+                <TextBlock Classes="small secondary" Text="{Binding Selected.Info.LanIp, StringFormat='LAN: {0}'}"
                            IsVisible="{Binding Selected.Info.LanIp, Converter={x:Static StringConverters.IsNotNullOrEmpty}, FallbackValue=False}" />
-                <TextBlock Classes="secondary" Text="{Binding Selected.BootTimeLocal, StringFormat='загрузка: {0:dd.MM HH:mm}'}" />
-                <TextBlock Classes="secondary" Text="{Binding Selected.Info.LastRebootAt, StringFormat='последний вырубон: {0:dd.MM HH:mm}'}"
+                <TextBlock Classes="small secondary" Text="{Binding Selected.BootTimeLocal, StringFormat='Загрузка: {0:dd.MM HH:mm}'}" />
+                <TextBlock Classes="small secondary" Text="{Binding Selected.Info.LastRebootAt, StringFormat='Последний вырубон: {0:dd.MM HH:mm}'}"
                            IsVisible="{Binding Selected.HasReboots, FallbackValue=False}" />
               </StackPanel>
             </Border>
-            <Border Background="{StaticResource Bg.Panel}" CornerRadius="10" Padding="11"
-                    IsVisible="{Binding Inspector.Sensors.HasData, FallbackValue=False}">
+            <Border Classes="card" IsVisible="{Binding Inspector.Sensors.HasData, FallbackValue=False}">
               <StackPanel Spacing="3">
-                <TextBlock Classes="caps" Text="СЕНСОРЫ" />
-                <TextBlock Text="{Binding Inspector.Sensors.CpuText}" />
-                <TextBlock Text="{Binding Inspector.Sensors.GpuText}" />
-                <TextBlock Text="{Binding Inspector.Sensors.Status}" Classes="secondary" FontSize="10.5" TextWrapping="Wrap" />
+                <TextBlock Classes="section" Text="Сенсоры" />
+                <TextBlock Text="{Binding Inspector.Sensors.CpuText}" Classes="code" />
+                <TextBlock Text="{Binding Inspector.Sensors.GpuText}" Classes="code" />
+                <TextBlock Text="{Binding Inspector.Sensors.Status}" Classes="small secondary" TextWrapping="Wrap" />
               </StackPanel>
             </Border>
             <ItemsControl ItemsSource="{Binding SelectedTransfers}" IsVisible="{Binding HasSelectedTransfers}">
               <ItemsControl.ItemTemplate>
                 <DataTemplate x:DataType="vm:TransferItemViewModel">
-                  <Border Background="{StaticResource Bg.Panel}" CornerRadius="10" Padding="11,8" Margin="0,0,0,6">
+                  <Border Classes="card" Margin="0,0,0,6">
                     <StackPanel Spacing="4">
-                      <TextBlock Text="{Binding Title}" FontFamily="{StaticResource MonoFont}" FontSize="11.5" TextTrimming="CharacterEllipsis" />
-                      <TextBlock Text="{Binding Detail}" Classes="secondary" />
-                      <ProgressBar Height="5" MinHeight="5" CornerRadius="3" Minimum="0" Maximum="100"
+                      <TextBlock Text="{Binding Title}" Classes="code" TextTrimming="CharacterEllipsis" ToolTip.Tip="{Binding Title}" />
+                      <TextBlock Text="{Binding Detail}" Classes="code-small secondary" />
+                      <ProgressBar Minimum="0" Maximum="100"
                                    Value="{Binding Percent, TargetNullValue=0}"
                                    IsIndeterminate="{Binding Percent, Converter={x:Static ObjectConverters.IsNull}}"
-                                   Foreground="{Binding State, Converter={x:Static v:Converters.TransferStateToBrush}}"
-                                   Background="{StaticResource Line}" />
+                                   Foreground="{Binding State, Converter={x:Static v:Converters.TransferStateToBrush}}" />
                     </StackPanel>
                   </Border>
                 </DataTemplate>
               </ItemsControl.ItemTemplate>
             </ItemsControl>
             <!-- Быстрые действия: diag/test run/заметка/close требуют ввода — ведут на «Действия». -->
+            <TextBlock Classes="section" Text="Быстрые действия" Margin="0,4,0,0" />
             <WrapPanel ItemSpacing="6" LineSpacing="6">
-              <Button Content="diag" Command="{Binding Inspector.OpenTabCommand}" CommandParameter="6" />
-              <Button Content="test run" Command="{Binding Inspector.OpenTabCommand}" CommandParameter="6" />
-              <Button Content="🧊 freeze" Command="{Binding Inspector.Actions.FreezeCommand}" />
-              <Button Content="заметка" Command="{Binding Inspector.OpenTabCommand}" CommandParameter="6" />
-              <Button Content="сенсоры" Command="{Binding Inspector.OpenTabCommand}" CommandParameter="3" />
-              <Button Content="close…" Command="{Binding Inspector.OpenTabCommand}" CommandParameter="6" />
+              <Button Classes="sm" Content="diag" Command="{Binding Inspector.OpenTabCommand}" CommandParameter="6" />
+              <Button Classes="sm" Content="test run" Command="{Binding Inspector.OpenTabCommand}" CommandParameter="6" />
+              <Button Classes="sm" Command="{Binding Inspector.Actions.FreezeCommand}">
+                <StackPanel Orientation="Horizontal" Spacing="4">
+                  <Path Classes="icon sm" Data="{StaticResource Icon.Snow}" />
+                  <TextBlock Text="freeze" VerticalAlignment="Center" />
+                </StackPanel>
+              </Button>
+              <Button Classes="sm" Content="заметка" Command="{Binding Inspector.OpenTabCommand}" CommandParameter="6" />
+              <Button Classes="sm" Content="сенсоры" Command="{Binding Inspector.OpenTabCommand}" CommandParameter="3" />
+              <Button Classes="sm danger" Content="close…" Command="{Binding Inspector.OpenTabCommand}" CommandParameter="6" />
             </WrapPanel>
           </StackPanel>
         </ScrollViewer>
       </TabItem>
-      <TabItem Header="Вырубоны"><iv:RebootsTabView DataContext="{Binding Inspector.Reboots}" Margin="0,6,0,0" /></TabItem>
-      <TabItem Header="Задачи"><iv:JobsTabView DataContext="{Binding Inspector.Jobs}" Margin="0,6,0,0" /></TabItem>
-      <TabItem Header="Сенсоры"><iv:SensorsTabView DataContext="{Binding Inspector.Sensors}" Margin="0,6,0,0" /></TabItem>
-      <TabItem Header="Журнал"><iv:JournalTabView DataContext="{Binding Inspector.Journal}" Margin="0,6,0,0" /></TabItem>
-      <TabItem Header="Железо"><iv:HardwareTabView DataContext="{Binding Inspector.Hardware}" Margin="0,6,0,0" /></TabItem>
-      <TabItem Header="Действия"><iv:ActionsView DataContext="{Binding Inspector.Actions}" Margin="0,6,0,0" /></TabItem>
+      <TabItem Header="Вырубоны"><iv:RebootsTabView DataContext="{Binding Inspector.Reboots}" Margin="0,8,0,0" /></TabItem>
+      <TabItem Header="Задачи"><iv:JobsTabView DataContext="{Binding Inspector.Jobs}" Margin="0,8,0,0" /></TabItem>
+      <TabItem Header="Сенсоры"><iv:SensorsTabView DataContext="{Binding Inspector.Sensors}" Margin="0,8,0,0" /></TabItem>
+      <TabItem Header="Журнал"><iv:JournalTabView DataContext="{Binding Inspector.Journal}" Margin="0,8,0,0" /></TabItem>
+      <TabItem Header="Железо"><iv:HardwareTabView DataContext="{Binding Inspector.Hardware}" Margin="0,8,0,0" /></TabItem>
+      <TabItem Header="Действия"><iv:ActionsView DataContext="{Binding Inspector.Actions}" Margin="0,8,0,0" /></TabItem>
     </TabControl>
   </Panel>
 </UserControl>

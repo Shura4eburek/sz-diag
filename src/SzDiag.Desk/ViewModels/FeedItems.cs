@@ -27,7 +27,7 @@ public sealed class NoteFeedItem(string text) : FeedItemViewModel
 /// <summary>Вопрос соседней сессии: ответ на него — обычные реплики этого хода.</summary>
 public sealed class PeerFeedItem(string from, string text) : FeedItemViewModel
 {
-    public string Title { get; } = $"💬 от {from}: {text}";
+    public string Title { get; } = $"от {from}: {text}";
 }
 
 public sealed class RawFeedItem(string type, string raw) : FeedItemViewModel
@@ -60,8 +60,8 @@ public sealed partial class ToolFeedItem : FeedItemViewModel
     public string Summary { get; }
 
     [ObservableProperty] [NotifyPropertyChangedFor(nameof(Header))] private ToolStatus _status = ToolStatus.Running;
-    [ObservableProperty] [NotifyPropertyChangedFor(nameof(Header))] private TimeSpan? _duration;
-    [ObservableProperty] [NotifyPropertyChangedFor(nameof(Header))] private int _subSteps;
+    [ObservableProperty] [NotifyPropertyChangedFor(nameof(Header), nameof(Meta))] private TimeSpan? _duration;
+    [ObservableProperty] [NotifyPropertyChangedFor(nameof(Header), nameof(Meta))] private int _subSteps;
     [ObservableProperty] private string _output = "";
     [ObservableProperty] private bool _isExpanded;
 
@@ -83,8 +83,21 @@ public sealed partial class ToolFeedItem : FeedItemViewModel
         }
     }
 
+    /// <summary>Правая колонка строки ToolCall: длительность и субагенты — без знака исхода,
+    /// его окно рисует иконкой.</summary>
+    public string Meta
+    {
+        get
+        {
+            var parts = new List<string>();
+            if (SubSteps > 0) parts.Add($"субагент: {SubSteps}");
+            if (Duration is { } d) parts.Add(FormatDuration(d));
+            return string.Join(" · ", parts);
+        }
+    }
+
     internal static string FormatDuration(TimeSpan d)
-        => d.TotalSeconds < 60 ? $"{Math.Max(0, (int)d.TotalSeconds)}с" : $"{(int)d.TotalMinutes}м {d.Seconds:00}с";
+        => d.TotalSeconds < 60 ? $"{Math.Max(0, (int)d.TotalSeconds)} с" : $"{(int)d.TotalMinutes}:{d.Seconds:00}";   // тон Shirabe: «12 с», «1:05»
 
     [RelayCommand]
     private void Toggle() => IsExpanded = !IsExpanded;

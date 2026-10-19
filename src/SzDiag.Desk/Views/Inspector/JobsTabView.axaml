@@ -4,26 +4,27 @@
              x:Class="SzDiag.Desk.Views.Inspector.JobsTabView"
              x:DataType="vm:JobsTabViewModel">
   <DockPanel>
-    <TextBlock DockPanel.Dock="Top" Classes="secondary" TextWrapping="Wrap" Margin="0,0,0,6" FontSize="11"
+    <TextBlock DockPanel.Dock="Top" Classes="small secondary" TextWrapping="Wrap" Margin="0,0,0,6"
                Text="Фоновые задачи агента на клиенте (exec --detach): прогоны, наблюдатели, долгие скрипты — то, что крутится без окна и переживает нагрузку. Выбери задачу — ниже хвост её вывода." />
-    <TextBlock DockPanel.Dock="Top" Text="{Binding Message}" Classes="secondary" TextWrapping="Wrap"
+    <TextBlock DockPanel.Dock="Top" Text="{Binding Message}" Classes="small secondary" TextWrapping="Wrap"
                IsVisible="{Binding Message, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" Margin="0,0,0,6" />
-    <ListBox DockPanel.Dock="Top" ItemsSource="{Binding Rows}" SelectedItem="{Binding Selected}" MaxHeight="220"
-             Background="Transparent">
+    <ListBox DockPanel.Dock="Top" ItemsSource="{Binding Rows}" SelectedItem="{Binding Selected}" MaxHeight="220">
       <ListBox.ItemTemplate>
         <DataTemplate x:DataType="vm:JobRow">
           <StackPanel Spacing="1">
-            <TextBlock Text="{Binding Id}" FontFamily="{StaticResource MonoFont}" FontWeight="SemiBold" />
-            <TextBlock Text="{Binding State}" Classes="secondary" TextWrapping="Wrap" />
-            <TextBlock Text="{Binding Script}" Classes="secondary" FontFamily="{StaticResource MonoFont}"
+            <TextBlock Text="{Binding Id}" Classes="code" />
+            <TextBlock Text="{Binding State}" Classes="small secondary" TextWrapping="Wrap" />
+            <TextBlock Text="{Binding Script}" Classes="code-small secondary"
                        TextTrimming="CharacterEllipsis"
                        IsVisible="{Binding Script, Converter={x:Static ObjectConverters.IsNotNull}}" />
           </StackPanel>
         </DataTemplate>
       </ListBox.ItemTemplate>
     </ListBox>
-    <ScrollViewer Margin="0,8,0,0">
-      <SelectableTextBlock Text="{Binding Output}" FontFamily="{StaticResource MonoFont}" FontSize="11" TextWrapping="Wrap" />
-    </ScrollViewer>
+    <Border Classes="code" Margin="0,8,0,0">
+      <ScrollViewer>
+        <SelectableTextBlock Text="{Binding Output}" Classes="code-small" TextWrapping="Wrap" />
+      </ScrollViewer>
+    </Border>
   </DockPanel>
 </UserControl>

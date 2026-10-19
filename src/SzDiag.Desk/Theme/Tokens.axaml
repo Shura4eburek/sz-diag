@@ -1,24 +1,157 @@
 <ResourceDictionary xmlns="https://github.com/avaloniaui"
                     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
-  <!-- Палитра из утверждённого макета B v2 (спека 2026-09-25). Одно место для цветов:
-       экраны берут только эти ключи, иначе тёмная тема расползётся оттенками. -->
-  <SolidColorBrush x:Key="Bg.Window" Color="#17181b" />
-  <SolidColorBrush x:Key="Bg.TitleBar" Color="#1a1b1f" />
-  <SolidColorBrush x:Key="Bg.Side" Color="#1c1d21" />
-  <SolidColorBrush x:Key="Bg.Panel" Color="#212227" />
-  <SolidColorBrush x:Key="Bg.Status" Color="#141518" />
-  <SolidColorBrush x:Key="Bg.Selected" Color="#260a84ff" />
-  <SolidColorBrush x:Key="Bg.Hover" Color="#12ffffff" />
-  <SolidColorBrush x:Key="Line" Color="#2a2b31" />
-  <SolidColorBrush x:Key="Text.Primary" Color="#e7e7ea" />
-  <SolidColorBrush x:Key="Text.Secondary" Color="#8b8c94" />
-  <SolidColorBrush x:Key="Text.Tertiary" Color="#5d5e66" />
-  <SolidColorBrush x:Key="Accent" Color="#0a84ff" />
-  <SolidColorBrush x:Key="Ok" Color="#30d158" />
-  <SolidColorBrush x:Key="Warn" Color="#ff9f0a" />
-  <SolidColorBrush x:Key="Bad" Color="#ff453a" />
-  <SolidColorBrush x:Key="Violet" Color="#bf5af2" />
-  <SolidColorBrush x:Key="CloseHover" Color="#e81123" />
-  <FontFamily x:Key="UiFont">Segoe UI Variable Text, Segoe UI</FontFamily>
-  <FontFamily x:Key="MonoFont">Cascadia Mono, Consolas</FontFamily>
+  <!-- Токены дизайн-системы Shirabe («Оркестр», https://claude.ai/artifact/TYJjNu1apzCZjcvczfoPxy),
+       тёмная тема. Имя токена `group.name-part` → ключ `Group.NamePart`. Одно место для вида:
+       экраны берут только эти ключи — литералов цвета в Views нет (ThemeTests). -->
+
+  <!-- Фон и поверхности: рама → острова → поднятое внутри острова → плавающие слои. -->
+  <Color x:Key="Color.Accent">#2f6ae0</Color>
+  <SolidColorBrush x:Key="Bg.Base" Color="#131417" />
+  <SolidColorBrush x:Key="Bg.Surface1" Color="#1e1f22" />
+  <SolidColorBrush x:Key="Bg.Surface2" Color="#2b2d30" />
+  <SolidColorBrush x:Key="Bg.Surface3" Color="#35373c" />
+  <SolidColorBrush x:Key="Bg.Code" Color="#191a1c" />
+  <SolidColorBrush x:Key="Bg.Hover" Color="#313338" />
+  <SolidColorBrush x:Key="Bg.Pressed" Color="#3a3c41" />
+  <SolidColorBrush x:Key="Bg.Selected" Color="#2e436e" />
+  <SolidColorBrush x:Key="Bg.SelectedInactive" Color="#36383d" />
+  <SolidColorBrush x:Key="Bg.Disabled" Color="#25262a" />
+  <SolidColorBrush x:Key="Bg.Danger" Color="#c63d36" />
+
+  <SolidColorBrush x:Key="Border.Subtle" Color="#2b2d30" />
+  <SolidColorBrush x:Key="Border.Default" Color="#3e4045" />
+  <SolidColorBrush x:Key="Border.Control" Color="#7d8189" />
+  <SolidColorBrush x:Key="Border.ControlHover" Color="#9a9ea6" />
+  <SolidColorBrush x:Key="Border.Focus" Color="#4b86f5" />
+
+  <SolidColorBrush x:Key="Text.Primary" Color="#dfe1e5" />
+  <SolidColorBrush x:Key="Text.Secondary" Color="#a0a4ab" />
+  <SolidColorBrush x:Key="Text.Disabled" Color="#5c6067" />
+  <SolidColorBrush x:Key="Text.OnAccent" Color="#ffffff" />
+
+  <!-- Акцент один: заливка основной кнопки, подчёркивание вкладки, прогресс, выбранное. -->
+  <SolidColorBrush x:Key="Accent.Default" Color="#2f6ae0" />
+  <SolidColorBrush x:Key="Accent.Hover" Color="#2a63d6" />
+  <SolidColorBrush x:Key="Accent.Pressed" Color="#2354b8" />
+  <SolidColorBrush x:Key="Accent.Text" Color="#7aa5fb" />
+  <SolidColorBrush x:Key="Accent.Subtle" Color="#233250" />
+
+  <!-- Статусы — всегда вместе с формой (StatusDot) или словом. -->
+  <SolidColorBrush x:Key="Status.Running" Color="#62bb68" />
+  <SolidColorBrush x:Key="Status.Waiting" Color="#7aa5fb" />
+  <SolidColorBrush x:Key="Status.Approval" Color="#e3a53c" />
+  <SolidColorBrush x:Key="Status.Error" Color="#f06a62" />
+  <SolidColorBrush x:Key="Status.Done" Color="#a0a4ab" />
+  <SolidColorBrush x:Key="Status.Success" Color="#62bb68" />
+  <SolidColorBrush x:Key="Status.Warning" Color="#e3a53c" />
+  <!-- Подложка статусной карточки: тот же оттенок с прозрачностью, а не новый цвет. -->
+  <SolidColorBrush x:Key="Status.ApprovalSubtle" Color="#e3a53c" Opacity="0.08" />
+  <SolidColorBrush x:Key="Status.ErrorSubtle" Color="#f06a62" Opacity="0.08" />
+  <SolidColorBrush x:Key="Accent.RunningSubtle" Color="#2f6ae0" Opacity="0.08" />
+
+  <SolidColorBrush x:Key="Diff.AddBg" Color="#203626" />
+  <SolidColorBrush x:Key="Diff.DelBg" Color="#3d2427" />
+
+  <!-- Сетка 4px; 2 и 6 — именованные исключения утверждённого окна. -->
+  <x:Double x:Key="Space.0-5">2</x:Double>
+  <x:Double x:Key="Space.1">4</x:Double>
+  <x:Double x:Key="Space.1-5">6</x:Double>
+  <x:Double x:Key="Space.2">8</x:Double>
+  <x:Double x:Key="Space.3">12</x:Double>
+  <x:Double x:Key="Space.4">16</x:Double>
+  <x:Double x:Key="Space.5">20</x:Double>
+  <x:Double x:Key="Space.6">24</x:Double>
+
+  <CornerRadius x:Key="Radius.Xs">3</CornerRadius>
+  <CornerRadius x:Key="Radius.Sm">4</CornerRadius>
+  <CornerRadius x:Key="Radius.Md">6</CornerRadius>
+  <CornerRadius x:Key="Radius.Lg">8</CornerRadius>
+  <CornerRadius x:Key="Radius.Island">10</CornerRadius>
+  <CornerRadius x:Key="Radius.Full">999</CornerRadius>
+
+  <x:Double x:Key="Size.Toolbar">40</x:Double>
+  <x:Double x:Key="Size.Tab">36</x:Double>
+  <x:Double x:Key="Size.Control">28</x:Double>
+  <x:Double x:Key="Size.ControlSm">24</x:Double>
+  <x:Double x:Key="Size.Row">26</x:Double>
+  <x:Double x:Key="Size.Statusbar">24</x:Double>
+  <x:Double x:Key="Size.Icon">16</x:Double>
+
+  <!-- Шрифты внутри exe: бокс бывает без интернета и без них в системе. Inter — пакет
+       Avalonia.Fonts.Inter (WithInterFont в Program) — официальная сборка Inter под Avalonia;
+       JetBrains Mono — Assets/Fonts (OFL рядом). -->
+  <FontFamily x:Key="Font.Ui">fonts:Inter#Inter</FontFamily>
+  <FontFamily x:Key="Font.Mono">avares://SzDiag.Desk/Assets/Fonts#JetBrains Mono</FontFamily>
+
+  <!-- Fluent красит состояния контролов своими ресурсами — перекрываем токенами, иначе hover
+       и фокус останутся цветами Fluent. -->
+  <StaticResource x:Key="SystemControlFocusVisualPrimaryBrush" ResourceKey="Border.Focus" />
+  <SolidColorBrush x:Key="SystemControlFocusVisualSecondaryBrush" Color="Transparent" />
+
+  <SolidColorBrush x:Key="ButtonBackground" Color="Transparent" />
+  <StaticResource x:Key="ButtonBackgroundPointerOver" ResourceKey="Bg.Hover" />
+  <StaticResource x:Key="ButtonBackgroundPressed" ResourceKey="Bg.Pressed" />
+  <SolidColorBrush x:Key="ButtonBackgroundDisabled" Color="Transparent" />
+  <StaticResource x:Key="ButtonForeground" ResourceKey="Text.Primary" />
+  <StaticResource x:Key="ButtonForegroundPointerOver" ResourceKey="Text.Primary" />
+  <StaticResource x:Key="ButtonForegroundPressed" ResourceKey="Text.Primary" />
+  <StaticResource x:Key="ButtonForegroundDisabled" ResourceKey="Text.Disabled" />
+  <StaticResource x:Key="ButtonBorderBrush" ResourceKey="Border.Control" />
+  <StaticResource x:Key="ButtonBorderBrushPointerOver" ResourceKey="Border.ControlHover" />
+  <StaticResource x:Key="ButtonBorderBrushPressed" ResourceKey="Border.ControlHover" />
+  <StaticResource x:Key="ButtonBorderBrushDisabled" ResourceKey="Border.Default" />
+
+  <SolidColorBrush x:Key="ToggleButtonBackground" Color="Transparent" />
+  <StaticResource x:Key="ToggleButtonBackgroundPointerOver" ResourceKey="Bg.Hover" />
+  <StaticResource x:Key="ToggleButtonBackgroundPressed" ResourceKey="Bg.Pressed" />
+  <StaticResource x:Key="ToggleButtonBackgroundChecked" ResourceKey="Accent.Subtle" />
+  <StaticResource x:Key="ToggleButtonBackgroundCheckedPointerOver" ResourceKey="Accent.Subtle" />
+  <StaticResource x:Key="ToggleButtonBackgroundCheckedPressed" ResourceKey="Bg.Pressed" />
+  <StaticResource x:Key="ToggleButtonForegroundChecked" ResourceKey="Accent.Text" />
+  <StaticResource x:Key="ToggleButtonForegroundCheckedPointerOver" ResourceKey="Accent.Text" />
+  <SolidColorBrush x:Key="ToggleButtonBorderBrush" Color="Transparent" />
+  <SolidColorBrush x:Key="ToggleButtonBorderBrushChecked" Color="Transparent" />
+  <SolidColorBrush x:Key="ToggleButtonBorderBrushCheckedPointerOver" Color="Transparent" />
+
+  <StaticResource x:Key="TextControlBackground" ResourceKey="Bg.Surface2" />
+  <StaticResource x:Key="TextControlBackgroundPointerOver" ResourceKey="Bg.Surface2" />
+  <StaticResource x:Key="TextControlBackgroundFocused" ResourceKey="Bg.Surface2" />
+  <StaticResource x:Key="TextControlBackgroundDisabled" ResourceKey="Bg.Disabled" />
+  <StaticResource x:Key="TextControlForeground" ResourceKey="Text.Primary" />
+  <StaticResource x:Key="TextControlForegroundPointerOver" ResourceKey="Text.Primary" />
+  <StaticResource x:Key="TextControlForegroundFocused" ResourceKey="Text.Primary" />
+  <StaticResource x:Key="TextControlForegroundDisabled" ResourceKey="Text.Disabled" />
+  <StaticResource x:Key="TextControlBorderBrush" ResourceKey="Border.Control" />
+  <StaticResource x:Key="TextControlBorderBrushPointerOver" ResourceKey="Border.ControlHover" />
+  <StaticResource x:Key="TextControlBorderBrushFocused" ResourceKey="Border.Focus" />
+  <StaticResource x:Key="TextControlBorderBrushDisabled" ResourceKey="Border.Default" />
+  <StaticResource x:Key="TextControlPlaceholderForeground" ResourceKey="Text.Secondary" />
+  <StaticResource x:Key="TextControlPlaceholderForegroundPointerOver" ResourceKey="Text.Secondary" />
+  <StaticResource x:Key="TextControlPlaceholderForegroundFocused" ResourceKey="Text.Secondary" />
+  <StaticResource x:Key="TextControlSelectionHighlightColor" ResourceKey="Bg.Selected" />
+  <Thickness x:Key="TextControlBorderThemeThicknessFocused">1</Thickness>
+
+  <StaticResource x:Key="ListBoxItemBackgroundPointerOver" ResourceKey="Bg.Hover" />
+  <StaticResource x:Key="ListBoxItemBackgroundPressed" ResourceKey="Bg.Pressed" />
+  <StaticResource x:Key="ListBoxItemBackgroundSelected" ResourceKey="Bg.SelectedInactive" />
+  <StaticResource x:Key="ListBoxItemBackgroundSelectedPointerOver" ResourceKey="Bg.SelectedInactive" />
+  <StaticResource x:Key="ListBoxItemBackgroundSelectedPressed" ResourceKey="Bg.Pressed" />
+  <StaticResource x:Key="ListBoxItemForegroundSelected" ResourceKey="Text.Primary" />
+
+  <StaticResource x:Key="TabItemHeaderForegroundUnselected" ResourceKey="Text.Secondary" />
+  <StaticResource x:Key="TabItemHeaderForegroundUnselectedPointerOver" ResourceKey="Text.Primary" />
+  <StaticResource x:Key="TabItemHeaderForegroundSelected" ResourceKey="Text.Primary" />
+  <StaticResource x:Key="TabItemHeaderForegroundSelectedPointerOver" ResourceKey="Text.Primary" />
+  <StaticResource x:Key="TabItemHeaderBackgroundUnselectedPointerOver" ResourceKey="Bg.Hover" />
+  <StaticResource x:Key="TabItemHeaderBackgroundSelectedPointerOver" ResourceKey="Bg.Hover" />
+  <StaticResource x:Key="TabItemHeaderSelectedPipeFill" ResourceKey="Accent.Default" />
+
+  <StaticResource x:Key="ToolTipBackground" ResourceKey="Bg.Surface3" />
+  <StaticResource x:Key="ToolTipForeground" ResourceKey="Text.Primary" />
+  <StaticResource x:Key="ToolTipBorderBrush" ResourceKey="Border.Default" />
+
+  <SolidColorBrush x:Key="ExpanderHeaderBackground" Color="Transparent" />
+  <StaticResource x:Key="ExpanderContentBackground" ResourceKey="Bg.Code" />
+  <StaticResource x:Key="ExpanderHeaderBorderBrush" ResourceKey="Border.Default" />
+  <StaticResource x:Key="ExpanderContentBorderBrush" ResourceKey="Border.Default" />
 </ResourceDictionary>

@@ -16,7 +16,7 @@ public class FeedBuilderTests
     {
         var b = New();
         b.Add(new PeerQuestion("161501", "какой BIOS?"));
-        Assert.Equal("💬 от 161501: какой BIOS?", Assert.IsType<PeerFeedItem>(Assert.Single(b.Items)).Title);
+        Assert.Equal("от 161501: какой BIOS?", Assert.IsType<PeerFeedItem>(Assert.Single(b.Items)).Title);
     }
 
     [Fact]
