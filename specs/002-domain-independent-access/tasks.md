@@ -123,7 +123,7 @@ contracts/signpost-api.md, quickstart.md
 ### Tests
 
 - [ ] T038 [P] [US3] `tests/SzDiag.Agent.Tests/ZtRevertTests.cs`: шаг ZT в `Open` пишет `JoinedZt`/`ZtStoragePath`/`ZtNodeId`; `Revert` снимает его **первым** (вместе с quick tunnel), стирает `ZtStoragePath`; повторный `Revert` идемпотентен; упавший шаг не прерывает остальные (как существующие тесты `WindowsSystemAccessManager`)
-- [ ] T039 [P] [US3] `tests/SzDiag.Hub.Tests/LocalAddressFilterTests.cs`: запрос на локальный адрес из `DenySubnets` (`10.199.89.0/24`) → отказ; management API на адрес сервисной подсети → 403; loopback и LAN → ok
+- [X] T039 [P] [US3] `tests/SzDiag.Hub.Tests/LocalAddressFilterTests.cs`: запрос на локальный адрес из `DenySubnets` (`10.199.89.0/24`) → отказ; management API на адрес сервисной подсети → 403; loopback и LAN → ok
 - [ ] T040 [P] [US3] `tests/SzDiag.Hub.Tests/ZtMemberSweeperTests.cs` (фейковый `IZtControllerClient`): член без активной СЗ старше 10 мин → удалён; член активной СЗ и сам hub → не тронуты; `close` СЗ → удаление её `ZtNodeId`
 
 ### Implementation — агент
@@ -138,7 +138,7 @@ contracts/signpost-api.md, quickstart.md
 ### Implementation — hub и CLI
 
 - [ ] T047 [US3] `src/SzDiag.Hub/ZtControllerClient.cs` (`IZtControllerClient`: list/delete member через прокси своего контроллера `<ztControllerUrl>/controller/network/{nid}/member/{mid}`, Bearer `ztControllerToken` из `secrets\fleet.json` — токен **никогда** не уходит агенту, FR-023) и `src/SzDiag.Hub/ZtMemberSweeper.cs` (hosted, раз в минуту, `SweepAfter`=10 мин); удаление члена при `close` в `src/SzDiag.Hub/ManagementApi.cs`/`SessionRegistry.cs`
-- [ ] T048 [US3] `src/SzDiag.Hub/LocalAddressFilter.cs` + регистрация в `src/SzDiag.Hub/Program.cs`; `Hub.DenySubnets` (по умолчанию `["10.199.89.0/24"]`) и `Hub.ZeroTier` (`Enabled`, `Network`, `SweepAfter`) в `src/SzDiag.Hub/HubOptions.cs`; фильтр по `HttpContext.Connection.LocalIpAddress`, не bind на IP
+- [X] T048 [US3] `src/SzDiag.Hub/LocalAddressFilter.cs` + регистрация в `src/SzDiag.Hub/Program.cs`; `Hub.DenySubnets` (по умолчанию `["10.199.89.0/24"]`) и `Hub.ZeroTier` (`Enabled`, `Network`, `SweepAfter`) в `src/SzDiag.Hub/HubOptions.cs`; фильтр по `HttpContext.Connection.LocalIpAddress`, не bind на IP
 - [ ] T049 [US3] (**только после T048** — до него `/api` hub с ZT-адреса закрыт лишь токеном, research.md R9) `src/SzDiag.Hub/SignpostPublisher.cs`: endpoint `mode=zt` (адрес hub в сервисной подсети, если адаптер есть) первым в `endpoints`, `ztNetwork` в записи
 - [ ] T050 [US3] `src/SzDiag.Cli/Program.cs` (`target`, стр. ~563–579): для `AccessMode.Zt` — `ssh -p <port> svc-diag@<zt-ip>` с пиннингом host-ключа, как для туннеля; `src/SzDiag.Agent/AccessReporter.cs`/hub — пересечение подсети `10.88.0.0/24` с маршрутами клиента → предупреждение в `ReportAccess`
 

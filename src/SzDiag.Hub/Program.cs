@@ -168,6 +168,10 @@ app.Lifetime.ApplicationStarted.Register(() =>
 app.Lifetime.ApplicationStopping.Register(() => sticky?.Dispose());
 AppDomain.CurrentDomain.ProcessExit += (_, _) => sticky?.Dispose();
 
+// Первым — фильтр по локальному адресу: личная ZT-сеть не видит hub вовсе, сервисная —
+// не видит /api (T048). До токенов: отказ не должен зависеть от того, что прислал запрос.
+app.UseLocalAddressFilter(app.Services.GetRequiredService<IOptions<HubOptions>>().Value);
+
 // Проверка pre-shared токена на коннекте к хабу.
 app.Use(async (ctx, next) =>
 {

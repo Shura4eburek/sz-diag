@@ -74,6 +74,15 @@ public sealed class HubOptions
     /// <summary>Публикация «где сейчас hub» в подписанном указателе (specs/002).</summary>
     public HubSignpostOptions Signpost { get; set; } = new();
 
+    /// <summary>Подсети, на адреса которых hub не отвечает вовсе (<see cref="LocalAddressFilter"/>):
+    /// личная ZT-сеть владельца с его устройствами — hub слушает 0.0.0.0, и без этого фильтра
+    /// был бы виден всем её участникам. Фильтр по локальному адресу запроса, а не bind на
+    /// конкретные IP: у ноута LAN по DHCP.</summary>
+    public string[] DenySubnets { get; set; } = ["10.199.89.0/24"];
+
+    /// <summary>Сервисная ZT-сеть (US3, specs/002).</summary>
+    public HubZeroTierOptions ZeroTier { get; set; } = new();
+
     /// <summary>Порог числа потоков процесса, после которого <see cref="ThreadPoolWatchdog"/>
     /// пишет «THREAD POOL STARVATION» в лог. На живой заявке (СЗ 160306, бэклог п.50) здоровый
     /// hub сразу после рестарта держал 26 потоков, залипший — 3674. 0 — сторож выключен.</summary>
@@ -115,6 +124,22 @@ public sealed class KbBackupOptions
 
     /// <summary>Потолок на каждый вызов git: виснет сеть — процесс убивается.</summary>
     public TimeSpan CommandTimeout { get; set; } = TimeSpan.FromMinutes(2);
+}
+
+public sealed class HubZeroTierOptions
+{
+    /// <summary>Включает работу с сервисной сетью (сторож членов, публикация в указателе).
+    /// Запрет management-API из <see cref="Subnet"/> действует и при выключенном — он ничего не стоит.</summary>
+    public bool Enabled { get; set; }
+
+    /// <summary>Id сервисной сети, 16 hex (из флота).</summary>
+    public string Network { get; set; } = "";
+
+    /// <summary>Подсеть сервисной сети: клиенты оттуда ходят к hub, но не в `/api`.</summary>
+    public string Subnet { get; set; } = "10.88.0.0/24";
+
+    /// <summary>Член сети без активной СЗ старше этого срока удаляется сторожем.</summary>
+    public TimeSpan SweepAfter { get; set; } = TimeSpan.FromMinutes(10);
 }
 
 public sealed class HubSignpostOptions
