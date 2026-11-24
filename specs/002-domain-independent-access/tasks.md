@@ -140,7 +140,7 @@ contracts/signpost-api.md, quickstart.md
 - [X] T047 [US3] `src/SzDiag.Hub/ZtControllerClient.cs` (`IZtControllerClient`: list/delete member через прокси своего контроллера `<ztControllerUrl>/controller/network/{nid}/member/{mid}`, Bearer `ztControllerToken` из `secrets\fleet.json` — токен **никогда** не уходит агенту, FR-023) и `src/SzDiag.Hub/ZtMemberSweeper.cs` (hosted, раз в минуту, `SweepAfter`=10 мин); удаление члена при `close` в `src/SzDiag.Hub/ManagementApi.cs`/`SessionRegistry.cs`
 - [X] T048 [US3] `src/SzDiag.Hub/LocalAddressFilter.cs` + регистрация в `src/SzDiag.Hub/Program.cs`; `Hub.DenySubnets` (по умолчанию `["10.199.89.0/24"]`) и `Hub.ZeroTier` (`Enabled`, `Network`, `SweepAfter`) в `src/SzDiag.Hub/HubOptions.cs`; фильтр по `HttpContext.Connection.LocalIpAddress`, не bind на IP
 - [X] T049 [US3] (**только после T048** — до него `/api` hub с ZT-адреса закрыт лишь токеном, research.md R9) `src/SzDiag.Hub/SignpostPublisher.cs`: endpoint `mode=zt` (адрес hub в сервисной подсети, если адаптер есть) первым в `endpoints`, `ztNetwork` в записи
-- [ ] T050 [US3] (_2026-11-25: `target` для `AccessMode.Zt` сделан — hub и CLI адресуют по `AccessHost`; осталось предупреждение о пересечении `10.88.0.0/24` с маршрутами клиента_) `src/SzDiag.Cli/Program.cs` (`target`, стр. ~563–579): для `AccessMode.Zt` — `ssh -p <port> svc-diag@<zt-ip>` с пиннингом host-ключа, как для туннеля; `src/SzDiag.Agent/AccessReporter.cs`/hub — пересечение подсети `10.88.0.0/24` с маршрутами клиента → предупреждение в `ReportAccess`
+- [X] T050 [US3] (_2026-11-25: `target` для `AccessMode.Zt` сделан — hub и CLI адресуют по `AccessHost`; осталось предупреждение о пересечении `10.88.0.0/24` с маршрутами клиента_) `src/SzDiag.Cli/Program.cs` (`target`, стр. ~563–579): для `AccessMode.Zt` — `ssh -p <port> svc-diag@<zt-ip>` с пиннингом host-ключа, как для туннеля; `src/SzDiag.Agent/AccessReporter.cs`/hub — пересечение подсети `10.88.0.0/24` с маршрутами клиента → предупреждение в `ReportAccess`
 
 **Checkpoint**: US3 проверяется quickstart «Фаза 4» целиком.
 
@@ -148,11 +148,11 @@ contracts/signpost-api.md, quickstart.md
 
 ## Phase 7: Polish & Cross-Cutting
 
-- [ ] T051 [P] `docs/dev-knowledge-base.md`: указатель, конверты, аренда, `HubLocator`, `AccessMode.zt`, `RevertState` ZT-шаг, новые опции hub
-- [ ] T052 [P] `CLAUDE.md` — раздел «Статус / следующее»: абзац про фичу со ссылкой на спеку; `docs/live-checklist-<дата>.md` из quickstart
-- [ ] T053 [P] `tools/doctor.ps1`: проверки — `secrets\fleet.json` есть, `/healthz` указателя отвечает, локальная ZT-сеть hub в сервисной подсети, личная сеть в `DenySubnets`
-- [ ] T054 Удалить `spikes/zt-spike/` после переноса выводов в research.md
-- [ ] T055 `dotnet build` + `dotnet test` целиком — зелёные; прогнать quickstart.md фазы 1–2 живьём (фаза 4 — на ближайшей заявке)
+- [X] T051 [P] `docs/dev-knowledge-base.md`: указатель, конверты, аренда, `HubLocator`, `AccessMode.zt`, `RevertState` ZT-шаг, новые опции hub
+- [X] T052 [P] `CLAUDE.md` — раздел «Статус / следующее»: абзац про фичу со ссылкой на спеку; `docs/live-checklist-<дата>.md` из quickstart
+- [X] T053 [P] `tools/doctor.ps1`: проверки — `secrets\fleet.json` есть, `/healthz` указателя отвечает, локальная ZT-сеть hub в сервисной подсети, личная сеть в `DenySubnets`
+- [X] T054 Удалить `spikes/zt-spike/` после переноса выводов в research.md
+- [ ] T055 (_2026-11-25: build+test зелёные, 1968 тестов; живой прогон quickstart ждёт `fleet.ps1 init` — docs/live-checklist-2026-11-25.md_) `dotnet build` + `dotnet test` целиком — зелёные; прогнать quickstart.md фазы 1–2 живьём (фаза 4 — на ближайшей заявке)
 
 ---
 

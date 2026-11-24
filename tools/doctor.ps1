@@ -233,6 +233,163 @@ if (Test-Path $key) { Ok "ключ сервиса на месте" } else { Bad 
 $clientExe = Join-Path $Root "dist\client\SzDiag.Updater.exe"
 if (Test-Path $clientExe) { Ok "клиентский апдейтер собран" } else { Bad "нет $clientExe" }
 
+# 5. Доступ без своего домена (specs/002, T053): флот, указатель, ZT-контроллер, сервисная
+# ZT-сеть и запрет hub на личной ZT-сети. Токены не печатаем никогда — только факт и адреса.
+
+# IPv4-подсеть "a.b.c.d/n" → @{ Net; Mask; Prefix } (uint32). [IPNetwork] из .NET 8 в
+# Windows PowerShell 5.1 нет — считаем руками. Не IPv4/мусор → $null.
+function ConvertTo-Ipv4Net([string]$Cidr) {
+    if (-not $Cidr) { return $null }
+    $p = $Cidr.Trim() -split '/', 2
+    $ip = $null
+    if (-not [System.Net.IPAddress]::TryParse($p[0], [ref]$ip)) { return $null }
+    if ($ip.AddressFamily -ne [System.Net.Sockets.AddressFamily]::InterNetwork) { return $null }
+    $prefix = 32
+    if ($p.Count -gt 1 -and -not [int]::TryParse($p[1], [ref]$prefix)) { return $null }
+    if ($prefix -lt 0 -or $prefix -gt 32) { return $null }
+    $b = $ip.GetAddressBytes()
+    # Всё в uint64: литерал 0xFFFFFFFF в PowerShell — это int32 -1, а сдвиг uint32 переполняется.
+    $full = [uint64]4294967295
+    $addr = ([uint64]$b[0] -shl 24) -bor ([uint64]$b[1] -shl 16) -bor ([uint64]$b[2] -shl 8) -bor [uint64]$b[3]
+    $mask = if ($prefix -eq 0) { [uint64]0 } else { ($full -shl (32 - $prefix)) -band $full }
+    return @{ Net = ($addr -band $mask); Mask = $mask; Prefix = $prefix }
+}
+# Подсеть $Inner целиком внутри $Outer (адрес — это подсеть /32).
+function Test-Ipv4Within($Inner, $Outer) {
+    if (-not $Inner -or -not $Outer) { return $false }
+    return ($Inner.Prefix -ge $Outer.Prefix) -and (($Inner.Net -band $Outer.Mask) -eq $Outer.Net)
+}
+function Test-Healthz([string]$BaseUrl) {
+    try {
+        $r = Invoke-WebRequest -Uri ($BaseUrl.TrimEnd('/') + '/healthz') -UseBasicParsing -TimeoutSec 8
+        $body = if ($r.Content -is [byte[]]) { [Text.Encoding]::UTF8.GetString($r.Content) } else { [string]$r.Content }
+        if ($r.StatusCode -eq 200 -and $body.Trim() -eq 'ok') { return $null }
+        return "HTTP $($r.StatusCode), ответ «$($body.Trim())»"
+    } catch {
+        return $_.Exception.Message
+    }
+}
+
+# 5a. Флот: без fleet.json build-dist не знает указателя/сети и не подпишет запись hub.
+$fleetPath = Join-Path $Root "secrets\fleet.json"
+$fleet = $null
+if (Test-Path $fleetPath) {
+    try { $fleet = Get-Content $fleetPath -Raw | ConvertFrom-Json; Ok "флот на месте (secrets\fleet.json)" }
+    catch { Bad "secrets\fleet.json не разбирается как JSON" }
+} else {
+    Bad "нет secrets\fleet.json — на первой машине .\tools\fleet.ps1 init, на остальных .\tools\fleet.ps1 pull"
+}
+$ztJsonPath = Join-Path $Root "secrets\zt.json"
+$ztSecret = $null
+if (Test-Path $ztJsonPath) {
+    try { $ztSecret = Get-Content $ztJsonPath -Raw | ConvertFrom-Json } catch { Bad "secrets\zt.json не разбирается как JSON" }
+}
+
+$hubOpts = if ($cfg) { $cfg.Hub } else { $null }
+
+# 5b. Указатель: агент без своего домена находит hub только через него.
+$signUrl = if ($hubOpts -and $hubOpts.Signpost) { [string]$hubOpts.Signpost.Url } else { "" }
+if (-not $signUrl) {
+    Info "указатель выключен (Hub.Signpost.Url пуст — build-dist -SignpostUrl <url>)"
+} else {
+    $err = Test-Healthz $signUrl
+    if ($err) { Bad "указатель $signUrl/healthz не отвечает ok: $err" } else { Ok "указатель отвечает ($signUrl)" }
+}
+
+# 5c. Прокси ZT-контроллера: без него не авторизовать ноду клиента в сервисной сети.
+$ctlUrl = @(
+    $(if ($ztSecret) { [string]$ztSecret.controllerUrl }),
+    $(if ($fleet) { [string]$fleet.ztControllerUrl })
+) | Where-Object { $_ } | Select-Object -First 1
+if (-not $ctlUrl) {
+    Info "ZT-контроллер не настроен (нет controllerUrl в secrets\zt.json / ztControllerUrl в fleet.json)"
+} else {
+    $err = Test-Healthz $ctlUrl
+    if ($err) { Bad "ZT-контроллер $ctlUrl/healthz не отвечает ok: $err" } else { Ok "ZT-контроллер отвечает ($ctlUrl)" }
+}
+
+# 5d/5e. Локальный ZeroTier One: hub в сервисной сети, личные сети закрыты DenySubnets.
+$ztNwid = @(
+    $(if ($ztSecret) { [string]$ztSecret.network }),
+    $(if ($fleet) { [string]$fleet.ztNetwork })
+) | Where-Object { $_ } | Select-Object -First 1
+$ztSubnetText = if ($hubOpts -and $hubOpts.ZeroTier -and $hubOpts.ZeroTier.Subnet) { [string]$hubOpts.ZeroTier.Subnet } else { "10.88.0.0/24" }
+$ztSubnet = ConvertTo-Ipv4Net $ztSubnetText
+# Ключ отсутствует → дефолт из HubOptions; явный пустой массив — так и есть, пустой.
+$denyTexts = if ($hubOpts -and ($hubOpts.PSObject.Properties.Name -contains 'DenySubnets')) {
+    @($hubOpts.DenySubnets | Where-Object { $_ })
+} else { @("10.199.89.0/24") }
+$denyNets = @($denyTexts | ForEach-Object { ConvertTo-Ipv4Net $_ } | Where-Object { $_ })
+
+$ztAuthFile = Join-Path $env:LOCALAPPDATA 'ZeroTier\authtoken.secret'
+if (-not $ztNwid) {
+    Info "сервисная ZT-сеть не задана (нет network в secrets\zt.json / ztNetwork в fleet.json) — .\tools\zt-network.ps1"
+} elseif (-not (Test-Path $ztAuthFile)) {
+    Bad "нет $ztAuthFile — ZeroTier One не установлен на этой машине, hub в сервисной сети $ztNwid не появится"
+} else {
+    $ztPortFile = Join-Path $env:ProgramData 'ZeroTier\One\zerotier-one.port'
+    $ztPort = if (Test-Path $ztPortFile) { (Get-Content $ztPortFile -Raw).Trim() } else { '9993' }
+    $ztLocal = "http://127.0.0.1:$ztPort"
+    $ztHeaders = @{ 'X-ZT1-Auth' = (Get-Content $ztAuthFile -Raw).Trim() }
+    $ztNets = $null
+    # Через конвейер: в 5.1 Invoke-RestMethod отдаёт JSON-массив одним объектом, @() его не разворачивает.
+    try { $ztNets = @(Invoke-RestMethod "$ztLocal/network" -Headers $ztHeaders -TimeoutSec 5 | ForEach-Object { $_ }) }
+    catch { Bad "ZeroTier One не отвечает на $ztLocal ($($_.Exception.Message)) — служба запущена?" }
+
+    if ($null -ne $ztNets) {
+        # 5d. Сервисная сеть: статус OK и адрес внутри Hub.ZeroTier.Subnet.
+        $svc = $ztNets | Where-Object { [string]$_.id -eq $ztNwid } | Select-Object -First 1
+        if (-not $svc) {
+            Bad "эта машина не в сервисной ZT-сети $ztNwid — .\tools\zt-network.ps1 (join)"
+        } else {
+            $addrs = @($svc.assignedAddresses)
+            $inSubnet = @($addrs | Where-Object { Test-Ipv4Within (ConvertTo-Ipv4Net ((($_ -split '/')[0]) + '/32')) $ztSubnet })
+            if ([string]$svc.status -ne 'OK') {
+                Bad "сервисная ZT-сеть $ztNwid в статусе $($svc.status) (адреса: $($addrs -join ', '))"
+            } elseif ($inSubnet.Count -eq 0) {
+                Bad "в сервисной ZT-сети $ztNwid нет адреса из $ztSubnetText (адреса: $(if ($addrs) { $addrs -join ', ' } else { 'нет' }))"
+            } else {
+                Ok "hub в сервисной ZT-сети $ztNwid`: $($inSubnet -join ', ') (подсеть $ztSubnetText)"
+            }
+            # Не -InterfaceAlias: квадратные скобки в имени он читает как wildcard-класс и не находит адаптер.
+            $ztAlias = "ZeroTier One [$ztNwid]"
+            $prof = Get-NetConnectionProfile -ErrorAction SilentlyContinue | Where-Object { $_.InterfaceAlias -eq $ztAlias } | Select-Object -First 1
+            if (-not $prof) {
+                Info "профиль Windows адаптера «$ztAlias» не найден"
+            } elseif ([string]$prof.NetworkCategory -eq 'Public') {
+                Ok "профиль Windows сервисной ZT-сети: Public"
+            } else {
+                Bad "профиль Windows сервисной ZT-сети: $($prof.NetworkCategory) — нужен Public (входящее закрыто по умолчанию)"
+                Write-Host "       -> Get-NetConnectionProfile | ? InterfaceAlias -eq '$ztAlias' | Set-NetConnectionProfile -NetworkCategory Public (под админом)" -ForegroundColor Yellow
+            }
+        }
+
+        # 5e. Прочие (личные) ZT-сети: их подсеть должна быть в Hub.DenySubnets, иначе hub
+        # отвечает там агентам и CLI — личная сеть оператора становится входом в сервис.
+        $others = @($ztNets | Where-Object { [string]$_.id -ne $ztNwid })
+        if ($others.Count -eq 0) {
+            Info "других ZT-сетей на машине нет — DenySubnets проверять не на чем"
+        }
+        foreach ($n in $others) {
+            $v4 = @(@($n.assignedAddresses) | Where-Object { ConvertTo-Ipv4Net $_ })
+            if ($v4.Count -eq 0) {
+                Info "ZT-сеть $($n.id) ($($n.name)): IPv4-адреса нет — проверять нечего"
+                continue
+            }
+            foreach ($a in $v4) {
+                $net = ConvertTo-Ipv4Net $a
+                $covered = @($denyNets | Where-Object { Test-Ipv4Within $net $_ }).Count -gt 0
+                if ($covered) {
+                    Ok "личная ZT-сеть $($n.id) ($($n.name)) $a закрыта Hub.DenySubnets"
+                } else {
+                    Bad "личная ZT-сеть $($n.id) ($($n.name)) $a НЕ в Hub.DenySubnets ($($denyTexts -join ', ')) — hub ответит в этой сети"
+                    Write-Host "       -> добавь её подсеть в Hub.DenySubnets (dist\host\hub\appsettings.json)" -ForegroundColor Yellow
+                }
+            }
+        }
+    }
+}
+
 Write-Host ""
 if ($problems.Count -eq 0) {
     Write-Host "Бокс готов к выезду." -ForegroundColor Green

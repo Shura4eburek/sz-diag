@@ -246,7 +246,11 @@ if (args.Length >= 2 && args[0] == "--resume")
         }
         rHubUrl = rLoc.Url;
         rFoundByBroadcast = AgentHubFinder.IsDirect(rLoc);
-        if (AgentHubFinder.IsZt(rLoc)) rZtTransport = rZt?.Transport;
+        if (AgentHubFinder.IsZt(rLoc))
+        {
+            rZtTransport = rZt?.Transport;
+            if (ZtSubnetConflict.CheckLocal() is { } rZtWarn) { logFile.WriteLine($"[resume] {rZtWarn}"); logFile.Flush(); }
+        }
     }
 
     var rLink = new SignalRHubLink(rHubUrl, rOpts.AgentToken,
@@ -584,7 +588,11 @@ if (string.IsNullOrWhiteSpace(hubUrl))
     hubUrl = found.Url;
     // Адрес из указателя в режиме lan — та же прямая связь, что и broadcast; tunnel — нет.
     foundHubByBroadcast = AgentHubFinder.IsDirect(found);
-    if (AgentHubFinder.IsZt(found)) ztTransport = zt?.Transport;
+    if (AgentHubFinder.IsZt(found))
+    {
+        ztTransport = zt?.Transport;
+        if (ZtSubnetConflict.CheckLocal() is { } ztWarn) Announce(ztWarn, $"[yellow]{Markup.Escape(ztWarn)}[/]");
+    }
     Announce($"Hub найден: {hubUrl} ({found.Source})", $"Hub найден: [green]{Markup.Escape(hubUrl)}[/] [grey]({found.Source})[/]");
 }
 

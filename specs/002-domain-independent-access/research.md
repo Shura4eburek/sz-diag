@@ -119,7 +119,7 @@
 - базовый `Stream.ReadAsync/WriteAsync` (их `NetworkStream` асинхронные не переопределяет)
   сериализует чтение и запись одним семафором — для full-duplex WebSocket это зависание.
 
-Обход (`spikes/zt-spike/ZtStream.cs` → переносится в `src/SzDiag.Agent/ZtStream.cs`, T042): свой
+Обход (спайк удалён в T054, итог — `src/SzDiag.Agent/Zt/ZtStream.cs` + `LibztSocketIo.cs`, T042): свой
 P/Invoke `CSharp_zts_bsd_send/recv` из `libzt` с `fixed`-закреплением и точной длиной; дескриптор
 берётся из приватного `_fd` их `Socket` через reflection (Connect/Bind/Listen/Accept у них корректны);
 чтение — `LongRunning`-задачей, запись — отдельно, независимо. Тест на это — обязателен в T042.

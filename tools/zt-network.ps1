@@ -151,10 +151,17 @@ if (-not $NoJoin) {
     if (-not $ok) { Fail 5 "адрес $HubAddress не назначился (status=$($n.status), адреса: $(@($n.assignedAddresses) -join ', '))" }
     Write-Host "-- подключено: $($n.portDeviceName) $(@($n.assignedAddresses) -join ', ')" -ForegroundColor Green
 
-    $prof = Get-NetConnectionProfile -InterfaceAlias "ZeroTier One [$Network]" -ErrorAction SilentlyContinue
-    if ($prof) {
-        $color = if ($prof.NetworkCategory -eq 'Public') { 'Green' } else { 'Yellow' }
-        Write-Host "   профиль Windows: $($prof.NetworkCategory) (для сервисной сети нужен Public — входящее закрыто по умолчанию)" -ForegroundColor $color
+    # -eq, а не -InterfaceAlias: квадратные скобки в имени адаптера параметр читает как wildcard
+    # и не находит его никогда (так профиль Private неделями оставался бы незамеченным).
+    $alias = "ZeroTier One [$Network]"
+    $prof = Get-NetConnectionProfile -ErrorAction SilentlyContinue | Where-Object InterfaceAlias -eq $alias
+    if ($prof -and $prof.NetworkCategory -ne 'Public') {
+        # Private открывает входящее для правил частной сети (SMB, RDP…), а участником публичной
+        # сервисной сети может стать кто угодно — flow rules порты hub-машины не режут.
+        Write-Host "   ВНИМАНИЕ: профиль Windows сервисной сети — $($prof.NetworkCategory), нужен Public:" -ForegroundColor Red
+        Write-Host "   Get-NetConnectionProfile | ? InterfaceAlias -eq '$alias' | Set-NetConnectionProfile -NetworkCategory Public   (под админом)" -ForegroundColor Red
+    } elseif ($prof) {
+        Write-Host "   профиль Windows: Public (входящее закрыто по умолчанию)" -ForegroundColor Green
     }
 }
 
