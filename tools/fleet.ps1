@@ -139,7 +139,14 @@ if ($Action -eq 'init') {
 
     Set-RailwayVar $bundleVar $bundle
     Set-RailwayVar $pubVar ((Get-Content (Join-Path $secrets 'fleet-sign.pub') -Raw).Trim())
-    Write-Host "-- готово: $bundleVar и $pubVar записаны в сервис $Service (без передеплоя)" -ForegroundColor Green
+    # Публичный ключ указатель читает при старте: без передеплоя он остаётся «misconfigured»
+    # и не принимает записи hub (2026-11-25: hub висел в misconfigured до ручного redeploy).
+    Write-Host "-- передеплой $Service, чтобы он подхватил $pubVar"
+    $eap = $ErrorActionPreference
+    $ErrorActionPreference = 'Continue'
+    try { railway redeploy --service $Service -y 2>$null | Out-Null; $rc = $LASTEXITCODE } finally { $ErrorActionPreference = $eap }
+    if ($rc -ne 0) { Write-Host "   не удалось — сделай вручную: railway redeploy --service $Service -y" -ForegroundColor Yellow }
+    Write-Host "-- готово: $bundleVar и $pubVar записаны в сервис $Service" -ForegroundColor Green
     exit 0
 }
 
