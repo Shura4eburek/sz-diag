@@ -118,7 +118,7 @@ contracts/signpost-api.md, quickstart.md
 ### Сеть
 
 - [X] T056 [US3] **Свой контроллер** `src/SzDiag.ZtController/` (рантайм — Docker, не входит в публикацию `build-dist`): `Dockerfile` на `zerotier/zerotier` (1.14.x) + self-contained linux-x64 прокси (minimal API). `entrypoint.sh` поднимает `zerotier-one -d`, прокси слушает `$PORT`, требует `Authorization: Bearer $ZT_PROXY_TOKEN`, пускает только `GET|POST|DELETE /controller/network/{nwid}[/member/{mid}]`, `GET /status` и `GET /admin/identity` (бэкап `identity.secret`), подставляет `X-ZT1-Auth` из `authtoken.secret`. Volume `/var/lib/zerotier-one`; при пустом volume и заданном `ZT_IDENTITY_SECRET` identity восстанавливается. Деплой — отдельный сервис Railway рядом с указателем, публичный домен только у прокси. Тесты прокси (whitelist путей, 401 без токена, подстановка `X-ZT1-Auth`) — `tests/SzDiag.ZtController.Tests/`. Проба 2026-11-24 — research.md, «Свой контроллер на Railway»
-- [ ] T037 [US3] `tools/zt-network.ps1` (UTF-8 BOM) — через прокси своего контроллера (URL и токен из `secrets\fleet.json`; после T056): создать сервисную сеть (публичная), пул `10.88.0.0/24`, flow rules «разрешено только к/от ZT-адреса hub, всё остальное `drop`», назначить hub-машине статический адрес (`10.88.0.1` ПК, `.2` ноут); забрать `GET /admin/identity` и вместе с `ztNetwork` записать в бандл флота (`fleet.ps1` перешифровывает): потеря volume без бэкапа = новый ID сети
+- [X] T037 [US3] `tools/zt-network.ps1` (UTF-8 BOM) — через прокси своего контроллера (URL и токен из `secrets\fleet.json`; после T056): создать сервисную сеть (публичная), пул `10.88.0.0/24`, flow rules «разрешено только к/от ZT-адреса hub, всё остальное `drop`», назначить hub-машине статический адрес (`10.88.0.1` ПК, `.2` ноут); забрать `GET /admin/identity` и вместе с `ztNetwork` записать в бандл флота (`fleet.ps1` перешифровывает): потеря volume без бэкапа = новый ID сети
 
 ### Tests
 
@@ -139,7 +139,7 @@ contracts/signpost-api.md, quickstart.md
 
 - [ ] T047 [US3] `src/SzDiag.Hub/ZtControllerClient.cs` (`IZtControllerClient`: list/delete member через прокси своего контроллера `<ztControllerUrl>/controller/network/{nid}/member/{mid}`, Bearer `ztControllerToken` из `secrets\fleet.json` — токен **никогда** не уходит агенту, FR-023) и `src/SzDiag.Hub/ZtMemberSweeper.cs` (hosted, раз в минуту, `SweepAfter`=10 мин); удаление члена при `close` в `src/SzDiag.Hub/ManagementApi.cs`/`SessionRegistry.cs`
 - [ ] T048 [US3] `src/SzDiag.Hub/LocalAddressFilter.cs` + регистрация в `src/SzDiag.Hub/Program.cs`; `Hub.DenySubnets` (по умолчанию `["10.199.89.0/24"]`) и `Hub.ZeroTier` (`Enabled`, `Network`, `SweepAfter`) в `src/SzDiag.Hub/HubOptions.cs`; фильтр по `HttpContext.Connection.LocalIpAddress`, не bind на IP
-- [ ] T049 [US3] `src/SzDiag.Hub/SignpostPublisher.cs`: endpoint `mode=zt` (адрес hub в сервисной подсети, если адаптер есть) первым в `endpoints`, `ztNetwork` в записи
+- [ ] T049 [US3] (**только после T048** — до него `/api` hub с ZT-адреса закрыт лишь токеном, research.md R9) `src/SzDiag.Hub/SignpostPublisher.cs`: endpoint `mode=zt` (адрес hub в сервисной подсети, если адаптер есть) первым в `endpoints`, `ztNetwork` в записи
 - [ ] T050 [US3] `src/SzDiag.Cli/Program.cs` (`target`, стр. ~563–579): для `AccessMode.Zt` — `ssh -p <port> svc-diag@<zt-ip>` с пиннингом host-ключа, как для туннеля; `src/SzDiag.Agent/AccessReporter.cs`/hub — пересечение подсети `10.88.0.0/24` с маршрутами клиента → предупреждение в `ReportAccess`
 
 **Checkpoint**: US3 проверяется quickstart «Фаза 4» целиком.

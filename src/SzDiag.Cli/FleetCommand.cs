@@ -37,6 +37,7 @@ public static class FleetCommand
                 "encrypt" => Encrypt(secretsDir, output, errors, readPassword),
                 "decrypt" => Decrypt(args, secretsDir, output, errors, readPassword),
                 "sign-release" => SignRelease(args, secretsDir, output, errors),
+                "set-zt" => SetZt(args, secretsDir, output, errors),
                 _ => PrintUsage(errors),
             };
         }
@@ -77,11 +78,51 @@ public static class FleetCommand
             ManagementToken = NonEmpty(Option(args, "--management-token")) ?? NewToken(),
             SvcDiagKey = File.ReadAllText(sshKey),
             SvcDiagKeyPub = File.ReadAllText(sshPub),
-            ZtApiToken = Option(args, "--zt-api-token") ?? "",
-            ZtNetwork = Option(args, "--zt-network") ?? "",
         };
+        var zt = Option(args, "--zt-from");
+        if (zt is not null) secrets = ApplyZt(secrets, ZtSettings.Load(zt));
         FleetSecretsStore.Write(dir, secrets);
         output.WriteLine($"fleet: секреты флота созданы в {dir} (kid {KidOf(pub)})");
+        return Ok;
+    }
+
+    /// <summary>Параметры сервисной ZT-сети, которые пишет <c>tools\zt-network.ps1</c> в
+    /// <c>secrets\zt.json</c>: адрес и токен прокси контроллера, бэкап его identity, id сети.</summary>
+    public sealed record ZtSettings(string? ControllerUrl, string? ControllerToken, string? IdentitySecret, string? Network)
+    {
+        public static ZtSettings Load(string path) =>
+            System.Text.Json.JsonSerializer.Deserialize<ZtSettings>(File.ReadAllText(path),
+                new System.Text.Json.JsonSerializerOptions(System.Text.Json.JsonSerializerDefaults.Web))
+            ?? throw new InvalidDataException($"{path} пуст");
+    }
+
+    // Пустое поле в zt.json не затирает уже лежащее во флоте — правится только то, что передано.
+    private static FleetSecrets ApplyZt(FleetSecrets s, ZtSettings z) => s with
+    {
+        ZtControllerUrl = NonEmpty(z.ControllerUrl?.TrimEnd('/')) ?? s.ZtControllerUrl,
+        ZtControllerToken = NonEmpty(z.ControllerToken) ?? s.ZtControllerToken,
+        ZtIdentitySecret = NonEmpty(z.IdentitySecret?.Trim()) ?? s.ZtIdentitySecret,
+        ZtNetwork = NonEmpty(z.Network) ?? s.ZtNetwork,
+    };
+
+    /// <summary>`fleet set-zt --from secrets\zt.json` — дописать параметры ZT-сети в fleet.json.
+    /// Остальные секреты не трогаются; в Railway уезжает следующим <c>fleet.ps1 push</c>.</summary>
+    private static int SetZt(string[] args, string dir, TextWriter output, TextWriter errors)
+    {
+        var from = Option(args, "--from");
+        if (from is null)
+        {
+            errors.WriteLine("fleet: set-zt --from <zt.json>");
+            return Usage;
+        }
+        var updated = ApplyZt(FleetSecretsStore.Read(dir), ZtSettings.Load(from));
+        if (updated.ZtNetwork.Length is not (0 or 16))
+        {
+            errors.WriteLine($"fleet: id сети должен быть 16 hex, получено «{updated.ZtNetwork}»");
+            return Usage;
+        }
+        FleetSecretsStore.Write(dir, updated);
+        output.WriteLine($"fleet: ZT записан во флот (сеть {updated.ZtNetwork}, контроллер {updated.ZtControllerUrl})");
         return Ok;
     }
 
@@ -206,7 +247,8 @@ public static class FleetCommand
     private static int PrintUsage(TextWriter errors)
     {
         errors.WriteLine("""
-            szcli fleet keygen  [--secrets <папка>] [--agent-token T] [--management-token T] [--force]
+            szcli fleet keygen  [--secrets <папка>] [--agent-token T] [--management-token T] [--zt-from <zt.json>] [--force]
+            szcli fleet set-zt  [--secrets <папка>] --from <zt.json>   → параметры ZT-сети в fleet.json
             szcli fleet encrypt [--secrets <папка>]            → бандл в stdout
             szcli fleet decrypt [--secrets <папка>] [--in <файл>]  (иначе бандл из SZDIAG_FLEET_BUNDLE)
             szcli fleet sign-release <package.zip> --version <v> --build-time <ISO> --url <адрес> [--url …]

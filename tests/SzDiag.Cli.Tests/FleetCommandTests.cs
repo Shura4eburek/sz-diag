@@ -54,6 +54,58 @@ public class FleetCommandTests : IDisposable
         Assert.Equal(File.ReadAllText(Path.Combine(_a, "svc_diag_key")), File.ReadAllText(Path.Combine(_b, "svc_diag_key")));
     }
 
+    private string ZtJson(string json)
+    {
+        var path = Path.Combine(_a, "zt.json");
+        File.WriteAllText(path, json);
+        return path;
+    }
+
+    [Fact]
+    public void SetZt_adds_controller_and_network_keeping_other_secrets_and_survives_bundle()
+    {
+        Assert.Equal(0, Run(["keygen", "--secrets", _a, "--agent-token", "tok"], out _, out _));
+        var before = FleetSecretsStore.Read(_a);
+        var zt = ZtJson("""
+            {"controllerUrl":"https://ctl.example/","controllerToken":"bearer-x","identitySecret":"aa4bb3b8ba:0:pub:priv\n","network":"aa4bb3b8ba2a96ee"}
+            """);
+
+        Assert.Equal(0, Run(["set-zt", "--secrets", _a, "--from", zt], out _, out _));
+
+        var s = FleetSecretsStore.Read(_a);
+        Assert.Equal("https://ctl.example", s.ZtControllerUrl);
+        Assert.Equal("bearer-x", s.ZtControllerToken);
+        Assert.Equal("aa4bb3b8ba:0:pub:priv", s.ZtIdentitySecret);
+        Assert.Equal("aa4bb3b8ba2a96ee", s.ZtNetwork);
+        Assert.Equal(before.SignPrivateKey, s.SignPrivateKey);
+        Assert.Equal("tok", s.AgentToken);
+
+        // Через бандл ZT-поля доезжают до другой машины.
+        Assert.Equal(0, Run(["encrypt", "--secrets", _a], out var bundle, out _));
+        var bf = Path.Combine(_a, "bundle.json");
+        File.WriteAllText(bf, bundle);
+        Assert.Equal(0, Run(["decrypt", "--secrets", _b, "--in", bf], out _, out _));
+        Assert.Equal("aa4bb3b8ba2a96ee", FleetSecretsStore.Read(_b).ZtNetwork);
+        Assert.Equal("bearer-x", FleetSecretsStore.Read(_b).ZtControllerToken);
+    }
+
+    [Fact]
+    public void SetZt_empty_fields_do_not_erase_and_bad_network_is_refused()
+    {
+        Assert.Equal(0, Run(["keygen", "--secrets", _a], out _, out _));
+        Assert.Equal(0, Run(["set-zt", "--secrets", _a, "--from",
+            ZtJson("""{"controllerUrl":"https://ctl","controllerToken":"t1","network":"aa4bb3b8ba2a96ee"}""")], out _, out _));
+
+        Assert.Equal(0, Run(["set-zt", "--secrets", _a, "--from", ZtJson("""{"identitySecret":"id"}""")], out _, out _));
+        var s = FleetSecretsStore.Read(_a);
+        Assert.Equal("t1", s.ZtControllerToken);
+        Assert.Equal("aa4bb3b8ba2a96ee", s.ZtNetwork);
+        Assert.Equal("id", s.ZtIdentitySecret);
+
+        Assert.Equal(FleetCommand.Usage, Run(["set-zt", "--secrets", _a, "--from", ZtJson("""{"network":"short"}""")], out _, out _));
+        Assert.Equal("aa4bb3b8ba2a96ee", FleetSecretsStore.Read(_a).ZtNetwork);
+    }
+
     [Fact]
     public void Keygen_refuses_to_overwrite_without_force()
     {

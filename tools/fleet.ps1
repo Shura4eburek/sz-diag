@@ -10,6 +10,9 @@
 
     .\tools\fleet.ps1 init    # один раз, на машине с «правильными» секретами (обычно ПК)
     .\tools\fleet.ps1 pull    # на любой другой машине (build-dist зовёт сам, если secrets\fleet.json нет)
+    .\tools\fleet.ps1 push    # перешифровать правленый secrets\fleet.json и залить (после tools\zt-network.ps1)
+
+  Параметры ZT-сети (secrets\zt.json от tools\zt-network.ps1) init подхватывает сам, push — дописывает.
 
   init берёт за основу то, что уже есть на этой машине: прежний secrets\svc_diag_key и прежний
   AgentToken из dist\host\hub\appsettings.json — уже разданные с неё апдейтеры продолжают работать.
@@ -22,7 +25,7 @@
 #>
 param(
     [Parameter(Mandatory = $true, Position = 0)]
-    [ValidateSet('init', 'pull')]
+    [ValidateSet('init', 'pull', 'push')]
     [string]$Action,
     [string]$Service = 'szdiag-signpost',
     # init: перезаписать уже лежащий в Railway бандл (новый ключ подписи — старые записи станут чужими).
@@ -118,6 +121,11 @@ if ($Action -eq 'init') {
             Write-Host '-- токен агента флота = прежний токен этой машины (разданные апдейтеры не ломаются)'
             $keygenArgs += @('--agent-token', $prev)
         }
+        $ztJson = Join-Path $secrets 'zt.json'
+        if (Test-Path $ztJson) {
+            Write-Host '-- беру параметры ZT-сети из secrets\zt.json (tools\zt-network.ps1)'
+            $keygenArgs += @('--zt-from', $ztJson)
+        }
         if ($Force) { $keygenArgs += '--force' }
         & $cli @keygenArgs
         if ($LASTEXITCODE -ne 0) { Fail $LASTEXITCODE 'fleet keygen не прошёл' }
@@ -132,6 +140,25 @@ if ($Action -eq 'init') {
     Set-RailwayVar $bundleVar $bundle
     Set-RailwayVar $pubVar ((Get-Content (Join-Path $secrets 'fleet-sign.pub') -Raw).Trim())
     Write-Host "-- готово: $bundleVar и $pubVar записаны в сервис $Service (без передеплоя)" -ForegroundColor Green
+    exit 0
+}
+
+if ($Action -eq 'push') {
+    # Флот уже создан, правится только содержимое (параметры ZT и т.п.). init -Force тут не
+    # годится: он сгенерировал бы новый ключ подписи и обесценил записи указателя.
+    if (-not (Test-Path (Join-Path $secrets 'fleet.json'))) { Fail 3 'нет secrets\fleet.json — сначала init или pull' }
+    $null = Get-RailwayVars
+    $cli = Get-FleetCli
+    $ztJson = Join-Path $secrets 'zt.json'
+    if (Test-Path $ztJson) {
+        & $cli fleet set-zt --secrets $secrets --from $ztJson
+        if ($LASTEXITCODE -ne 0) { Fail $LASTEXITCODE 'fleet set-zt не прошёл' }
+    }
+    Write-Host '-- шифрую паролем флота (тем же, что при init)'
+    $bundle = (& $cli fleet encrypt --secrets $secrets | Out-String).Trim()
+    if ($LASTEXITCODE -ne 0 -or -not $bundle) { Fail 1 'fleet encrypt не прошёл' }
+    Set-RailwayVar $bundleVar $bundle
+    Write-Host "-- готово: $bundleVar обновлён в сервисе $Service; на других машинах — .\tools\fleet.ps1 pull" -ForegroundColor Green
     exit 0
 }
 

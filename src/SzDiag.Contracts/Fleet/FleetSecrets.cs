@@ -26,8 +26,17 @@ public sealed record FleetSecrets
 
     public required string SvcDiagKeyPub { get; init; }
 
-    /// <summary>Токен API ZeroTier Central (US3). Пусто, пока сеть не заведена.</summary>
-    public string ZtApiToken { get; init; } = "";
+    /// <summary>HTTPS-адрес прокси своего ZT-контроллера (сервис на Railway оператора, US3).
+    /// Пусто, пока контроллер не заведён.</summary>
+    public string ZtControllerUrl { get; init; } = "";
+
+    /// <summary>Bearer прокси контроллера (он же `ZT_PROXY_TOKEN` сервиса). Только hub — на клиента
+    /// не попадает никогда (FR-023).</summary>
+    public string ZtControllerToken { get; init; } = "";
+
+    /// <summary>Бэкап `identity.secret` контроллера: адрес контроллера = префикс ID сети, поэтому
+    /// потеря volume без бэкапа = новая сеть и клиенты со старым указателем в неё не войдут.</summary>
+    public string ZtIdentitySecret { get; init; } = "";
 
     /// <summary>Id сервисной ZT-сети, 16 hex. Пусто, пока сеть не заведена.</summary>
     public string ZtNetwork { get; init; } = "";

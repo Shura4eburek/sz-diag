@@ -18,7 +18,8 @@ public static class FleetSecretsStore
     private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web) { WriteIndented = true };
 
     private sealed record FleetJson(int FormatVersion, string AgentToken, string ManagementToken,
-        string ZtApiToken, string ZtNetwork, DateTimeOffset CreatedAt);
+        string? ZtControllerUrl, string? ZtControllerToken, string? ZtIdentitySecret, string? ZtNetwork,
+        DateTimeOffset CreatedAt);
 
     public static bool Exists(string dir) => File.Exists(Path.Combine(dir, FleetJsonFile));
 
@@ -30,7 +31,8 @@ public static class FleetSecretsStore
         WriteText(dir, SshKeyFile, s.SvcDiagKey);
         WriteText(dir, SshPubFile, s.SvcDiagKeyPub);
         WriteText(dir, FleetJsonFile, JsonSerializer.Serialize(
-            new FleetJson(s.FormatVersion, s.AgentToken, s.ManagementToken, s.ZtApiToken, s.ZtNetwork, s.CreatedAt), Json));
+            new FleetJson(s.FormatVersion, s.AgentToken, s.ManagementToken,
+                s.ZtControllerUrl, s.ZtControllerToken, s.ZtIdentitySecret, s.ZtNetwork, s.CreatedAt), Json));
     }
 
     public static FleetSecrets Read(string dir)
@@ -46,7 +48,9 @@ public static class FleetSecretsStore
             SvcDiagKeyPub = ReadText(dir, SshPubFile),
             AgentToken = meta.AgentToken,
             ManagementToken = meta.ManagementToken,
-            ZtApiToken = meta.ZtApiToken ?? "",
+            ZtControllerUrl = meta.ZtControllerUrl ?? "",
+            ZtControllerToken = meta.ZtControllerToken ?? "",
+            ZtIdentitySecret = meta.ZtIdentitySecret ?? "",
             ZtNetwork = meta.ZtNetwork ?? "",
             CreatedAt = meta.CreatedAt,
         };
