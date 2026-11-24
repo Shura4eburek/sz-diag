@@ -34,8 +34,8 @@ public sealed class ZtAccess(ZtHubSession session, Action<string>? log = null) :
         _forwarder?.Dispose();
         _forwarder = null;
         if (session.Node is not null && string.Equals(session.StoragePath, storagePath, StringComparison.OrdinalIgnoreCase))
-            session.WipeOnStop();
-        else
-            ZtStorage.Wipe(storagePath);
+            session.WipeOnStop(); // нода ещё везёт отчёт об откате; итог стирания — в лог при её остановке
+        else if (!ZtStorage.Wipe(storagePath))
+            throw new IOException($"storage ZT не стёрт: {storagePath}");
     }
 }

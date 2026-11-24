@@ -87,8 +87,12 @@ public sealed class ZtHubSession : IDisposable
         Node = null;
         _transport = null;
         if (n is null) { if (wipe) ZtStorage.Wipe(StoragePath); return; }
-        n.WipeOnDispose = wipe;
+        n.WipeOnDispose = false;
         n.Dispose();
+        // Стираем здесь, а не в ноде: итог должен попасть в лог — откат к этому моменту уже
+        // отчитался, и остаток иначе не увидел бы никто (его доберёт WipeLeftovers при следующем старте).
+        if (wipe && !ZtStorage.Wipe(StoragePath))
+            _log?.Invoke($"zt: storage не стёрт после остановки ноды: {StoragePath} — остаток снимется при следующем старте агента");
     }
 
     public void Dispose() => StopNode(wipe: _alwaysWipe || (Node?.WipeOnDispose ?? false));

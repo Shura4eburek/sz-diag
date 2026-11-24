@@ -458,6 +458,43 @@ $ztNetwork = [string]$fleet.ztNetwork
 $ztEnabled = if ($ztNetwork) { "true" } else { "false" }
 Write-Host "-- ZeroTier: $(if ($ztNetwork) { "сеть $ztNetwork" } else { 'не настроен (tools\zt-network.ps1)' })"
 
+# Hub.DenySubnets — личные ZT-сети этой машины, на адреса которых hub не отвечает вовсе.
+# В коде дефолт пустой (личная подсеть владельца не живёт в публичном репо, а массив из
+# конфига к непустому дефолту только дописывается), поэтому список собирается здесь:
+# всё, что было в прежнем конфиге, плюс подсети всех ZT-сетей ZeroTier One, кроме сервисной.
+$denySubnets = @()
+if ($prevHub -and $prevHub.DenySubnets) { $denySubnets += @($prevHub.DenySubnets | ForEach-Object { [string]$_ }) }
+$ztAuthFile = Join-Path $env:LOCALAPPDATA 'ZeroTier\authtoken.secret'
+if (Test-Path $ztAuthFile) {
+    $ztPortFile = Join-Path $env:ProgramData 'ZeroTier\One\zerotier-one.port'
+    $ztPort = if (Test-Path $ztPortFile) { (Get-Content $ztPortFile -Raw).Trim() } else { '9993' }
+    try {
+        $ztHeaders = @{ 'X-ZT1-Auth' = (Get-Content $ztAuthFile -Raw).Trim() }
+        # Через конвейер: в 5.1 Invoke-RestMethod отдаёт JSON-массив одним объектом, @() его не разворачивает.
+        $ztNets = @(Invoke-RestMethod "http://127.0.0.1:$ztPort/network" -Headers $ztHeaders -TimeoutSec 5 | ForEach-Object { $_ })
+        foreach ($n in @($ztNets | Where-Object { [string]$_.id -ne $ztNetwork })) {
+            foreach ($a in @($n.assignedAddresses)) {
+                if ([string]$a -notmatch '^(\d{1,3}(?:\.\d{1,3}){3})/(\d{1,2})$') { continue }   # IPv6 — мимо
+                $ip = [System.Net.IPAddress]::Parse($Matches[1])
+                $prefix = [int]$Matches[2]
+                if ($prefix -gt 32) { continue }
+                $b = $ip.GetAddressBytes()
+                # [uint64]: в 5.1 литерал 0xFFFFFFFF — это -1 (int32), маска на нём ломается.
+                $ipNum = ([uint64]$b[0] -shl 24) -bor ([uint64]$b[1] -shl 16) -bor ([uint64]$b[2] -shl 8) -bor [uint64]$b[3]
+                $mask = if ($prefix -eq 0) { [uint64]0 } else { ([uint64]4294967295 -shl (32 - $prefix)) -band [uint64]4294967295 }
+                $netNum = $ipNum -band $mask
+                $netIp = '{0}.{1}.{2}.{3}' -f (($netNum -shr 24) -band 255), (($netNum -shr 16) -band 255), (($netNum -shr 8) -band 255), ($netNum -band 255)
+                $denySubnets += "$netIp/$prefix"
+            }
+        }
+    } catch {
+        Write-Host "-- ZeroTier One не ответил ($($_.Exception.Message)) — DenySubnets только из прежнего конфига" -ForegroundColor Yellow
+    }
+}
+$denySubnets = @($denySubnets | Where-Object { $_ } | Select-Object -Unique)
+$denySubnetsJson = ($denySubnets | ForEach-Object { '"' + $_ + '"' }) -join ', '
+Write-Host "-- DenySubnets (личные ZT-сети): $(if ($denySubnets) { $denySubnets -join ', ' } else { 'нет' })"
+
 $hubCfg = @"
 {
   "Urls": "http://0.0.0.0:$Port",
@@ -495,13 +532,15 @@ $hubCfg = @"
       "PublishInterval": "00:00:30",
       "ExtraEndpoints": []
     },
+    "DenySubnets": [$denySubnetsJson],
     "ZeroTier": {
       "Enabled": $ztEnabled,
       "Network": "$ztNetwork",
       "Subnet": "10.88.0.0/24",
       "SweepAfter": "00:10:00",
       "ControllerUrl": "$([string]$fleet.ztControllerUrl)",
-      "ControllerToken": "$([string]$fleet.ztControllerToken)"
+      "ControllerToken": "$([string]$fleet.ztControllerToken)",
+      "HubAddresses": ["10.88.0.1", "10.88.0.2"]
     }
   }
 }

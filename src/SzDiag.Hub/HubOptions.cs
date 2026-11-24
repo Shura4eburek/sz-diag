@@ -77,8 +77,10 @@ public sealed class HubOptions
     /// <summary>Подсети, на адреса которых hub не отвечает вовсе (<see cref="LocalAddressFilter"/>):
     /// личная ZT-сеть владельца с его устройствами — hub слушает 0.0.0.0, и без этого фильтра
     /// был бы виден всем её участникам. Фильтр по локальному адресу запроса, а не bind на
-    /// конкретные IP: у ноута LAN по DHCP.</summary>
-    public string[] DenySubnets { get; set; } = ["10.199.89.0/24"];
+    /// конкретные IP: у ноута LAN по DHCP. Дефолт пустой: массив из конфига к непустому дефолту
+    /// только дописывается (убрать элемент нельзя), а личной подсети не место в публичном репо —
+    /// список пишет build-dist по ZT-сетям машины сборки.</summary>
+    public string[] DenySubnets { get; set; } = [];
 
     /// <summary>Сервисная ZT-сеть (US3, specs/002).</summary>
     public HubZeroTierOptions ZeroTier { get; set; } = new();
@@ -147,8 +149,9 @@ public sealed class HubZeroTierOptions
     /// <summary>Bearer прокси. Только hub: агенту не уходит никогда (FR-023).</summary>
     public string ControllerToken { get; set; } = "";
 
-    /// <summary>Адреса hub-машин в сети — их узлы сторож не трогает.</summary>
-    public string[] HubAddresses { get; set; } = ["10.88.0.1", "10.88.0.2"];
+    /// <summary>Адреса hub-машин в сети — их узлы сторож не трогает. Дефолт пустой (массив из
+    /// конфига к непустому дефолту только дописывается); значения пишет build-dist.</summary>
+    public string[] HubAddresses { get; set; } = [];
 
     public bool ControllerConfigured =>
         Enabled && !string.IsNullOrWhiteSpace(ControllerUrl) && !string.IsNullOrWhiteSpace(ControllerToken)

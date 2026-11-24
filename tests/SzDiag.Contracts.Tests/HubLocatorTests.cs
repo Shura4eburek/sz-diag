@@ -41,8 +41,10 @@ public class HubLocatorTests : IDisposable
             _ => Task.FromResult(lan),
             (url, _) => Task.FromResult(alive?.Contains(url) ?? true));
 
-    private SignedEnvelope HubEnv(long seq, params HubEndpoint[] eps)
-        => _signer.SignRecord(new HubRecord("pc", "ПК",
+    private SignedEnvelope HubEnv(long seq, params HubEndpoint[] eps) => HubEnvFrom("pc", seq, eps);
+
+    private SignedEnvelope HubEnvFrom(string hubId, long seq, params HubEndpoint[] eps)
+        => _signer.SignRecord(new HubRecord(hubId, "ПК",
             eps.Length > 0 ? eps : [new HubEndpoint(HubEndpointMode.Lan, "http://192.168.1.102:5099")],
             null, seq, DateTimeOffset.UtcNow));
 
@@ -119,11 +121,65 @@ public class HubLocatorTests : IDisposable
     [Fact]
     public async Task Older_seq_than_seen_is_rejected_as_replay()
     {
-        new SeenSeqStore(_seenPath).Remember(SignpostKinds.Hub, 100);
+        new SeenSeqStore(_seenPath).Remember(SeenSeqStore.HubKey("pc"), 100);
         ServeSignpost(HubEnv(50));
 
         var locator = Locator();
         Assert.Null(await locator.LocateAsync());
+        Assert.Contains(locator.LastRejected, r => r.Reason.Contains("replay"));
+    }
+
+    [Fact]
+    public async Task Same_hub_lower_seq_after_accepted_one_is_still_replay()
+    {
+        ServeSignpost(HubEnvFrom("pc", 100));
+        Assert.NotNull(await Locator().LocateAsync());
+
+        ServeSignpost(HubEnvFrom("pc", 99));
+        var locator = Locator();
+        Assert.Null(await locator.LocateAsync());
+        Assert.Contains(locator.LastRejected, r => r.Reason.Contains("replay"));
+    }
+
+    [Fact]
+    public async Task Other_hub_with_lower_seq_is_accepted_after_takeover()
+    {
+        // ПК опубликовал по своим часам, hub переехал на ноутбук с отстающими часами.
+        ServeSignpost(HubEnvFrom("pc", 1_800_000_000_000));
+        Assert.NotNull(await Locator().LocateAsync());
+
+        ServeSignpost(HubEnvFrom("laptop", 1_700_000_000_000));
+        var loc = await Locator().LocateAsync();
+
+        Assert.NotNull(loc);
+        var store = new SeenSeqStore(_seenPath);
+        Assert.Equal(1_700_000_000_000, store.Get(SeenSeqStore.HubKey("laptop")));
+        Assert.Equal(1_800_000_000_000, store.Get(SeenSeqStore.HubKey("pc")));
+    }
+
+    [Fact]
+    public async Task Old_per_kind_store_file_loads_and_does_not_block_hub()
+    {
+        // Формат до per-HubId: один seq на вид записи.
+        File.WriteAllText(_seenPath, """{"hub":9000000000000,"release":5}""");
+        ServeSignpost(HubEnv(77));
+
+        Assert.NotNull(await Locator().LocateAsync());
+        var store = new SeenSeqStore(_seenPath);
+        Assert.Equal(77, store.Get(SeenSeqStore.HubKey("pc")));
+        Assert.Equal(5, store.Get(SignpostKinds.Release));
+    }
+
+    [Fact]
+    public async Task Old_per_kind_release_seq_still_guards_release()
+    {
+        File.WriteAllText(_seenPath, """{"hub":1,"release":100}""");
+        var sha = new string('a', 64);
+        ServeSignpost(null, _signer.SignRecord(new ReleaseRecord("v1", DateTimeOffset.UtcNow, sha, 10, ["/p"], 50)));
+
+        var locator = Locator();
+        Assert.Null(await locator.LocateReleaseAsync());
+        Assert.Contains(locator.LastRejected, r => r.Reason.Contains("replay"));
     }
 
     [Fact]
@@ -131,7 +187,7 @@ public class HubLocatorTests : IDisposable
     {
         ServeSignpost(HubEnv(77));
         await Locator().LocateAsync();
-        Assert.Equal(77, new SeenSeqStore(_seenPath).Get(SignpostKinds.Hub));
+        Assert.Equal(77, new SeenSeqStore(_seenPath).Get(SeenSeqStore.HubKey("pc")));
     }
 
     [Fact]

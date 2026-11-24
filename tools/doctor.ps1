@@ -315,10 +315,10 @@ $ztNwid = @(
 ) | Where-Object { $_ } | Select-Object -First 1
 $ztSubnetText = if ($hubOpts -and $hubOpts.ZeroTier -and $hubOpts.ZeroTier.Subnet) { [string]$hubOpts.ZeroTier.Subnet } else { "10.88.0.0/24" }
 $ztSubnet = ConvertTo-Ipv4Net $ztSubnetText
-# Ключ отсутствует → дефолт из HubOptions; явный пустой массив — так и есть, пустой.
+# Ключ отсутствует → дефолт HubOptions, он пустой (список пишет build-dist).
 $denyTexts = if ($hubOpts -and ($hubOpts.PSObject.Properties.Name -contains 'DenySubnets')) {
     @($hubOpts.DenySubnets | Where-Object { $_ })
-} else { @("10.199.89.0/24") }
+} else { @() }
 $denyNets = @($denyTexts | ForEach-Object { ConvertTo-Ipv4Net $_ } | Where-Object { $_ })
 
 $ztAuthFile = Join-Path $env:LOCALAPPDATA 'ZeroTier\authtoken.secret'

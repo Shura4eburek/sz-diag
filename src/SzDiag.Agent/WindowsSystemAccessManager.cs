@@ -46,7 +46,15 @@ public sealed class WindowsSystemAccessManager : ISystemAccessManager
         try
         {
             var info = _zt.Start(sshPort);
-            if (info is null) return;
+            if (info is null)
+            {
+                // Ноды нет (после ребута hub найден мимо ZT, join не успел): прежний адрес мёртв, и
+                // отчёт не должен выдавать его за рабочий раньше живого туннеля. Storage остаётся в
+                // состоянии — откат его всё равно сотрёт.
+                state.JoinedZt = false;
+                state.ZtAddress = "";
+                return;
+            }
             state.JoinedZt = true;
             state.ZtStoragePath = info.StoragePath;
             state.ZtNodeId = info.NodeId;

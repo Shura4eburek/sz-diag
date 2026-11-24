@@ -27,7 +27,7 @@ public static class FleetCommand
         readPassword ??= ReadPasswordInteractive;
 
         var sub = args.Length > 0 ? args[0].ToLowerInvariant() : "";
-        var secretsDir = Option(args, "--secrets") ?? "secrets";
+        var secretsDir = Option(args, "--secrets") ?? DefaultSecretsDir(AppContext.BaseDirectory);
 
         try
         {
@@ -219,6 +219,16 @@ public static class FleetCommand
 
     private static string NewToken()
         => Convert.ToBase64String(RandomNumberGenerator.GetBytes(32)).TrimEnd('=').Replace('+', '-').Replace('/', '_');
+
+    /// <summary>Папка секретов без <c>--secrets</c>: не от рабочего каталога, а от exe —
+    /// <c>secrets</c> в корне репозитория (первый предок с <c>SzDiag.sln</c>), иначе рядом с exe.</summary>
+    public static string DefaultSecretsDir(string baseDir)
+    {
+        for (var d = new DirectoryInfo(baseDir); d is not null; d = d.Parent)
+            if (File.Exists(Path.Combine(d.FullName, "SzDiag.sln")))
+                return Path.Combine(d.FullName, "secrets");
+        return Path.Combine(baseDir, "secrets");
+    }
 
     private static string? NonEmpty(string? s) => string.IsNullOrWhiteSpace(s) ? null : s.Trim();
 

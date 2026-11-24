@@ -1,5 +1,6 @@
 using SzDiag.Agent;
 using SzDiag.Agent.Zt;
+using SzDiag.Contracts;
 using Xunit;
 
 namespace SzDiag.Agent.Tests;
@@ -155,5 +156,22 @@ public class ZtRevertTests : IDisposable
         new WindowsSystemAccessManager(new Ps(), new Ssh(), _statePath, zt: zt).Resume(state, Spec());
         Assert.Equal(1, zt.Starts);
         Assert.True(state.JoinedZt);
+    }
+
+    // Ревью: после ребута hub нашёлся мимо ZT — прежний адрес мёртв и не должен перебивать туннель.
+    [Fact]
+    public void Resume_without_node_drops_dead_zt_address_but_keeps_storage_for_revert()
+    {
+        var state = ZtState();
+        state.StartedQuickTunnel = true;
+        state.QuickTunnelHost = "new-name.trycloudflare.com";
+
+        new WindowsSystemAccessManager(new Ps(), new Ssh(), _statePath, zt: new FakeZt(_storage, noNode: true))
+            .Resume(state, Spec());
+
+        Assert.False(state.JoinedZt);
+        Assert.Equal("", state.ZtAddress);
+        Assert.Equal(_storage, state.ZtStoragePath);
+        Assert.Equal(AccessMode.Tunnel, AccessReporter.BuildReport(state, "162003", false).AccessMode);
     }
 }

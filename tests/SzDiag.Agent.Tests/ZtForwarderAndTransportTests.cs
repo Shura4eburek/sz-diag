@@ -127,6 +127,44 @@ public class ZtForwarderAndTransportTests
         Assert.True(node.Connects > before, "SignalR обошёл ноду");
     }
 
+    /// <summary>Слушатель, у которого первый Accept падает (скан/оборванное рукопожатие в публичной сети).</summary>
+    private sealed class FlakyListener(TcpZtListener inner) : IZtListener
+    {
+        private int _calls;
+        public Stream Accept() =>
+            Interlocked.Increment(ref _calls) == 1 ? throw new IOException("accept сорвался") : inner.Accept();
+        public void Dispose() => inner.Dispose();
+    }
+
+    // Ревью: один сбой accept не должен оставить сессию без SSH через ZT.
+    [Fact]
+    public async Task Forwarder_survives_a_failed_accept()
+    {
+        var echo = new TcpListener(IPAddress.Loopback, 0);
+        echo.Start();
+        var echoPort = ((IPEndPoint)echo.LocalEndpoint).Port;
+        _ = Task.Run(async () =>
+        {
+            using var c = await echo.AcceptTcpClientAsync();
+            var s = c.GetStream();
+            var buf = new byte[16];
+            var n = await s.ReadAsync(buf);
+            await s.WriteAsync(buf.AsMemory(0, n));
+        });
+
+        var zt = new TcpZtListener(0);
+        using var fwd = new ZtSshForwarder(new FlakyListener(zt), echoPort);
+        using var client = new TcpClient();
+        await client.ConnectAsync(IPAddress.Loopback, zt.Port);
+        var cs = client.GetStream();
+        await cs.WriteAsync(Encoding.ASCII.GetBytes("ok"));
+        var got = new byte[2];
+        var read = 0;
+        while (read < 2) read += await cs.ReadAsync(got.AsMemory(read)).AsTask().WaitAsync(TimeSpan.FromSeconds(5));
+        Assert.Equal("ok", Encoding.ASCII.GetString(got));
+        echo.Stop();
+    }
+
     [Fact]
     public async Task Hostname_instead_of_ip_is_rejected_not_resolved()
     {

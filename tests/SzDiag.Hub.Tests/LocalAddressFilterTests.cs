@@ -12,7 +12,7 @@ namespace SzDiag.Hub.Tests;
 /// сервисная ZT-сеть — без management-API, LAN и loopback — как раньше.</summary>
 public class LocalAddressFilterTests
 {
-    private static readonly HubOptions Opts = new();
+    private static readonly HubOptions Opts = new() { DenySubnets = ["10.199.89.0/24"] };
 
     [Theory]
     [InlineData("10.199.89.217", "/healthz")]
@@ -74,6 +74,7 @@ public class LocalAddressFilterPipelineTests : IDisposable
              .UseSetting("Hub:ManagementToken", "mgmt-token")
              .UseSetting("Hub:SqliteConnectionString", $"Data Source={_dbPath}")
              .UseSetting("Hub:KnowledgeBaseRoot", _kbRoot)
+             .UseSetting("Hub:DenySubnets:0", "10.199.89.0/24")
              .ConfigureServices(s => s.AddSingleton<IStartupFilter, FakeLocalIp>())
              .WithoutSystemLogging());
     }

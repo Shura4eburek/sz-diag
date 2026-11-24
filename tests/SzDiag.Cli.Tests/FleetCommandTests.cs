@@ -188,4 +188,21 @@ public class FleetCommandTests : IDisposable
         Assert.Equal(FleetCommand.Usage, Run(["sign-release", zip, "--secrets", _a, "--version", "v",
             "--build-time", "2026-11-24T10:00:00Z"], out _, out _));
     }
+
+    [Fact]
+    public void Default_secrets_dir_is_repo_root_secrets_not_cwd()
+    {
+        var bin = Path.Combine(_b, "src", "SzDiag.Cli", "bin", "Debug");
+        Directory.CreateDirectory(bin);
+        File.WriteAllText(Path.Combine(_b, "SzDiag.sln"), "");
+        Assert.Equal(Path.Combine(_b, "secrets"), FleetCommand.DefaultSecretsDir(bin));
+    }
+
+    [Fact]
+    public void Default_secrets_dir_without_repo_is_next_to_exe()
+    {
+        var bin = Path.Combine(_b, "dist", "host", "cli");
+        Directory.CreateDirectory(bin);
+        Assert.Equal(Path.Combine(bin, "secrets"), FleetCommand.DefaultSecretsDir(bin));
+    }
 }

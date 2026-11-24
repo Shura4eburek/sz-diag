@@ -128,7 +128,7 @@ public sealed class HubLocator
                     }
                     if (await _ztProbe(hub.ZtNetwork, ep.Url, ct))
                     {
-                        _seen.Remember(SignpostKinds.Hub, hub.Seq);
+                        _seen.Remember(SeenSeqStore.HubKey(hub.HubId), hub.Seq);
                         return new HubLocation(ep.Url, ep.Mode, name, rejected) { ZtNetwork = hub.ZtNetwork };
                     }
                     rejected.Add(new($"{name}/{ep.Mode}", $"{ep.Url} не отвечает через сеть {hub.ZtNetwork}"));
@@ -136,7 +136,7 @@ public sealed class HubLocator
                 }
                 if (await _probe(ep.Url, ct))
                 {
-                    _seen.Remember(SignpostKinds.Hub, hub.Seq);
+                    _seen.Remember(SeenSeqStore.HubKey(hub.HubId), hub.Seq);
                     return new HubLocation(ep.Url, ep.Mode, name, rejected);
                 }
                 rejected.Add(new($"{name}/{ep.Mode}", $"{ep.Url} не отвечает"));
@@ -221,11 +221,11 @@ public sealed class HubLocator
             return false;
         }
 
-        var (recKind, seq) = record switch
+        var (recKind, seq, seqKey) = record switch
         {
-            HubRecord h => (h.Kind, h.Seq),
-            ReleaseRecord r => (r.Kind, r.Seq),
-            _ => ("", 0L),
+            HubRecord h => (h.Kind, h.Seq, SeenSeqStore.HubKey(h.HubId)),
+            ReleaseRecord r => (r.Kind, r.Seq, SignpostKinds.Release),
+            _ => ("", 0L, ""),
         };
         if (recKind != kind)
         {
@@ -233,7 +233,9 @@ public sealed class HubLocator
             record = null;
             return false;
         }
-        var seen = _seen.Get(kind);
+        // seq hub — часы издателя: сравниваем только с тем же HubId, иначе hub после переезда
+        // на машину с отстающими часами выглядел бы как replay.
+        var seen = _seen.Get(seqKey);
         if (seq < seen)
         {
             rejected.Add(new(source, $"запись старее уже принятой (seq {seq} < {seen}) — возможен replay"));

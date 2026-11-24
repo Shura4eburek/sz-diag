@@ -29,10 +29,15 @@ public sealed class ZtSshForwarder : IDisposable
         {
             Stream zt;
             try { zt = _listener.Accept(); }
+            catch (ObjectDisposedException) { return; }
             catch (Exception ex)
             {
-                if (!_stop.IsCancellationRequested) _log?.Invoke($"zt-ssh: accept: {ex.Message}");
-                return;
+                if (_stop.IsCancellationRequested) return;
+                // Сеть публичная: оборванное рукопожатие или скан от постороннего участника — не
+                // повод остаться без SSH на всю сессию. Пауза, чтобы не крутиться вхолостую.
+                _log?.Invoke($"zt-ssh: accept: {ex.Message} — продолжаю");
+                if (_stop.Token.WaitHandle.WaitOne(500)) return;
+                continue;
             }
             _ = Task.Run(() => PumpAsync(zt));
         }
