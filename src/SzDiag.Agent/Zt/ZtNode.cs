@@ -177,6 +177,26 @@ public static class ZtStorage
         return ok;
     }
 
+    /// <summary>Остатки прошлых сессий: storage создаётся при поиске hub, ДО Open и до state.json,
+    /// поэтому крах между ними оставил бы папку, о которой не знает ни один откат. Стираем всё
+    /// под <paramref name="root"/>, кроме своей СЗ и свежих одноразовых папок идущего отката.</summary>
+    public static IReadOnlyList<string> WipeLeftovers(string keepSz, string? root = null, TimeSpan? revertGrace = null)
+    {
+        root ??= Root;
+        var grace = revertGrace ?? TimeSpan.FromMinutes(10);
+        var wiped = new List<string>();
+        if (!Directory.Exists(root)) return wiped;
+        foreach (var dir in Directory.EnumerateDirectories(root))
+        {
+            var name = Path.GetFileName(dir);
+            if (string.Equals(name, keepSz, StringComparison.OrdinalIgnoreCase)) continue;
+            if (name.StartsWith("revert-", StringComparison.OrdinalIgnoreCase)
+                && DateTime.UtcNow - Directory.GetCreationTimeUtc(dir) < grace) continue;
+            if (Wipe(dir)) wiped.Add(name);
+        }
+        return wiped;
+    }
+
     private static void TryRemoveIfEmpty(string? dir)
     {
         try

@@ -14,7 +14,7 @@ public static class AgentCommandWiring
     public static ExecCommandHandler RegisterHandlers(
         IHubLink link, string hostname, PowerShellRunner ps,
         string testSuitePath, Action<string, string?> announce,
-        string? hubUrl = null, string? agentToken = null)
+        string? hubUrl = null, string? agentToken = null, Zt.ZtHubTransport? zt = null)
     {
         // Единая точка резолва каталога тулов (бэклог п.151): TestRunner и push обязаны
         // смотреть в одно и то же место — иначе push кладёт в ProgramData (агент в OneDrive),
@@ -170,7 +170,8 @@ public static class AgentCommandWiring
         // Регистрируем только когда известен адрес hub: без него качать неоткуда.
         if (!string.IsNullOrWhiteSpace(hubUrl))
         {
-            var http = new HttpClient { BaseAddress = new Uri(hubUrl), Timeout = Timeout.InfiniteTimeSpan };
+            var http = zt?.CreateHttpClient(hubUrl) ?? new HttpClient { BaseAddress = new Uri(hubUrl) };
+            http.Timeout = Timeout.InfiniteTimeSpan;
             if (!string.IsNullOrEmpty(agentToken))
                 http.DefaultRequestHeaders.Add(HubRoutes.TokenHeader, agentToken);
             var pushHandler = new PushCommandHandler(http, toolsDir, movedOutOfCloud);

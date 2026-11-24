@@ -29,7 +29,11 @@ public sealed record SourceRejection(string Source, string Reason)
 
 /// <param name="Mode">config / lan-broadcast / lan / tunnel / zt.</param>
 /// <param name="Source">Какой источник дал адрес: config, lan, signpost.</param>
-public sealed record HubLocation(string Url, string Mode, string Source, IReadOnlyList<SourceRejection> Rejected);
+public sealed record HubLocation(string Url, string Mode, string Source, IReadOnlyList<SourceRejection> Rejected)
+{
+    /// <summary>Id сервисной ZT-сети, если hub найден по zt-адресу (через неё и ходить).</summary>
+    public string? ZtNetwork { get; init; }
+}
 
 /// <param name="PackageUrls">Абсолютные адреса пакета, по порядку.</param>
 public sealed record ReleaseLocation(ReleaseRecord Release, string Source, IReadOnlyList<string> PackageUrls,
@@ -48,18 +52,21 @@ public sealed class HubLocator
     private readonly SeenSeqStore _seen;
     private readonly Func<CancellationToken, Task<string?>> _lanDiscovery;
     private readonly Func<string, CancellationToken, Task<bool>> _probe;
+    private readonly Func<string, string, CancellationToken, Task<bool>>? _ztProbe;
 
     /// <param name="lanDiscovery">UDP-broadcast; null — без LAN-поиска.</param>
     /// <param name="probe">Проверка, что hub по адресу жив; по умолчанию GET /healthz.</param>
     public HubLocator(LocatorOptions opts, HttpClient http, SeenSeqStore seen,
         Func<CancellationToken, Task<string?>>? lanDiscovery = null,
-        Func<string, CancellationToken, Task<bool>>? probe = null)
+        Func<string, CancellationToken, Task<bool>>? probe = null,
+        Func<string, string, CancellationToken, Task<bool>>? ztProbe = null)
     {
         _opts = opts;
         _http = http;
         _seen = seen;
         _lanDiscovery = lanDiscovery ?? (_ => Task.FromResult<string?>(null));
         _probe = probe ?? ProbeHealthAsync;
+        _ztProbe = ztProbe;
     }
 
     /// <summary>LAN-поиск поверх <see cref="HubDiscovery"/>: «не нашёл» — null, а не исключение.</summary>
@@ -108,6 +115,23 @@ public sealed class HubLocator
                 if (!_opts.Modes.Contains(ep.Mode))
                 {
                     rejected.Add(new($"{name}/{ep.Mode}", "режим не поддерживается этим процессом"));
+                    continue;
+                }
+                if (ep.Mode == HubEndpointMode.Zt)
+                {
+                    // zt-адрес проверяется только через ноду ZT процесса (агент); обычный сокет ОС
+                    // до сервисной сети не дотянется. Contracts о libzt не знает — нода снаружи.
+                    if (_ztProbe is null || string.IsNullOrWhiteSpace(hub.ZtNetwork))
+                    {
+                        rejected.Add(new($"{name}/{ep.Mode}", _ztProbe is null ? "ZeroTier в этом процессе нет" : "в записи нет id сети"));
+                        continue;
+                    }
+                    if (await _ztProbe(hub.ZtNetwork, ep.Url, ct))
+                    {
+                        _seen.Remember(SignpostKinds.Hub, hub.Seq);
+                        return new HubLocation(ep.Url, ep.Mode, name, rejected) { ZtNetwork = hub.ZtNetwork };
+                    }
+                    rejected.Add(new($"{name}/{ep.Mode}", $"{ep.Url} не отвечает через сеть {hub.ZtNetwork}"));
                     continue;
                 }
                 if (await _probe(ep.Url, ct))
