@@ -133,10 +133,10 @@ if (args.Length >= 2 && args[0] == "--revert")
         try
         {
             using var reportCts = new CancellationTokenSource(TimeSpan.FromSeconds(8));
-            var hubUrl = revertOpts.HubUrl;
-            if (string.IsNullOrWhiteSpace(hubUrl))
-                hubUrl = await HubDiscovery.FindHubAsync(revertOpts.AgentToken,
-                    timeout: TimeSpan.FromSeconds(3), ct: reportCts.Token);
+            // Тот же резолвер, что при старте (specs/002): hub мог переехать на другую машину.
+            var hubUrl = (await AgentHubFinder.FindAsync(revertOpts, TimeSpan.FromSeconds(3), reportCts.Token,
+                m => revertLog.Write(m)))?.Url
+                ?? throw new HubNotFoundException("hub не найден ни в сети, ни через указатель");
 
             using var reportHttp = new HttpClient { BaseAddress = new Uri(hubUrl) };
             if (!string.IsNullOrEmpty(revertOpts.AgentToken))
@@ -225,13 +225,16 @@ if (args.Length >= 2 && args[0] == "--resume")
     var rFoundByBroadcast = string.IsNullOrWhiteSpace(rHubUrl);
     if (string.IsNullOrWhiteSpace(rHubUrl))
     {
-        try { rHubUrl = await HubDiscovery.FindHubAsync(rOpts.AgentToken); }
-        catch (HubNotFoundException ex)
+        var rLoc = await AgentHubFinder.FindAsync(rOpts, null, CancellationToken.None,
+            m => { logFile.WriteLine($"[resume] {m}"); logFile.Flush(); });
+        if (rLoc is null)
         {
-            logFile.WriteLine($"[resume] hub не найден: {ex.Message}");
+            logFile.WriteLine("[resume] hub не найден ни в сети, ни через указатель");
             logFile.Flush();
             return 1; // автостарт повторит при следующем ребуте
         }
+        rHubUrl = rLoc.Url;
+        rFoundByBroadcast = AgentHubFinder.IsDirect(rLoc);
     }
 
     var rLink = new SignalRHubLink(rHubUrl, rOpts.AgentToken,
@@ -548,16 +551,18 @@ var foundHubByBroadcast = string.IsNullOrWhiteSpace(hubUrl);
 if (string.IsNullOrWhiteSpace(hubUrl))
 {
     Announce("Ищу hub в сети…", "[grey]Ищу hub в сети…[/]");
-    try
+    var found = await AgentHubFinder.FindAsync(opts, null, CancellationToken.None,
+        m => Announce(m, $"[grey]{Markup.Escape(m)}[/]"));
+    if (found is null)
     {
-        hubUrl = await HubDiscovery.FindHubAsync(opts.AgentToken);
-        Announce($"Hub найден: {hubUrl}", $"Hub найден: [green]{hubUrl}[/]");
-    }
-    catch (HubNotFoundException ex)
-    {
-        Announce(ex.Message, $"[red]{Markup.Escape(ex.Message)}[/]");
+        const string notFound = "Hub не найден ни в сети, ни через указатель.";
+        Announce(notFound, $"[red]{notFound}[/]");
         return 1;
     }
+    hubUrl = found.Url;
+    // Адрес из указателя в режиме lan — та же прямая связь, что и broadcast; tunnel — нет.
+    foundHubByBroadcast = AgentHubFinder.IsDirect(found);
+    Announce($"Hub найден: {hubUrl} ({found.Source})", $"Hub найден: [green]{Markup.Escape(hubUrl)}[/] [grey]({found.Source})[/]");
 }
 
 var link = new SignalRHubLink(hubUrl, opts.AgentToken,

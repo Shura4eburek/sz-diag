@@ -5,6 +5,18 @@ public sealed class HubOptions
     /// <summary>Pre-shared токен, который агент шлёт в заголовке при коннекте.</summary>
     public string AgentToken { get; set; } = "";
 
+    /// <summary>Токены агентов других hub (MacBook, рабочий ноут…): апдейтер и агент, собранные
+    /// на соседнем хосте, принимаются и здесь — без пересборки апдейтера под каждый hub.</summary>
+    public string[] ExtraAgentTokens { get; set; } = [];
+
+    /// <summary>Свой или один из соседских токенов. Пустой не принимается никогда.</summary>
+    public bool IsAgentToken(string? provided)
+    {
+        if (string.IsNullOrEmpty(provided)) return false;
+        if (!string.IsNullOrEmpty(AgentToken) && provided == AgentToken) return true;
+        return ExtraAgentTokens.Any(t => !string.IsNullOrEmpty(t) && t == provided);
+    }
+
     /// <summary>Токен для management-API (CLI). Заголовок X-SzDiag-Mgmt-Token.</summary>
     public string ManagementToken { get; set; } = "";
 
@@ -59,6 +71,9 @@ public sealed class HubOptions
     /// <summary>Публикация hub наружу именованным Cloudflare Tunnel.</summary>
     public HubTunnelOptions Tunnel { get; set; } = new();
 
+    /// <summary>Публикация «где сейчас hub» в подписанном указателе (specs/002).</summary>
+    public HubSignpostOptions Signpost { get; set; } = new();
+
     /// <summary>Порог числа потоков процесса, после которого <see cref="ThreadPoolWatchdog"/>
     /// пишет «THREAD POOL STARVATION» в лог. На живой заявке (СЗ 160306, бэклог п.50) здоровый
     /// hub сразу после рестарта держал 26 потоков, залипший — 3674. 0 — сторож выключен.</summary>
@@ -100,6 +115,37 @@ public sealed class KbBackupOptions
 
     /// <summary>Потолок на каждый вызов git: виснет сеть — процесс убивается.</summary>
     public TimeSpan CommandTimeout { get; set; } = TimeSpan.FromMinutes(2);
+}
+
+public sealed class HubSignpostOptions
+{
+    /// <summary>Рубильник. Выключен или пустой <see cref="Url"/> — hub в указатель не пишет.</summary>
+    public bool Enabled { get; set; }
+
+    /// <summary>База своего сервиса указателя (Railway оператора).</summary>
+    public string Url { get; set; } = "";
+
+    /// <summary>Период продления аренды. Аренда в указателе живёт 90 с — три пропуска.</summary>
+    public TimeSpan PublishInterval { get; set; } = TimeSpan.FromSeconds(30);
+
+    /// <summary>Имя для людей («ПК», «ноут»). Пусто — имя машины.</summary>
+    public string HubName { get; set; } = "";
+
+    /// <summary>Перехватить живую аренду другого hub (`start-hub.cmd --takeover`).</summary>
+    public bool Takeover { get; set; }
+
+    /// <summary>Приватный ключ подписи флота (secrets\fleet-sign.key).</summary>
+    public string SignKeyPath { get; set; } = "";
+
+    /// <summary>Адреса hub сверх LAN, заданные руками. build-dist сюда ничего не пишет: домены
+    /// в публичный указатель не попадают.</summary>
+    public List<HubSignpostEndpoint> ExtraEndpoints { get; set; } = [];
+}
+
+public sealed class HubSignpostEndpoint
+{
+    public string Mode { get; set; } = "";
+    public string Url { get; set; } = "";
 }
 
 public sealed class HubTunnelOptions

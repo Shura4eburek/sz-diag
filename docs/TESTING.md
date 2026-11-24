@@ -15,8 +15,19 @@ cd sz-diag
 # ИЛИ клиент — отдельная ВМ: укажи LAN-IP хоста
 .\tools\build-dist.ps1 -HubIp <HUB_LAN_IP>
 ```
-Скрипт публикует exe, генерит SSH-ключ (`secrets\svc_diag_key`), пишет конфиги и
-лаунчеры. Результат:
+Скрипт публикует exe, пишет конфиги и лаунчеры. SSH-ключ (`secrets\svc_diag_key`) и токены
+он **не генерирует** — это секреты флота, одни на все машины-hub:
+
+```powershell
+railway login; railway link            # свой проект Railway с сервисом szdiag-signpost
+.\tools\fleet.ps1 init                 # ОДИН раз, на машине с текущими секретами (обычно ПК)
+.\tools\fleet.ps1 pull                 # на остальных (build-dist сделает сам, если secrets\fleet.json нет)
+```
+Спросит пароль флота (≥ 12 символов, хранится только у оператора). Коды `fleet.ps1`:
+2 флот уже создан · 3 нет railway-логина/линка или бандла · 4 неверный пароль · 5 бандл испорчен.
+build-dist без секретов флота выходит с кодом 6, с приватным ключом в клиентском dist — с 7.
+
+Результат:
 - `dist\host\`  — `start-hub.cmd`, `szcli.cmd`, `hub\` (+ `hub\agent-dist\` — пакет для
   апдейтера), `cli\`
 - `dist\client\` — `SzDiag.Updater.exe` (точка входа) + `SzDiag.Agent.exe` +

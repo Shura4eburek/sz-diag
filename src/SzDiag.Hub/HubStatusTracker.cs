@@ -10,6 +10,8 @@ public sealed class HubStatusTracker(TimeProvider time)
     private readonly object _gate = new();
     private KbBackupStatus _kb = new(false, null, null, null);
     private TunnelStatus _tunnel = new(TunnelStates.Off, null);
+    private SzDiag.Contracts.Signpost.SignpostStatus _signpost =
+        new(SzDiag.Contracts.Signpost.SignpostStates.Off, null, null, null);
 
     public void KbBackupEnabled(bool enabled)
     {
@@ -32,8 +34,18 @@ public sealed class HubStatusTracker(TimeProvider time)
         lock (_gate) _tunnel = new TunnelStatus(state, time.GetUtcNow());
     }
 
+    public void Signpost(SzDiag.Contracts.Signpost.SignpostStatus status)
+    {
+        lock (_gate) _signpost = status;
+    }
+
+    public SzDiag.Contracts.Signpost.SignpostStatus SignpostSnapshot()
+    {
+        lock (_gate) return _signpost;
+    }
+
     public HubStatus Snapshot(string? agentPackageVersion)
     {
-        lock (_gate) return new HubStatus(agentPackageVersion, _kb, _tunnel);
+        lock (_gate) return new HubStatus(agentPackageVersion, _kb, _tunnel, _signpost);
     }
 }

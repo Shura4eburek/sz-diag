@@ -4,7 +4,9 @@ namespace SzDiag.Contracts;
 /// агента раздаёт hub, когда последний раз ушёл бэкап kb, жив ли туннель (спека 2026-09-25).
 /// Раньше всё это видно было только в консоли hub.</summary>
 /// <param name="AgentPackageVersion">Содержимое agent-dist/version.txt; null — пакета нет.</param>
-public sealed record HubStatus(string? AgentPackageVersion, KbBackupStatus KbBackup, TunnelStatus Tunnel);
+/// <param name="Signpost">Публикация в указателе (specs/002); null — старый hub без указателя.</param>
+public sealed record HubStatus(string? AgentPackageVersion, KbBackupStatus KbBackup, TunnelStatus Tunnel,
+    SzDiag.Contracts.Signpost.SignpostStatus? Signpost = null);
 
 /// <param name="Outcome">Имя исхода последнего прогона (`NoChanges`, `Pushed`, `CommittedNotPushed`,
 /// `Failed`) строкой — Contracts не ссылается на SzDiag.Kb; null — прогона ещё не было.</param>

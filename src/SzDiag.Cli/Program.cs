@@ -49,6 +49,10 @@ if (!CliCommands.IsKnown(command))
     return 2;
 }
 
+// Ключи флота — локальная команда, hub ей не нужен (зовётся из tools\fleet.ps1).
+if (command == "fleet")
+    return FleetCommand.Run(args[1..]);
+
 // Номер СЗ проверяем один раз на входе: команды, которые его принимают, перечислены явно.
 // Мусорный ввод раньше молча уезжал в hub и в базу знаний (бэклог п.57).
 var szArgIndex = command switch
@@ -1173,6 +1177,7 @@ static void PrintUsage()
               [yellow]szcli maintenance[/] [blue]<СЗ>[/] [grey]"причина" [[--from 18:30]] [[--until 19:15]] | --list[/]
                 [grey]метка «работали руками»: события питания в окне — не вырубон[/]
               [yellow]szcli kb[/] …               работа с базой знаний ([grey]record/summary/search/rm[/])
+              [yellow]szcli fleet[/] …            ключи флота ([grey]keygen/encrypt/decrypt[/], обычно через tools\fleet.ps1)
               [yellow]szcli hw[/] …               видяха по PCI hardware id
             [grey]Номер СЗ — 6 цифр.[/]
             """);

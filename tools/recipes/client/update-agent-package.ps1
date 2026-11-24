@@ -57,4 +57,8 @@ Remove-Item $zip -Force
 schtasks /run /tn "szdiag-autostart-$Sz" | Out-Null
 Start-Sleep -Seconds 12
 $p = Get-Process SzDiag.Agent -ErrorAction SilentlyContinue
-if ($p) { 'агент поднят: pid {0}, старт {1:HH:mm:ss}' -f $p.Id, $p.StartTime } else { 'АГЕНТ НЕ ПОДНЯЛСЯ — смотри logs\agent.log и задачу szdiag-autostart-' + $Sz }
+if ($p) {
+    'агент поднят: pid {0}, старт {1:HH:mm:ss}' -f $p.Id, $p.StartTime
+} else {
+    "АГЕНТ НЕ ПОДНЯЛСЯ — смотри logs\agent.log и задачу szdiag-autostart-$Sz"
+}

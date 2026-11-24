@@ -290,6 +290,22 @@ staging) → `AgentLauncher.LaunchAndWait` (запуск `agent.exe` в насл
   `Registry.TryGetConnectionId(sz)`, зовут `IAgentCommandSender`; `false` при неизвестном connId.
 - **Аутентификация**: `AgentToken` (`X-SzDiag-Token`, middleware на `/agents` + discovery),
   `ManagementToken` (`X-SzDiag-Mgmt-Token`, фильтр на `/api`). Оба из секции `Hub` конфига.
+  `Hub.ExtraAgentTokens` — токены соседних hub (несколько хостов): везде, где проверяется
+  `AgentToken` (`/agents`, `/agent/*`, `/tools`, revert-status, discovery), принимается и любой из
+  них (`HubOptions.IsAgentToken`). build-dist берёт их из `secrets\agent-tokens.txt` и переносит из
+  прежнего конфига; с переходом на флот это **переходный** список для уже разданных апдейтеров
+  (прежний токен машины build-dist добавляет туда сам).
+- **Секреты флота** (specs/002-domain-independent-access): один набор на все машины-hub —
+  `AgentToken`, `ManagementToken`, ssh-ключ `svc_diag_key`, ключ подписи `fleet-sign.key/.pub`
+  (ECDSA P-256), позже токен ZT API. Лежат в `secrets\` (`fleet.json` + ключи, `FleetSecretsStore`),
+  в Railway — только шифротекстом паролем флота (`FleetBundle`: AES-256-GCM, PBKDF2-SHA256 600k)
+  в переменной `SZDIAG_FLEET_BUNDLE` сервиса `szdiag-signpost` (свой Railway оператора); публичный
+  ключ — `SZDIAG_SIGN_PUBKEY`. `tools\fleet.ps1 init` (один раз, на машине с текущими секретами:
+  берёт её прежние ssh-ключ и `AgentToken`) / `pull` (на остальных; build-dist зовёт сам).
+  build-dist **больше не генерирует** ключи и `dev-token`: нет секретов флота → exit 6; приватная
+  часть в клиентском dist/пакете → exit 7. `-Token` игнорируется. Клиенту уезжают только
+  `fleet-sign.pub` и `SignPublicKey` в `appsettings.json`. CLI: `szcli fleet keygen|encrypt|decrypt`
+  (коды 0 · 1 · 2 уже есть · 4 неверный пароль · 5 бандл испорчен).
 - **`HubTunnelService`** (`BackgroundService`) — именованный Cloudflare Tunnel, публикующий
   hub наружу (`hub.<домен>`). Поднимает `cloudflared` дочерним процессом на старте, снимает
   при остановке, перезапускает через `RestartDelay`, если тот упал сам. Секция
