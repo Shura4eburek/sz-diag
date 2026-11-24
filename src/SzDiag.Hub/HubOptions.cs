@@ -140,6 +140,19 @@ public sealed class HubZeroTierOptions
 
     /// <summary>Член сети без активной СЗ старше этого срока удаляется сторожем.</summary>
     public TimeSpan SweepAfter { get; set; } = TimeSpan.FromMinutes(10);
+
+    /// <summary>Прокси своего контроллера (сервис szdiag-zt-controller) — из флота.</summary>
+    public string ControllerUrl { get; set; } = "";
+
+    /// <summary>Bearer прокси. Только hub: агенту не уходит никогда (FR-023).</summary>
+    public string ControllerToken { get; set; } = "";
+
+    /// <summary>Адреса hub-машин в сети — их узлы сторож не трогает.</summary>
+    public string[] HubAddresses { get; set; } = ["10.88.0.1", "10.88.0.2"];
+
+    public bool ControllerConfigured =>
+        Enabled && !string.IsNullOrWhiteSpace(ControllerUrl) && !string.IsNullOrWhiteSpace(ControllerToken)
+        && Network.Length == 16;
 }
 
 public sealed class HubSignpostOptions

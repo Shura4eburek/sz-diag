@@ -499,7 +499,9 @@ $hubCfg = @"
       "Enabled": $ztEnabled,
       "Network": "$ztNetwork",
       "Subnet": "10.88.0.0/24",
-      "SweepAfter": "00:10:00"
+      "SweepAfter": "00:10:00",
+      "ControllerUrl": "$([string]$fleet.ztControllerUrl)",
+      "ControllerToken": "$([string]$fleet.ztControllerToken)"
     }
   }
 }

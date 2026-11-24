@@ -201,6 +201,42 @@ public class SessionCloserTests
         Assert.Null(outcome.Revert); // старая сводка не должна выдаваться за итог текущего отката
     }
 
+    // T047: узел клиента уходит из сервисной ZT-сети при закрытии — после отката, а не до.
+    [Fact]
+    public async Task Close_RemovesZtNodeOfSession_AfterRevertSent()
+    {
+        var reg = new SessionRegistry();
+        reg.Register("162003", "10.88.0.95", "PC", "conn-z");
+        reg.SetAccess("162003", "10.88.0.95", AccessMode.Zt, null, "ae264cb785");
+        var ctl = new ZtMemberSweeperTests.FakeController();
+        ctl.Members["ae264cb785"] = new ZtMember("ae264cb785", "", null, ["10.88.0.95"]);
+        var sender = new SpyCommandSender();
+        var deletedBeforeRevert = false;
+        sender.OnSendRevert = () => deletedBeforeRevert = ctl.Deleted.Count > 0;
+        var closer = new SessionCloser(reg, new SpyStore(), sender, new RevertResultStore(),
+            TimeSpan.FromMilliseconds(50), ctl, ZtMemberSweeperTests.Opts());
+
+        await closer.CloseAsync("162003");
+
+        Assert.Equal(["ae264cb785"], ctl.Deleted);
+        Assert.False(deletedBeforeRevert);
+    }
+
+    [Fact]
+    public async Task Close_WithoutConfiguredController_DoesNotTouchZt()
+    {
+        var reg = new SessionRegistry();
+        reg.Register("162004", "10.88.0.96", "PC", "conn-y");
+        reg.SetAccess("162004", "10.88.0.96", AccessMode.Zt, null, "1234567890");
+        var ctl = new ZtMemberSweeperTests.FakeController();
+        var closer = new SessionCloser(reg, new SpyStore(), new SpyCommandSender(), new RevertResultStore(),
+            TimeSpan.FromMilliseconds(50), ctl, Microsoft.Extensions.Options.Options.Create(new HubOptions()));
+
+        await closer.CloseAsync("162004");
+
+        Assert.Empty(ctl.Deleted);
+    }
+
     private sealed class FakeTimeProvider : TimeProvider
     {
         private DateTimeOffset _now;

@@ -72,6 +72,9 @@ builder.Services.AddSingleton<IKbBackup>(sp =>
 builder.Services.AddSingleton(new HubStatusTracker(TimeProvider.System));
 builder.Services.AddHostedService<KbBackupService>();
 builder.Services.AddHostedService<OfflineSweeper>();
+// Сервисная ZT-сеть (US3): прокси своего контроллера и сторож членов сети.
+builder.Services.AddSingleton<IZtControllerClient, ZtControllerClient>();
+builder.Services.AddHostedService<ZtMemberSweeper>();
 builder.Services.AddHostedService<ThreadPoolWatchdog>();
 // Туннель наружу живёт ровно столько, сколько hub: поднятый hub без туннеля недоступен
 // снаружи, туннель без hub отдаёт 502.

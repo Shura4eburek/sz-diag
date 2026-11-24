@@ -19,14 +19,34 @@ public sealed class SessionCloser
     /// вернуть close без него (агент обычно откатывается за секунды — в основном Remove-*
     /// вызовы). По офлайн-СЗ не ждём вовсе: агент уже не ответит, а закрытие мёртвой сессии
     /// не должно висеть впустую.</param>
+    private readonly IZtControllerClient? _zt;
+    private readonly bool _ztEnabled;
+
     public SessionCloser(SessionRegistry registry, ISessionStore store, IAgentCommandSender sender,
-        RevertResultStore revertResults, TimeSpan? revertWait = null)
+        RevertResultStore revertResults, TimeSpan? revertWait = null,
+        IZtControllerClient? zt = null, Microsoft.Extensions.Options.IOptions<HubOptions>? options = null)
     {
         _registry = registry;
         _store = store;
         _sender = sender;
         _revertResults = revertResults;
         _revertWait = revertWait ?? TimeSpan.FromSeconds(4);
+        _zt = zt;
+        _ztEnabled = options?.Value.ZeroTier.ControllerConfigured ?? zt is not null;
+    }
+
+    /// <summary>Узел СЗ — из сервисной сети (T047): у клиента токена контроллера нет, headless-
+    /// откат удалить себя не может. После отката: через этот узел ещё шёл отчёт агента. Неудача
+    /// не мешает закрытию — узел доберёт сторож.</summary>
+    private async Task RemoveZtNodeAsync(string? nodeId)
+    {
+        if (_zt is null || !_ztEnabled || string.IsNullOrWhiteSpace(nodeId)) return;
+        try
+        {
+            using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+            await _zt.DeleteMemberAsync(nodeId, cts.Token);
+        }
+        catch { /* доберёт ZtMemberSweeper */ }
     }
 
     public async Task<CloseOutcome> CloseAsync(string sz, CancellationToken ct = default)
@@ -66,8 +86,10 @@ public sealed class SessionCloser
         }
 
         await _store.RecordCloseAsync(sz, DateTimeOffset.UtcNow, ct);
+        var ztNode = _registry.TryGetInfo(sz)?.ZtNodeId ?? info?.ZtNodeId;
         _registry.Remove(sz);
         _revertResults.Remove(sz);
+        await RemoveZtNodeAsync(ztNode);
         return new CloseOutcome(true, revert);
     }
 }
