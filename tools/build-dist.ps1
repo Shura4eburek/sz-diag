@@ -302,13 +302,8 @@ if (Test-Path dist\client\SzDiag.Agent.exe) {
     Copy-Item "$sshCache\*.dll" dist\client\ssh\ -Force -ErrorAction SilentlyContinue
 }
 
-# Апдейтер кладём рядом с агентом в dist\client (та же папка, БЕЗ сноса — агент уже там,
-# а функция Publish меняет папку целиком через staging и снесла бы его). Прямой publish -o.
-if (Test-Path dist\client\SzDiag.Agent.exe) {
-    Write-Host "-- публикую SzDiag.Updater -> dist\client"
-    dotnet publish src/SzDiag.Updater @common -o dist\client | Out-Null
-    if ($LASTEXITCODE -ne 0) { throw "dotnet publish SzDiag.Updater упал (код $LASTEXITCODE)." }
-}
+# Апдейтер публикуется НИЖЕ, после записи dist\client\appsettings.json: конфиг клиента вшивается в exe,
+# чтобы на клиент хватало одного файла.
 
 # --- Версия и пакет для апдейтера ---
 # Версия = git short sha (+ -dirty, если есть незакоммиченные правки); вне git — timestamp.
@@ -647,6 +642,23 @@ $agentCfg = @"
 "@
 if ((Test-Path dist\client) -and (Should-WriteConfig "dist/client")) {
     Set-Content -Path dist\client\appsettings.json -Value $agentCfg -Encoding utf8
+}
+
+# Апдейтер — рядом с агентом в dist\client (та же папка, БЕЗ сноса — агент уже там, а функция Publish
+# меняет папку целиком через staging и снесла бы его). Прямой publish -o. Конфиг клиента вшивается в
+# exe ресурсом: на клиент приносится ОДИН SzDiag.Updater.exe, appsettings.json он кладёт агенту сам.
+# Файл-источник живёт только на время publish (в .gitignore — внутри токен агента).
+if (Test-Path dist\client\SzDiag.Agent.exe) {
+    $embeddedCfg = Join-Path $root 'src\SzDiag.Updater\embedded-client.json'
+    $cfgForExe = if (Test-Path dist\client\appsettings.json) { Get-Content dist\client\appsettings.json -Raw -Encoding UTF8 } else { $agentCfg }
+    [System.IO.File]::WriteAllText($embeddedCfg, $cfgForExe, (New-Object System.Text.UTF8Encoding($false)))
+    try {
+        Write-Host "-- публикую SzDiag.Updater -> dist\client (конфиг клиента вшит в exe)"
+        dotnet publish src/SzDiag.Updater @common -o dist\client | Out-Null
+        if ($LASTEXITCODE -ne 0) { throw "dotnet publish SzDiag.Updater упал (код $LASTEXITCODE)." }
+    } finally {
+        Remove-Item $embeddedCfg -Force -ErrorAction SilentlyContinue
+    }
 }
 
 # 4. Удобные лаунчеры на хосте (single-quoted here-string — литералы)

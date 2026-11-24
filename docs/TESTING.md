@@ -76,7 +76,7 @@ cd <путь>\dist\client
 `SzDiag.Updater.exe` — точка входа: находит hub, сверяет `version.txt`, при
 расхождении качает свежий пакет агента (`agent.exe` + ssh + ключ + testsuite, без
 `appsettings.json`/`tools`) и запускает `SzDiag.Agent.exe`. Первый заезд: на клиент
-достаточно закинуть `SzDiag.Updater.exe` + `appsettings.json` (с токеном) — остальное
+достаточно закинуть один `SzDiag.Updater.exe` (конфиг с токеном вшит в exe) — остальное
 подтянется само. Прямой запуск `SzDiag.Agent.exe` тоже работает (без самообновления).
 
 > **Куда класть на клиенте: `C:\szdiag`, НЕ на рабочий стол.** Рабочий стол в Windows 11
@@ -280,7 +280,7 @@ Test-Path C:\ProgramData\szdiag\ssh                # False (host-ключи сн
 Точка входа на клиенте — `SzDiag.Updater.exe` (не агент напрямую). Проверять после
 `build-dist.ps1` (он кладёт пакет в `dist\host\hub\agent-dist\`) при живом hub:
 
-1. **Первый заезд**: в чистую папку — только `SzDiag.Updater.exe` + `appsettings.json`
+1. **Первый заезд**: в чистую папку — только `SzDiag.Updater.exe` (appsettings.json он положит сам)
    (с `AgentToken`, опц. `HubUrl`). Запуск от админа → `Hub: … → Обновление: (нет) ->
    <version> → Пакет применён` → появляются `SzDiag.Agent.exe`, `ssh\`, `service_key.pub`,
    `testsuite.json`, `version.txt` → запускается агент (спрашивает СЗ).

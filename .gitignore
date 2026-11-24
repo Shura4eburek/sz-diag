@@ -57,3 +57,6 @@ tools/lhmmon/publish/
 
 # visual companion (brainstorming)
 .superpowers/
+
+# Конфиг клиента, вшиваемый build-dist в апдейтер (токен агента) — только на время publish
+src/SzDiag.Updater/embedded-client.json

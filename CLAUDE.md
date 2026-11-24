@@ -239,7 +239,7 @@ IP и пинг hub; ручной повтор — команда `net-up`. Но�
 находит hub, сверяет `version.txt`, при расхождении качает свежий пакет агента с hub
 (`/agent/version|package|package.sha256`, из `dist\host\hub\agent-dist\`, кладёт build-dist)
 и запускает `agent.exe`. Убирает ручной цикл раздачи через share — на клиент достаточно
-один раз положить `SzDiag.Updater.exe` + `appsettings.json`. Спека/план —
+один раз положить **один** `SzDiag.Updater.exe` (конфиг клиента build-dist вшивает в exe, агенту `appsettings.json` апдейтер раскладывает сам). Спека/план —
 [docs/superpowers/specs/2026-07-21-agent-updater-design.md](docs/superpowers/specs/2026-07-21-agent-updater-design.md).
 Ручной e2e-прогон и траблшутинг — в [docs/TESTING.md](docs/TESTING.md), включая раздел
 про headless-управление по SSH (GUI-тулзы без десктопа падают/висят — обход через

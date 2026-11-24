@@ -48,11 +48,11 @@ async Task<int> RunAsync()
             return 4;
         }
 
-        var config = new ConfigurationBuilder()
-            .SetBasePath(baseDir)
-            .AddJsonFile("appsettings.json", optional: true)
-            .AddEnvironmentVariables("SZUPDATER_")
-            .Build();
+        // Один exe на клиента: конфиг вшит при сборке; агенту кладём appsettings.json рядом.
+        var embedded = EmbeddedConfig.Read();
+        var unpacked = EmbeddedConfig.WriteIfMissing(baseDir, embedded);
+        if (unpacked is not null) Console.WriteLine(unpacked);
+        var config = EmbeddedConfig.Build(baseDir, embedded);
         var opts = new UpdaterOptions();
         config.Bind(opts);
 
