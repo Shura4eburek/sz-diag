@@ -1,4 +1,4 @@
-# Образ указателя собирается из src/SzDiag.Contracts и src/SzDiag.Signpost (см. Dockerfile).
+# Образы собираются из src/: указатель — Contracts + Signpost, контроллер — ZtController (см. их Dockerfile).
 # Явный список, а не «** + исключения»: railway up применяет этот файл по правилам gitignore,
 # где `**` отрезает и папки, и повторно включить файлы внутри них уже нельзя — загрузка
 # уезжала пустой («Railpack could not determine how to build the app», 2026-11-24).
