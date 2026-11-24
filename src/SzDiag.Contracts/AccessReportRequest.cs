@@ -12,5 +12,7 @@ namespace SzDiag.Contracts;
 /// <param name="SshHostKeyFingerprint">Публичный host-ключ нашего portable sshd. Якорь
 /// доверия — этот канал (аутентифицирован, по TLS); по нему хост пинит ключ и перестаёт
 /// ходить со StrictHostKeyChecking=no.</param>
+/// <param name="ZtNodeId">Узел клиента в сервисной ZT-сети: hub удаляет его из сети при закрытии
+/// СЗ (у клиента токена контроллера нет). Необязательное поле — старые агенты его не шлют.</param>
 public sealed record AccessReportRequest(string Sz, string? AccessHost = null,
-    string? AccessMode = null, string? SshHostKeyFingerprint = null);
+    string? AccessMode = null, string? SshHostKeyFingerprint = null, string? ZtNodeId = null);

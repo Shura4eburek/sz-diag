@@ -104,6 +104,33 @@ public class ManagementApiTests : IClassFixture<WebApplicationFactory<Program>>,
         Assert.Equal("", target.Ssh);
     }
 
+    [Fact]
+    public async Task Target_ZtРежим_АдресуетПоАдресуВСервиснойСети()
+    {
+        _factory.Services.GetRequiredService<SessionRegistry>()
+            .Register("156902", "192.168.5.20", "PC-12", "conn-12",
+                accessHost: "10.88.0.95", accessMode: AccessMode.Zt);
+
+        var target = await Client().GetFromJsonAsync<TargetInfo>("/api/sessions/156902/target");
+
+        Assert.Equal("ssh svc-diag@10.88.0.95", target!.Ssh);
+        Assert.Equal(AccessMode.Zt, target.AccessMode);
+        Assert.Null(target.Unavailable);
+    }
+
+    [Fact]
+    public async Task Target_ZtБезАдреса_НазываетПричину()
+    {
+        _factory.Services.GetRequiredService<SessionRegistry>()
+            .Register("156903", "192.168.5.21", "PC-13", "conn-13",
+                accessHost: null, accessMode: AccessMode.Zt);
+
+        var target = await Client().GetFromJsonAsync<TargetInfo>("/api/sessions/156903/target");
+
+        Assert.Contains("ZT", target!.Unavailable);
+        Assert.Equal("", target.Ssh);
+    }
+
     // review W2 I-9: "СЗ не найдена" и "hub не знает такого маршрута" раньше давали один и
     // тот же 404 — CLI против старого hub рапортовал "СЗ не найдена" вместо "hub старее CLI".
     // Эндпоинт обязан отдавать 200 с Sent=false для отсутствующей сессии — 404 остаётся ТОЛЬКО

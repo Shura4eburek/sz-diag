@@ -581,7 +581,8 @@ switch (command)
         // а рабочую команду раньше собирали тремя попытками и поиском по диску (п.118).
         var key = TargetSsh.FindKey(options.SshKeyPath, AppContext.BaseDirectory);
         var viaTunnel = t.AccessMode == AccessMode.Tunnel;
-        var targetHost = viaTunnel ? t.AccessHost! : t.Ip;
+        // ZT (US3): прямой ssh на адрес клиента в сервисной сети — бокс в ней через ZeroTier One.
+        var targetHost = viaTunnel || t.AccessMode == AccessMode.Zt ? t.AccessHost! : t.Ip;
         AnsiConsole.WriteLine(TargetSsh.BuildSshLine(t.User, targetHost, key, viaTunnel,
             t.KnownHostsPath));
         if (key is null)

@@ -18,12 +18,25 @@ public static class AccessReporter
         var туннельЖив = state.StartedQuickTunnel
                          && !string.IsNullOrWhiteSpace(state.QuickTunnelHost);
 
+        var ztНода = state.JoinedZt ? NullIfBlank(state.ZtNodeId) : null;
+
+        // Та же сеть, что у бокса, — прямой SSH быстрее всего остального.
+        if (foundHubByBroadcast)
+            return new AccessReportRequest(sz, null, AccessMode.Direct, state.SshHostPublicKey, ztНода);
+
+        // ZT раньше туннеля: P2P без Cloudflare и без внешнего процесса (US3). Только когда адрес
+        // реально есть — иначе target напечатал бы строку в никуда.
+        if (state.JoinedZt && !string.IsNullOrWhiteSpace(state.ZtAddress))
+            return new AccessReportRequest(sz, state.ZtAddress, AccessMode.Zt, state.SshHostPublicKey, ztНода);
+
         // Туннельным режим называем, только когда имя реально есть: иначе target напечатает
         // ProxyCommand в никуда вместо честного «SSH недоступен».
-        if (foundHubByBroadcast || !туннельЖив)
+        if (!туннельЖив)
             return new AccessReportRequest(sz, null, AccessMode.Direct, state.SshHostPublicKey);
 
         return new AccessReportRequest(sz, state.QuickTunnelHost, AccessMode.Tunnel,
             state.SshHostPublicKey);
     }
+
+    private static string? NullIfBlank(string? s) => string.IsNullOrWhiteSpace(s) ? null : s;
 }
