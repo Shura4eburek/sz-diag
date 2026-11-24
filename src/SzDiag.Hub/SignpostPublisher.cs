@@ -94,7 +94,7 @@ public sealed class SignpostPublisher : BackgroundService
         var endpoints = _endpoints();
         var now = _time.GetUtcNow();
         _lastSeq = Math.Max(now.ToUnixTimeMilliseconds(), _lastSeq + 1);
-        var record = new HubRecord(_hubId, HubName, endpoints, null, _lastSeq, now, _takeover);
+        var record = new HubRecord(_hubId, HubName, endpoints, ZtNetworkFor(_hub, endpoints), _lastSeq, now, _takeover);
         var env = _signer.SignRecord(record);
 
         HttpResponseMessage resp;
@@ -193,12 +193,40 @@ public sealed class SignpostPublisher : BackgroundService
     private static readonly string[] VirtualAdapterHints =
         ["zerotier", "radmin", "vpn", "tap-", "pritunl", "wireguard", "hyper-v", "vmware", "virtualbox", "tailscale", "bluetooth"];
 
-    /// <summary>LAN-адреса hub (частные IPv4 на физических адаптерах со шлюзом) + доп. адреса из конфига.</summary>
+    /// <summary>Адрес hub в сервисной ZT-сети (US3): первым в списке — клиент вне LAN ходит именно
+    /// так. Только при включённом ZeroTier с заданной сетью и только если у машины реально есть
+    /// адрес в <see cref="HubZeroTierOptions.Subnet"/> (ноут без ZT One — без zt-адреса).</summary>
+    public static IReadOnlyList<HubEndpoint> ZtEndpoints(HubOptions hub, IEnumerable<IPAddress> localAddresses)
+    {
+        var zt = hub.ZeroTier;
+        if (!zt.Enabled || !IsNetworkId(zt.Network) || !IPNetwork.TryParse(zt.Subnet.Trim(), out var subnet))
+            return [];
+        return localAddresses
+            .Where(a => a.AddressFamily == AddressFamily.InterNetwork && subnet.Contains(a))
+            .Select(a => new HubEndpoint(HubEndpointMode.Zt, $"http://{a}:{hub.Port}"))
+            .ToList();
+    }
+
+    /// <summary>ID сети в записи — только вместе с zt-адресом hub: без адреса клиенту в сети делать нечего.</summary>
+    public static string? ZtNetworkFor(HubOptions hub, IReadOnlyList<HubEndpoint> endpoints) =>
+        endpoints.Any(e => e.Mode == HubEndpointMode.Zt) && IsNetworkId(hub.ZeroTier.Network)
+            ? hub.ZeroTier.Network.ToLowerInvariant()
+            : null;
+
+    private static bool IsNetworkId(string? id) =>
+        id is { Length: 16 } && id.All(Uri.IsHexDigit);
+
+    /// <summary>zt-адрес (если сеть есть) + LAN-адреса hub (частные IPv4 на физических адаптерах
+    /// со шлюзом) + доп. адреса из конфига.</summary>
     public static IReadOnlyList<HubEndpoint> DefaultEndpoints(HubOptions hub)
     {
         var list = new List<HubEndpoint>();
         try
         {
+            list.AddRange(ZtEndpoints(hub, NetworkInterface.GetAllNetworkInterfaces()
+                .Where(ni => ni.OperationalStatus == OperationalStatus.Up)
+                .SelectMany(ni => ni.GetIPProperties().UnicastAddresses.Select(u => u.Address))));
+
             foreach (var ni in NetworkInterface.GetAllNetworkInterfaces())
             {
                 if (ni.OperationalStatus != OperationalStatus.Up

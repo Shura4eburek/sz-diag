@@ -139,7 +139,7 @@ contracts/signpost-api.md, quickstart.md
 
 - [ ] T047 [US3] `src/SzDiag.Hub/ZtControllerClient.cs` (`IZtControllerClient`: list/delete member через прокси своего контроллера `<ztControllerUrl>/controller/network/{nid}/member/{mid}`, Bearer `ztControllerToken` из `secrets\fleet.json` — токен **никогда** не уходит агенту, FR-023) и `src/SzDiag.Hub/ZtMemberSweeper.cs` (hosted, раз в минуту, `SweepAfter`=10 мин); удаление члена при `close` в `src/SzDiag.Hub/ManagementApi.cs`/`SessionRegistry.cs`
 - [X] T048 [US3] `src/SzDiag.Hub/LocalAddressFilter.cs` + регистрация в `src/SzDiag.Hub/Program.cs`; `Hub.DenySubnets` (по умолчанию `["10.199.89.0/24"]`) и `Hub.ZeroTier` (`Enabled`, `Network`, `SweepAfter`) в `src/SzDiag.Hub/HubOptions.cs`; фильтр по `HttpContext.Connection.LocalIpAddress`, не bind на IP
-- [ ] T049 [US3] (**только после T048** — до него `/api` hub с ZT-адреса закрыт лишь токеном, research.md R9) `src/SzDiag.Hub/SignpostPublisher.cs`: endpoint `mode=zt` (адрес hub в сервисной подсети, если адаптер есть) первым в `endpoints`, `ztNetwork` в записи
+- [X] T049 [US3] (**только после T048** — до него `/api` hub с ZT-адреса закрыт лишь токеном, research.md R9) `src/SzDiag.Hub/SignpostPublisher.cs`: endpoint `mode=zt` (адрес hub в сервисной подсети, если адаптер есть) первым в `endpoints`, `ztNetwork` в записи
 - [ ] T050 [US3] `src/SzDiag.Cli/Program.cs` (`target`, стр. ~563–579): для `AccessMode.Zt` — `ssh -p <port> svc-diag@<zt-ip>` с пиннингом host-ключа, как для туннеля; `src/SzDiag.Agent/AccessReporter.cs`/hub — пересечение подсети `10.88.0.0/24` с маршрутами клиента → предупреждение в `ReportAccess`
 
 **Checkpoint**: US3 проверяется quickstart «Фаза 4» целиком.

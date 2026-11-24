@@ -159,4 +159,55 @@ public class SignpostPublisherTests : IDisposable
         Assert.Contains(eps, e => e is { Mode: HubEndpointMode.Tunnel, Url: "https://hub.example" });
         Assert.All(eps.Where(e => e.Mode == HubEndpointMode.Lan), e => Assert.EndsWith(":5099", e.Url));
     }
+
+    private static HubOptions ZtHub(bool enabled = true, string network = "aa4bb3b8ba8f7d86") =>
+        new() { ZeroTier = new HubZeroTierOptions { Enabled = enabled, Network = network } };
+
+    private static readonly IPAddress[] Addrs =
+        [IPAddress.Parse("192.168.1.102"), IPAddress.Parse("10.199.89.217"), IPAddress.Parse("10.88.0.1")];
+
+    [Fact]
+    public void ZtEndpoint_only_from_service_subnet_address()
+    {
+        var eps = SignpostPublisher.ZtEndpoints(ZtHub(), Addrs);
+        Assert.Equal([new HubEndpoint(HubEndpointMode.Zt, "http://10.88.0.1:5099")], eps);
+    }
+
+    [Theory]
+    [InlineData(false, "aa4bb3b8ba8f7d86")]
+    [InlineData(true, "")]
+    [InlineData(true, "not-a-network-id")]
+    public void ZtEndpoint_absent_when_zt_off_or_network_unset(bool enabled, string network) =>
+        Assert.Empty(SignpostPublisher.ZtEndpoints(ZtHub(enabled, network), Addrs));
+
+    [Fact]
+    public void ZtEndpoint_absent_without_address_in_subnet() =>
+        Assert.Empty(SignpostPublisher.ZtEndpoints(ZtHub(), [IPAddress.Parse("192.168.1.102")]));
+
+    [Fact]
+    public void ZtNetwork_published_only_together_with_zt_endpoint()
+    {
+        var hub = ZtHub(network: "AA4BB3B8BA8F7D86");
+        IReadOnlyList<HubEndpoint> lan = [new HubEndpoint(HubEndpointMode.Lan, "http://192.168.1.102:5099")];
+        Assert.Null(SignpostPublisher.ZtNetworkFor(hub, lan));
+        Assert.Equal("aa4bb3b8ba8f7d86",
+            SignpostPublisher.ZtNetworkFor(hub, [new HubEndpoint(HubEndpointMode.Zt, "http://10.88.0.1:5099"), .. lan]));
+    }
+
+    [Fact]
+    public async Task Record_carries_zt_endpoint_first_and_network()
+    {
+        var hub = ZtHub();
+        hub.Signpost = new HubSignpostOptions { Enabled = true, Url = "https://signpost.test", HubName = "ПК", SignKeyPath = "fleet-sign.key" };
+        var p = new SignpostPublisher(hub, _status, NullLogger<SignpostPublisher>.Instance, new HttpClient(_net),
+            TimeProvider.System,
+            () => [.. SignpostPublisher.ZtEndpoints(hub, Addrs), new HubEndpoint(HubEndpointMode.Lan, "http://192.168.1.102:5099")],
+            _dir);
+        Assert.True(p.Init());
+        await p.PublishOnceAsync(default);
+
+        var rec = Sent(0);
+        Assert.Equal(HubEndpointMode.Zt, rec.Endpoints[0].Mode);
+        Assert.Equal("aa4bb3b8ba8f7d86", rec.ZtNetwork);
+    }
 }

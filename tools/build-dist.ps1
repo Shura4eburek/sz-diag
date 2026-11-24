@@ -451,6 +451,11 @@ $signKeyAbs = (Join-Path $root 'secrets\fleet-sign.key').Replace('\', '\\')
 # Домены туннеля сюда не пишем никогда.
 Write-Host "-- указатель: $(if ($SignpostUrl) { $SignpostUrl } else { 'выключен (-SignpostUrl https://<свой>.up.railway.app)' })"
 
+# Сервисная ZT-сеть — из флота (tools\zt-network.ps1 → fleet.ps1 push). Нет сети — hub без ZT.
+$ztNetwork = [string]$fleet.ztNetwork
+$ztEnabled = if ($ztNetwork) { "true" } else { "false" }
+Write-Host "-- ZeroTier: $(if ($ztNetwork) { "сеть $ztNetwork" } else { 'не настроен (tools\zt-network.ps1)' })"
+
 $hubCfg = @"
 {
   "Urls": "http://0.0.0.0:$Port",
@@ -487,6 +492,12 @@ $hubCfg = @"
       "SignKeyPath": "$signKeyAbs",
       "PublishInterval": "00:00:30",
       "ExtraEndpoints": []
+    },
+    "ZeroTier": {
+      "Enabled": $ztEnabled,
+      "Network": "$ztNetwork",
+      "Subnet": "10.88.0.0/24",
+      "SweepAfter": "00:10:00"
     }
   }
 }
