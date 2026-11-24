@@ -336,6 +336,8 @@ if (Test-Path dist\client\SzDiag.Agent.exe) {
     Remove-Item $pkgStage -Recurse -Force -ErrorAction SilentlyContinue
     New-Item -ItemType Directory $pkgStage -Force | Out-Null
     Copy-Item dist\client\SzDiag.Agent.exe    $pkgStage\ -Force
+    # libzt (ZeroTier, US3) — нативная, в single-file не вшивается: без неё агент работает без ZT.
+    Copy-Item dist\client\libzt.dll           $pkgStage\ -Force -ErrorAction SilentlyContinue
     Copy-Item dist\client\service_key.pub     $pkgStage\ -Force -ErrorAction SilentlyContinue
     Copy-Item dist\client\fleet-sign.pub      $pkgStage\ -Force -ErrorAction SilentlyContinue
     Copy-Item dist\client\testsuite.json      $pkgStage\ -Force -ErrorAction SilentlyContinue

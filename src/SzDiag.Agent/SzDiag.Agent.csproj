@@ -19,6 +19,7 @@
     <PackageReference Include="Spectre.Console" Version="0.57.1" />
     <PackageReference Include="System.Drawing.Common" Version="8.0.0" />
     <PackageReference Include="System.Text.Encoding.CodePages" Version="8.0.0" />
+    <PackageReference Include="ZeroTier.Sockets" Version="1.8.4" />
   </ItemGroup>
 
   <PropertyGroup>
@@ -28,6 +29,7 @@
     <Nullable>enable</Nullable>
     <ApplicationManifest>app.manifest</ApplicationManifest>
     <RuntimeIdentifiers>win-x64</RuntimeIdentifiers>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
   </PropertyGroup>
 
 </Project>
