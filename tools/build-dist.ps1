@@ -422,7 +422,14 @@ if (Test-Path $extraTokensFile) {
 $extraTokens = @($extraTokens | Where-Object { $_ -and $_ -ne $Token } | Select-Object -Unique)
 $extraTokensJson = ($extraTokens | ForEach-Object { '"' + ($_ -replace '\\', '\\' -replace '"', '\"') + '"' }) -join ', '
 Write-Host "-- соседские токены агентов: $($extraTokens.Count) (secrets\agent-tokens.txt)"
-if (-not $HubUrl -and -not $HubIp -and $prevClientCfgText) {
+# С указателем домен туннеля клиенту не нужен (specs/002): клиент найдёт hub сам — LAN, затем
+# указатель (zt/lan). Без этого прежний https-адрес переносился из старого конфига вечно, и убрать
+# домен из апдейтера можно было только руками. Явный -HubUrl по-прежнему главнее.
+$signpostKnown = $SignpostUrl -or ($prevHub -and $prevHub.Signpost -and $prevHub.Signpost.Url)
+if ($signpostKnown -and -not $HubUrl -and $prevClientCfgText) {
+    Write-Host "-- указатель задан: прежний HubUrl клиента не переносится (поиск hub — LAN → указатель)"
+}
+if (-not $HubUrl -and -not $HubIp -and -not $signpostKnown -and $prevClientCfgText) {
     try {
         $prevClient = $prevClientCfgText | ConvertFrom-Json
         # Только постоянный адрес (домен туннеля): http://<ip> прошлой сборки мог устареть.
