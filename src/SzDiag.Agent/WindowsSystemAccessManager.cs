@@ -22,16 +22,42 @@ public sealed class WindowsSystemAccessManager : ISystemAccessManager
     private readonly ISshServer _sshd;
     private readonly string _statePath;
     private readonly IAccessTunnel? _tunnel;
+    private readonly Zt.IZtAccess? _zt;
 
     /// <param name="tunnel">null — прямой режим: машина в одной сети с боксом, публиковать
     /// sshd наружу не нужно.</param>
+    /// <param name="zt">null — без ZT (нет libzt или headless-откат): шаг 11 не применяется, а
+    /// откат всё равно стирает storage из состояния.</param>
     public WindowsSystemAccessManager(IPowerShellRunner ps, ISshServer sshd, string statePath,
-        IAccessTunnel? tunnel = null)
+        IAccessTunnel? tunnel = null, Zt.IZtAccess? zt = null)
     {
         _ps = ps;
         _sshd = sshd;
         _statePath = statePath;
         _tunnel = tunnel;
+        _zt = zt;
+    }
+
+    /// <summary>Шаг 11: проброс SSH через сервисную ZT-сеть. Необязательный, как туннель:
+    /// не поднялся — доступ открыт, работают туннель/прямой режим.</summary>
+    private void StartZt(RevertState state, int sshPort)
+    {
+        if (_zt is null) return;
+        try
+        {
+            var info = _zt.Start(sshPort);
+            if (info is null) return;
+            state.JoinedZt = true;
+            state.ZtStoragePath = info.StoragePath;
+            state.ZtNodeId = info.NodeId;
+            state.ZtAddress = info.Address;
+            state.ZtNetwork = info.Network;
+        }
+        catch
+        {
+            state.JoinedZt = false;
+            state.ZtAddress = "";
+        }
     }
 
     /// <summary>Постороннее <c>szdiag-*</c> на клиенте ДО открытия доступа своей сессии
@@ -193,6 +219,14 @@ public sealed class WindowsSystemAccessManager : ISystemAccessManager
             Persist();
         }
 
+        // 11. SSH через сервисную ZT-сеть (US3). Нода уже поднята поиском hub — здесь только
+        // проброс на sshd и запись в состояние, чтобы откат стёр storage.
+        if (_zt is not null)
+        {
+            StartZt(state, spec.SshPort);
+            Persist();
+        }
+
         return state;
     }
 
@@ -217,6 +251,19 @@ public sealed class WindowsSystemAccessManager : ISystemAccessManager
             _tunnel!.Stop(state.TunnelTaskName);
             state.StartedQuickTunnel = false;
             state.QuickTunnelHost = "";
+        });
+
+        // ZT-проброс — туда же, в начало: такая же опубликованная дверь к sshd, как туннель.
+        // Storage стирается сразу, если ноды в процессе нет; иначе — после её остановки (через
+        // неё ещё уйдёт отчёт об откате на hub).
+        Step("zt-доступ", state.JoinedZt || !string.IsNullOrWhiteSpace(state.ZtStoragePath), () =>
+        {
+            if (_zt is not null) _zt.Stop(state.ZtStoragePath);
+            else if (!Zt.ZtStorage.Wipe(state.ZtStoragePath))
+                throw new IOException($"storage ZT не стёрт: {state.ZtStoragePath}");
+            state.JoinedZt = false;
+            state.ZtStoragePath = "";
+            state.ZtAddress = "";
         });
 
         // Ярлык «закрыть доступ» снимаем в самом начале: он ведёт на этот же откат, и
@@ -316,6 +363,10 @@ public sealed class WindowsSystemAccessManager : ISystemAccessManager
                 state.QuickTunnelHost = "";
             }
         }
+
+        // ZT-проброс умирает вместе с процессом агента; нода после ребута поднята поиском hub
+        // с тем же storage — переподнимаем проброс. Адрес обычно прежний (тот же узел).
+        if (_zt is not null && state.JoinedZt) StartZt(state, spec.SshPort);
     }
 
     public void PersistSessionSecret(RevertState state, string? secret)

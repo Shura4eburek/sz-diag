@@ -122,7 +122,7 @@ contracts/signpost-api.md, quickstart.md
 
 ### Tests
 
-- [ ] T038 [P] [US3] `tests/SzDiag.Agent.Tests/ZtRevertTests.cs`: шаг ZT в `Open` пишет `JoinedZt`/`ZtStoragePath`/`ZtNodeId`; `Revert` снимает его **первым** (вместе с quick tunnel), стирает `ZtStoragePath`; повторный `Revert` идемпотентен; упавший шаг не прерывает остальные (как существующие тесты `WindowsSystemAccessManager`)
+- [X] T038 [P] [US3] `tests/SzDiag.Agent.Tests/ZtRevertTests.cs`: шаг ZT в `Open` пишет `JoinedZt`/`ZtStoragePath`/`ZtNodeId`; `Revert` снимает его **первым** (вместе с quick tunnel), стирает `ZtStoragePath`; повторный `Revert` идемпотентен; упавший шаг не прерывает остальные (как существующие тесты `WindowsSystemAccessManager`)
 - [X] T039 [P] [US3] `tests/SzDiag.Hub.Tests/LocalAddressFilterTests.cs`: запрос на локальный адрес из `DenySubnets` (`10.199.89.0/24`) → отказ; management API на адрес сервисной подсети → 403; loopback и LAN → ok
 - [ ] T040 [P] [US3] `tests/SzDiag.Hub.Tests/ZtMemberSweeperTests.cs` (фейковый `IZtControllerClient`): член без активной СЗ старше 10 мин → удалён; член активной СЗ и сам hub → не тронуты; `close` СЗ → удаление её `ZtNodeId`
 
@@ -132,7 +132,7 @@ contracts/signpost-api.md, quickstart.md
 - [X] T042 [US3] (**не** `Send`/`Receive`/`NetworkStream` из `ZeroTier.Sockets` — баги, research.md R8; база — `spikes/zt-spike/ZtStream.cs` + тесты на точную длину, частичную запись и full-duplex) `src/SzDiag.Agent/ZtNode.cs` (старт/стоп ноды, storage `C:\ProgramData\szdiag\zt\<СЗ>`, случайный порт — не 9993, ожидание адреса с таймаутом 60 с) и `src/SzDiag.Agent/ZtStream.cs` (`Stream` поверх zts-сокета)
 - [X] T043 [US3] `src/SzDiag.Agent/ZtSshForwarder.cs` — accept на ZT:`SshPort` → двусторонний проброс на `127.0.0.1:<SshPort>`
 - [X] T044 [US3] `src/SzDiag.Agent/ZtHubTransport.cs` + `src/SzDiag.Agent/SignalRHubLink.cs` и HttpClient агента (`/tools`, `/agent/*`, `RevertStatusReporter`): если найденный hub — endpoint `mode=zt`, соединения идут через `ConnectCallback`/`WebSocketFactory` ZT-ноды
-- [ ] T045 [US3] `src/SzDiag.Agent/RevertState.cs` (+ `JoinedZt`, `ZtStoragePath`, `ZtNodeId`, `ZtAddress`) и `src/SzDiag.Agent/WindowsSystemAccessManager.cs`: шаг 11 `Open` — вход в сеть + форвардер (необязательный: провал → доступ открыт, работают quick tunnel/прямой режим, причина — в `ReportAccess`); парная ветка в `Revert` — **первой**, рядом с quick tunnel; переподнятие после `--resume` тем же storage; `--revert` поднимает ноду для отчёта и стирает storage после
+- [X] T045 [US3] `src/SzDiag.Agent/RevertState.cs` (+ `JoinedZt`, `ZtStoragePath`, `ZtNodeId`, `ZtAddress`) и `src/SzDiag.Agent/WindowsSystemAccessManager.cs`: шаг 11 `Open` — вход в сеть + форвардер (необязательный: провал → доступ открыт, работают quick tunnel/прямой режим, причина — в `ReportAccess`); парная ветка в `Revert` — **первой**, рядом с quick tunnel; переподнятие после `--resume` тем же storage; `--revert` поднимает ноду для отчёта и стирает storage после
 - [ ] T046 [US3] `src/SzDiag.Contracts/AccessMode.cs` (+ `Zt = "zt"`), `src/SzDiag.Agent/AccessReporter.cs`: `ReportAccess(Sz, AccessHost=<zt-ip>, AccessMode=zt, host-key)`; `ZtNodeId` — новым необязательным полем `AccessReportRequest` (`src/SzDiag.Contracts/AccessReportRequest.cs`, совместимо со старыми агентами)
 
 ### Implementation — hub и CLI

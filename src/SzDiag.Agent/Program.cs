@@ -226,13 +226,14 @@ if (args.Length >= 2 && args[0] == "--resume")
     IAccessTunnel? rTunnel = rCloudflared is not null && File.Exists(rCloudflared)
         ? new CloudflaredTunnel(rCloudflared, rOpts.SshWorkDir, ps)
         : null;
-    var rManager = new WindowsSystemAccessManager(ps, rSshd, args[1], rTunnel);
 
     var rHubUrl = rOpts.HubUrl;
     var rFoundByBroadcast = string.IsNullOrWhiteSpace(rHubUrl);
     // Та же identity, что до ребута (storage СЗ) — узел в сети тот же (US3).
     using var rZt = ZtHubSession.ForSession(state.Sz, m => { logFile.WriteLine($"[resume] {m}"); logFile.Flush(); });
     ZtHubTransport? rZtTransport = null;
+    var rManager = new WindowsSystemAccessManager(ps, rSshd, args[1], rTunnel,
+        rZt is null ? null : new ZtAccess(rZt, m => { logFile.WriteLine($"[resume] {m}"); logFile.Flush(); }));
     if (string.IsNullOrWhiteSpace(rHubUrl))
     {
         var rLoc = await AgentHubFinder.FindAsync(rOpts, null, CancellationToken.None,
@@ -546,16 +547,6 @@ var cloudflaredPath = string.IsNullOrWhiteSpace(opts.CloudflaredPath)
 IAccessTunnel? accessTunnel = cloudflaredPath is not null && File.Exists(cloudflaredPath)
     ? new CloudflaredTunnel(cloudflaredPath, opts.SshWorkDir, ps)
     : null;
-var manager = new WindowsSystemAccessManager(ps, sshd, opts.StatePath, accessTunnel);
-
-// Бэклог п.140 (#77): опечатка в номере СЗ от ручного/бракованного запуска не оставляет
-// state.json — RevertStaleState такой хвост не увидит никогда. Единственный шанс поймать —
-// сканировать szdiag-* объекты ДО открытия доступа своей сессии и предупредить оператора.
-foreach (var foreign in manager.ScanForeignObjects(sz))
-    Announce($"⚠ на клиенте уже есть постороннее: {foreign}",
-        $"[yellow]⚠ на клиенте уже есть постороннее:[/] {Markup.Escape(foreign)}");
-
-var hubUrl = opts.HubUrl;
 // ZT (US3): storage прошлых сессий, оставшийся от краха до Open, — снести до своей.
 try
 {
@@ -565,6 +556,17 @@ try
 catch (Exception ex) { logFile.WriteLine($"[zt] остатки не сняты: {ex.Message}"); }
 using var zt = ZtHubSession.ForSession(sz, m => logFile.WriteLine($"[zt] {m}"));
 ZtHubTransport? ztTransport = null;
+var manager = new WindowsSystemAccessManager(ps, sshd, opts.StatePath, accessTunnel,
+    zt is null ? null : new ZtAccess(zt, m => logFile.WriteLine($"[zt] {m}")));
+
+// Бэклог п.140 (#77): опечатка в номере СЗ от ручного/бракованного запуска не оставляет
+// state.json — RevertStaleState такой хвост не увидит никогда. Единственный шанс поймать —
+// сканировать szdiag-* объекты ДО открытия доступа своей сессии и предупредить оператора.
+foreach (var foreign in manager.ScanForeignObjects(sz))
+    Announce($"⚠ на клиенте уже есть постороннее: {foreign}",
+        $"[yellow]⚠ на клиенте уже есть постороннее:[/] {Markup.Escape(foreign)}");
+
+var hubUrl = opts.HubUrl;
 // Нашли hub broadcast'ом — значит машина в одной сети с боксом: подключаться к ней надо
 // напрямую, туннель тут только замедлит и добавит зависимость от Cloudflare.
 var foundHubByBroadcast = string.IsNullOrWhiteSpace(hubUrl);
@@ -660,6 +662,9 @@ using var closeGuard = new ConsoleCloseGuard(() =>
 {
     sticky?.Dispose();
     session.RevertAsync().GetAwaiter().GetResult();
+    // У крестика ~5 с, и `using` в конце программы может не успеть: нода и стирание storage —
+    // здесь, сразу после отката (отчёт hub уже ушёл в RevertAsync).
+    zt?.Dispose();
 });
 
 // Пока агент жив, машина не уходит в простойный сон: на 160705 она уснула посреди
