@@ -21,6 +21,8 @@
   </ItemGroup>
 
   <ItemGroup>
+    <!-- Kestrel + SignalR-хаб в тестах ZT-транспорта (ZtForwarderAndTransportTests). -->
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
     <ProjectReference Include="..\..\src\SzDiag.Agent\SzDiag.Agent.csproj" />
     <ProjectReference Include="..\..\src\SzDiag.Contracts\SzDiag.Contracts.csproj" />
   </ItemGroup>
