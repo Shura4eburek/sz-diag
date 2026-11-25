@@ -1,4 +1,5 @@
 using Microsoft.Extensions.Options;
+using SzDiag.Contracts;
 
 namespace SzDiag.Hub;
 
@@ -103,7 +104,7 @@ public sealed class ZtMemberSweeper : BackgroundService
         }
         _lastSkip = null;
         var active = _registry.GetActive()
-            .Select(s => s.ZtNodeId)
+            .Select(s => ZtNodeId.Normalize(s.ZtNodeId))
             .Where(id => !string.IsNullOrWhiteSpace(id))
             .ToHashSet(StringComparer.OrdinalIgnoreCase);
         var removed = new List<string>();

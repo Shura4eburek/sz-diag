@@ -139,6 +139,29 @@ public class ZtMemberSweeperTests
         Assert.Empty(_ctl.Deleted);
     }
 
+    // Первый живой заезд: libzt отдал id без ведущего нуля, контроллер знает узел по 10 hex.
+    [Fact]
+    public async Task Active_session_with_unpadded_node_id_is_recognized()
+    {
+        Member("0e932809aa", TimeSpan.FromHours(1), ips: "10.88.0.196");
+        _reg.Register("169863", "10.88.0.196", "PC", "conn");
+        _reg.SetAccess("169863", "10.88.0.196", AccessMode.Zt, null, "e932809aa");
+
+        Assert.Equal("0e932809aa", _reg.TryGetInfo("169863")!.ZtNodeId);
+        Assert.Empty(await Sweeper().SweepOnceAsync(default));
+        Assert.Empty(_ctl.Deleted);
+    }
+
+    [Theory]
+    [InlineData("e932809aa", "0e932809aa")]
+    [InlineData("0E932809AA", "0e932809aa")]
+    [InlineData(" 93fe4a18d2 ", "93fe4a18d2")]
+    [InlineData("", null)]
+    [InlineData("zzzz", null)]
+    [InlineData("12345678901", null)]
+    public void Node_id_normalized_to_ten_hex(string raw, string? expected) =>
+        Assert.Equal(expected, ZtNodeId.Normalize(raw));
+
     [Fact]
     public async Task Without_creation_time_age_counts_from_first_sighting()
     {

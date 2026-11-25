@@ -88,8 +88,10 @@ public sealed class LibztNode : IZtNode
 
             var ip = node.GetNetworkAddresses(nwid).FirstOrDefault(a => a.AddressFamily == AddressFamily.InterNetwork);
             if (ip is null) { log?.Invoke("zt: в сети нет IPv4-адреса"); return Fail(); }
-            log?.Invoke($"zt: в сети {networkId} как {ip} (узел {node.IdString}) за {sw.Elapsed.TotalSeconds:F1} с");
-            return new LibztNode(node, networkId.ToLowerInvariant(), node.IdString, ip, storage);
+            // IdString без ведущих нулей — контроллер знает узел по 10 hex (первый живой заезд).
+            var nodeId = Contracts.ZtNodeId.Normalize(node.IdString) ?? node.IdString;
+            log?.Invoke($"zt: в сети {networkId} как {ip} (узел {nodeId}) за {sw.Elapsed.TotalSeconds:F1} с");
+            return new LibztNode(node, networkId.ToLowerInvariant(), nodeId, ip, storage);
         }
         catch (Exception ex)
         {

@@ -202,7 +202,8 @@ public sealed class SessionRegistry
                     : fingerprint,
                 // Узел ZT пустым не затираем: старый агент или отчёт без ZT не должен лишать hub
                 // возможности убрать узел из сети при закрытии.
-                ZtNodeId = string.IsNullOrWhiteSpace(ztNodeId) ? e.Info.ZtNodeId : ztNodeId,
+                // Нормализуем: агенты до фикса шлют id без ведущих нулей (libzt IdString).
+                ZtNodeId = ZtNodeId.Normalize(ztNodeId) ?? e.Info.ZtNodeId,
                 Status = SessionStatus.Online,
                 LastHeartbeat = now,
             }
