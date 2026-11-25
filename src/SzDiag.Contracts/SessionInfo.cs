@@ -42,4 +42,8 @@ public sealed record SessionInfo(
     /// <summary>Агент сидит в служебной сессии без рабочего стола — GUI-операции (Start-Process
     /// без задачи в интерактивной сессии, скриншот) там ломаются молча (бэклог п.220).</summary>
     public bool AgentInSessionZero => AgentSessionId == 0;
+
+    /// <summary>Узел клиента в сервисной ZT-сети (US3) — hub удаляет его из сети при закрытии СЗ,
+    /// сторож не трогает узлы активных СЗ.</summary>
+    public string? ZtNodeId { get; init; }
 }

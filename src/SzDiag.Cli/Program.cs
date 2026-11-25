@@ -49,6 +49,10 @@ if (!CliCommands.IsKnown(command))
     return 2;
 }
 
+// Ключи флота — локальная команда, hub ей не нужен (зовётся из tools\fleet.ps1).
+if (command == "fleet")
+    return FleetCommand.Run(args[1..]);
+
 // Номер СЗ проверяем один раз на входе: команды, которые его принимают, перечислены явно.
 // Мусорный ввод раньше молча уезжал в hub и в базу знаний (бэклог п.57).
 var szArgIndex = command switch
@@ -577,7 +581,8 @@ switch (command)
         // а рабочую команду раньше собирали тремя попытками и поиском по диску (п.118).
         var key = TargetSsh.FindKey(options.SshKeyPath, AppContext.BaseDirectory);
         var viaTunnel = t.AccessMode == AccessMode.Tunnel;
-        var targetHost = viaTunnel ? t.AccessHost! : t.Ip;
+        // ZT (US3): прямой ssh на адрес клиента в сервисной сети — бокс в ней через ZeroTier One.
+        var targetHost = viaTunnel || t.AccessMode == AccessMode.Zt ? t.AccessHost! : t.Ip;
         AnsiConsole.WriteLine(TargetSsh.BuildSshLine(t.User, targetHost, key, viaTunnel,
             t.KnownHostsPath));
         if (key is null)
@@ -1173,6 +1178,7 @@ static void PrintUsage()
               [yellow]szcli maintenance[/] [blue]<СЗ>[/] [grey]"причина" [[--from 18:30]] [[--until 19:15]] | --list[/]
                 [grey]метка «работали руками»: события питания в окне — не вырубон[/]
               [yellow]szcli kb[/] …               работа с базой знаний ([grey]record/summary/search/rm[/])
+              [yellow]szcli fleet[/] …            ключи флота ([grey]keygen/encrypt/decrypt[/], обычно через tools\fleet.ps1)
               [yellow]szcli hw[/] …               видяха по PCI hardware id
             [grey]Номер СЗ — 6 цифр.[/]
             """);

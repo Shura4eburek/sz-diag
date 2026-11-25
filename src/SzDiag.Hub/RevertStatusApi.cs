@@ -22,7 +22,7 @@ public static class RevertStatusApi
         {
             var opts = ctx.HttpContext.RequestServices.GetRequiredService<IOptions<HubOptions>>().Value;
             var provided = ctx.HttpContext.Request.Headers[HubRoutes.TokenHeader].ToString();
-            if (string.IsNullOrEmpty(opts.AgentToken) || provided != opts.AgentToken)
+            if (!opts.IsAgentToken(provided))
                 return Results.Unauthorized();
             return await next(ctx);
         });

@@ -7,6 +7,12 @@ public sealed class AgentOptions
     public string HubUrl { get; set; } = "";
     public string AgentToken { get; set; } = "";
 
+    /// <summary>Свой указатель оператора (specs/002): где hub, если его нет ни в конфиге, ни в LAN.</summary>
+    public string SignpostUrl { get; set; } = "";
+
+    /// <summary>Публичный ключ флота (SPKI PEM) для проверки записей указателя. Пусто — fleet-sign.pub рядом с exe.</summary>
+    public string SignPublicKey { get; set; } = "";
+
     /// <summary>Service token приложения Cloudflare Access перед hub (пара заголовков
     /// CF-Access-Client-Id / CF-Access-Client-Secret). Пусто — Access не используется.
     /// Секрет доступа к нашему hub, общий на всех агентов, — как и AgentToken.</summary>

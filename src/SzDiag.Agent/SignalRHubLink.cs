@@ -18,8 +18,10 @@ public sealed class SignalRHubLink : IHubLink
     /// (пара заголовков CF-Access-*). Пусто — Access не используется: hub в локальной сети.
     /// Это секрет доступа к НАШЕМУ hub, общий для всех агентов, — ровно то же, чем уже
     /// является <paramref name="token"/>, так что модель угроз не меняется.</param>
+    /// <param name="zt">Hub найден по адресу в сервисной ZT-сети — подключение идёт через ноду
+    /// (US3). null — обычные сокеты ОС, как раньше.</param>
     public SignalRHubLink(string hubUrl, string token,
-        string? accessClientId = null, string? accessClientSecret = null)
+        string? accessClientId = null, string? accessClientSecret = null, Zt.ZtHubTransport? zt = null)
     {
         _conn = new HubConnectionBuilder()
             .WithUrl($"{hubUrl.TrimEnd('/')}{HubRoutes.Path}", o =>
@@ -30,6 +32,7 @@ public sealed class SignalRHubLink : IHubLink
                     o.Headers["CF-Access-Client-Id"] = accessClientId;
                     o.Headers["CF-Access-Client-Secret"] = accessClientSecret ?? "";
                 }
+                zt?.Configure(o);
             })
             .WithAutomaticReconnect(new InfiniteRetryPolicy())
             .Build();

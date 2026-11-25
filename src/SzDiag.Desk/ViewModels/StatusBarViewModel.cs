@@ -111,6 +111,19 @@ public sealed partial class StatusBarViewModel : ObservableObject
             case TunnelStates.NotFound: parts.Add("туннель: нет cloudflared"); warn = true; break;
             case TunnelStates.Restarting: parts.Add("туннель ✗ перезапуск"); warn = true; break;
         }
+
+        // Указатель (specs/002): видно, найдут ли клиенты этот hub без LAN.
+        switch (s.Signpost?.State)
+        {
+            case SzDiag.Contracts.Signpost.SignpostStates.Published:
+                parts.Add($"указатель {s.Signpost.LastPublishedAt?.ToLocalTime():HH:mm} ✓"); break;
+            case SzDiag.Contracts.Signpost.SignpostStates.OtherHolder:
+                parts.Add($"указатель у «{s.Signpost.Holder?.HubName}»"); warn = true; break;
+            case SzDiag.Contracts.Signpost.SignpostStates.Unreachable:
+                parts.Add("указатель: нет связи"); warn = true; break;
+            case SzDiag.Contracts.Signpost.SignpostStates.Misconfigured:
+                parts.Add("указатель: настройка"); warn = true; break;
+        }
         return (string.Join(" · ", parts), warn);
     }
 

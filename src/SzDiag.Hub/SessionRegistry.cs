@@ -184,7 +184,8 @@ public sealed class SessionRegistry
     ///
     /// Пустое <paramref name="accessHost"/> — не ошибка: туннель отвалился, сессия при этом
     /// жива (управляющий канал отдельный). Освежает heartbeat, раз агент на связи.</summary>
-    public bool SetAccess(string sz, string? accessHost, string? accessMode, string? fingerprint)
+    public bool SetAccess(string sz, string? accessHost, string? accessMode, string? fingerprint,
+        string? ztNodeId = null)
     {
         if (!_bySz.TryGetValue(sz, out var e)) return false;
         var now = _time.GetUtcNow();
@@ -199,6 +200,10 @@ public sealed class SessionRegistry
                 SshHostKeyFingerprint = string.IsNullOrWhiteSpace(fingerprint)
                     ? e.Info.SshHostKeyFingerprint
                     : fingerprint,
+                // Узел ZT пустым не затираем: старый агент или отчёт без ZT не должен лишать hub
+                // возможности убрать узел из сети при закрытии.
+                // Нормализуем: агенты до фикса шлют id без ведущих нулей (libzt IdString).
+                ZtNodeId = ZtNodeId.Normalize(ztNodeId) ?? e.Info.ZtNodeId,
                 Status = SessionStatus.Online,
                 LastHeartbeat = now,
             }

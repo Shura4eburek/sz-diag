@@ -1,0 +1,232 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<title>sz-diag · инфраструктура со своим контроллером ZeroTier</title>
+<style>
+  :root {
+    --bg:#f7f7f5; --card:#fff; --ink:#1d1d1f; --muted:#6b6b70; --line:#d9d9de;
+    --hub:#2f6fdf; --rw:#7b4bd6; --cli:#d9822b; --zt:#1f9d6b; --warn:#c7362f;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg:#141416; --card:#1d1d20; --ink:#ececf0; --muted:#9a9aa3; --line:#34343a; }
+  }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg); color:var(--ink);
+         font:15px/1.55 "Segoe UI", system-ui, sans-serif; }
+  main { max-width:1080px; margin:0 auto; padding:32px 24px 64px; }
+  h1 { font-size:26px; margin:0 0 4px; }
+  h2 { font-size:19px; margin:36px 0 12px; padding-bottom:6px; border-bottom:1px solid var(--line); }
+  .sub { color:var(--muted); margin:0 0 24px; }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:10px; padding:16px 20px; }
+  .grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(300px,1fr)); gap:14px; }
+  table { width:100%; border-collapse:collapse; background:var(--card); border:1px solid var(--line);
+          border-radius:10px; overflow:hidden; }
+  th, td { text-align:left; padding:9px 12px; border-bottom:1px solid var(--line); vertical-align:top; }
+  th { font-weight:600; color:var(--muted); font-size:13px; text-transform:uppercase; letter-spacing:.03em; }
+  tr:last-child td { border-bottom:0; }
+  code, pre { font-family:"Cascadia Mono", Consolas, monospace; font-size:13px; }
+  pre { background:var(--card); border:1px solid var(--line); border-radius:10px; padding:14px 16px; overflow:auto; }
+  .tag { display:inline-block; padding:1px 8px; border-radius:99px; font-size:12px; font-weight:600; color:#fff; }
+  .t-hub{background:var(--hub)} .t-rw{background:var(--rw)} .t-cli{background:var(--cli)} .t-zt{background:var(--zt)}
+  .t-warn{background:var(--warn)}
+  .risk { border-left:4px solid var(--warn); }
+  ol li, ul li { margin:4px 0; }
+  svg text { font-family:"Segoe UI", system-ui, sans-serif; }
+  .diagram { padding:8px; }
+  .legend { color:var(--muted); font-size:13px; margin-top:8px; }
+</style>
+</head>
+<body>
+<main>
+
+<h1>Инфраструктура со своим контроллером ZeroTier</h1>
+<p class="sub">Фича 002 · domain-independent-access · вариант «без ZeroTier Central» · черновик 2026-11-24.
+Конкретные адреса и имена проекта Railway сюда намеренно не вписаны: каждый поднимает свой.</p>
+
+<h2>Схема</h2>
+<div class="card diagram">
+<svg viewBox="0 0 1020 560" width="100%" role="img" aria-label="Схема инфраструктуры">
+  <defs>
+    <marker id="a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="currentColor"/>
+    </marker>
+  </defs>
+  <style>
+    .box{fill:var(--card);stroke-width:2}
+    .ttl{font-size:15px;font-weight:600;fill:var(--ink)}
+    .txt{font-size:12.5px;fill:var(--muted)}
+    .lbl{font-size:12px;fill:var(--ink)}
+    .https{stroke:var(--rw);color:var(--rw);stroke-width:2;fill:none}
+    .zt{stroke:var(--zt);color:var(--zt);stroke-width:2.5;fill:none}
+    .ctl{stroke:var(--zt);color:var(--zt);stroke-width:1.6;fill:none;stroke-dasharray:6 5}
+  </style>
+
+  <!-- Railway -->
+  <rect x="300" y="14" width="420" height="168" rx="12" fill="none" stroke="var(--rw)" stroke-dasharray="4 4"/>
+  <text x="316" y="36" class="ttl" style="fill:var(--rw)">Railway (проект владельца)</text>
+  <rect x="318" y="50" width="185" height="118" rx="9" class="box" stroke="var(--rw)"/>
+  <text x="332" y="74" class="ttl">signpost</text>
+  <text x="332" y="94" class="txt">HTTPS · подписанный</text>
+  <text x="332" y="110" class="txt">указатель hub, аренда,</text>
+  <text x="332" y="126" class="txt">релиз агента</text>
+  <text x="332" y="150" class="txt">volume: пакеты</text>
+  <rect x="518" y="50" width="188" height="118" rx="9" class="box" stroke="var(--zt)"/>
+  <text x="532" y="74" class="ttl">zt-controller</text>
+  <text x="532" y="94" class="txt">zerotier-one + controller</text>
+  <text x="532" y="110" class="txt">+ HTTPS-прокси API</text>
+  <text x="532" y="126" class="txt">(Bearer, только hub)</text>
+  <text x="532" y="150" class="txt">volume: identity, db</text>
+
+  <!-- ZT roots -->
+  <rect x="790" y="60" width="200" height="88" rx="9" class="box" stroke="var(--line)"/>
+  <text x="806" y="86" class="ttl">Корни ZeroTier</text>
+  <text x="806" y="106" class="txt">planet/roots: поиск пиров,</text>
+  <text x="806" y="122" class="txt">relay при глухом NAT</text>
+  <text x="806" y="138" class="txt">(публичные, не наши)</text>
+
+  <!-- Hub -->
+  <rect x="30" y="300" width="300" height="200" rx="12" class="box" stroke="var(--hub)"/>
+  <text x="48" y="326" class="ttl" style="fill:var(--hub)">Сервисный бокс / ноут — hub</text>
+  <text x="48" y="350" class="txt">SzDiag.Hub (Kestrel), szcli, Desk</text>
+  <text x="48" y="370" class="txt">ZeroTier One (служба, один раз join)</text>
+  <text x="48" y="390" class="txt">  сервисная сеть: 10.88.0.1 ПК / .2 ноут</text>
+  <text x="48" y="410" class="txt">  личная сеть — в Hub.DenySubnets</text>
+  <text x="48" y="434" class="txt">secrets\fleet.json: ключ подписи,</text>
+  <text x="48" y="450" class="txt">  токен агента, токен контроллера</text>
+  <text x="48" y="474" class="txt">LocalAddressFilter: /api с ZT-адреса → 403</text>
+
+  <!-- Client -->
+  <rect x="690" y="300" width="300" height="200" rx="12" class="box" stroke="var(--cli)"/>
+  <text x="708" y="326" class="ttl" style="fill:var(--cli)">Клиентская машина</text>
+  <text x="708" y="350" class="txt">SzDiag.Updater → agent.exe</text>
+  <text x="708" y="370" class="txt">libzt внутри процесса, без драйвера</text>
+  <text x="708" y="390" class="txt">  storage C:\ProgramData\szdiag\zt\&lt;СЗ&gt;</text>
+  <text x="708" y="410" class="txt">  10.88.0.x из пула контроллера</text>
+  <text x="708" y="434" class="txt">sshd под SYSTEM ← проброс ZT:22</text>
+  <text x="708" y="454" class="txt">Revert: leave + стереть storage</text>
+  <text x="708" y="474" class="txt">токена контроллера нет (FR-023)</text>
+
+  <!-- arrows -->
+  <path class="https" d="M330 340 C 380 260, 360 220, 390 172" marker-end="url(#a)"/>
+  <text x="250" y="240" class="lbl">① публикует себя, аренда 30 с</text>
+  <path class="https" d="M315 385 C 450 300, 560 250, 600 172" marker-end="url(#a)"/>
+  <text x="430" y="300" class="lbl">⑤ authorize / delete member</text>
+  <path class="https" d="M760 300 C 650 230, 470 220, 430 172" marker-end="url(#a)"/>
+  <text x="640" y="232" class="lbl">② где hub? (ID сети, адрес)</text>
+  <path class="ctl" d="M800 300 C 760 240, 700 210, 680 172" marker-end="url(#a)"/>
+  <text x="790" y="270" class="lbl">③ конфиг сети</text>
+  <path class="ctl" d="M706 110 L 790 104" marker-end="url(#a)"/>
+  <path class="zt" d="M690 420 L 330 420" marker-start="url(#a)" marker-end="url(#a)"/>
+  <text x="410" y="410" class="lbl">④ P2P UDP: SignalR, /tools, /agent, SSH</text>
+  <text x="430" y="442" class="txt">прямо или через relay корней</text>
+</svg>
+<div class="legend">
+  <span class="tag t-rw">HTTPS</span> через публичный адрес Railway ·
+  <span class="tag t-zt">ZeroTier</span> сплошная — трафик данных, пунктир — служебный (конфиг сети, корни)
+</div>
+</div>
+
+<h2>Компоненты</h2>
+<table>
+  <tr><th>Где</th><th>Что</th><th>Хранит</th><th>Наружу</th></tr>
+  <tr><td><span class="tag t-rw">Railway</span> signpost</td>
+      <td>Уже есть (US1/US4): подписанный указатель hub, аренда, релиз агента</td>
+      <td>volume с пакетами; зашифрованный бандл флота в переменной</td>
+      <td>HTTPS 443 (публично, только чтение без подписи)</td></tr>
+  <tr><td><span class="tag t-zt">Railway</span> zt-controller</td>
+      <td>Новый сервис: <code>zerotier-one</code> со встроенным контроллером + маленький HTTPS-прокси
+          к его локальному API <code>/controller/network/…</code></td>
+      <td>volume <code>/var/lib/zerotier-one</code>: identity контроллера (= префикс ID сети), база сетей</td>
+      <td>исходящий UDP к корням; HTTPS-прокси — только с Bearer-токеном hub</td></tr>
+  <tr><td><span class="tag t-hub">Hub</span> ПК / ноут</td>
+      <td>SzDiag.Hub; ZeroTier One (служба) в сервисной сети со статическим адресом</td>
+      <td><code>secrets\fleet.json</code> (ключ подписи, токен агента, токен контроллера)</td>
+      <td>Kestrel только на порт hub; <code>/api</code> с ZT-адресов режется</td></tr>
+  <tr><td><span class="tag t-cli">Клиент</span></td>
+      <td>Апдейтер + агент; libzt внутри процесса</td>
+      <td>identity ноды в storage на время СЗ</td>
+      <td>ничего не слушает в LAN; sshd доступен только через ZT</td></tr>
+</table>
+
+<h2>Поток заявки</h2>
+<ol>
+  <li><b>Hub стартует</b>, берёт аренду в указателе и публикует подписанную запись: адрес hub
+      в сервисной сети, ID сети, версия агента.</li>
+  <li><b>Апдейтер на клиенте</b> не нашёл hub в LAN → читает указатель, проверяет подпись ключом
+      флота, вшитым в exe. Адрес Railway доверия не даёт, доверие даёт подпись.</li>
+  <li><b>Агент поднимает libzt</b> и входит в сеть по ID. Сеть публичная, поэтому член получает
+      адрес из пула <code>10.88.0.0/24</code> сразу, без ручного authorize.</li>
+  <li><b>SignalR, /tools, /agent</b> и проброс SSH идут P2P по ZeroTier к hub. Защиту по-прежнему
+      держат токен агента и секрет сессии, как сейчас.</li>
+  <li><b>Закрытие СЗ:</b> агент выходит из сети и стирает storage, hub удаляет член через
+      прокси контроллера. Сторож на hub раз в минуту удаляет члены без активной СЗ старше
+      10 минут: это добирает headless-откаты и посторонних.</li>
+</ol>
+
+<h2>Flow rules сервисной сети (черновик)</h2>
+<pre>
+# только IPv4 и ARP
+drop not ethertype ipv4 and not ethertype arp;
+accept ethertype arp;
+
+# клиент разговаривает только с hub-машинами (ПК .1, ноут .2), клиент↔клиент — нет
+accept ipdest 10.88.0.1/32;  accept ipsrc 10.88.0.1/32;
+accept ipdest 10.88.0.2/32;  accept ipsrc 10.88.0.2/32;
+drop;
+</pre>
+<p class="sub">Сузить до порта hub и 22 можно правилами <code>dport</code>. Это решится в T037,
+синтаксис проверить компилятором правил контроллера.</p>
+
+<h2>Секреты: где что лежит</h2>
+<table>
+  <tr><th>Секрет</th><th>Где</th><th>На клиенте?</th></tr>
+  <tr><td>Приватный ключ подписи флота</td><td>hub-машины; на Railway — только зашифрованным в бандле</td><td>нет (в exe публичный)</td></tr>
+  <tr><td>Токен агента</td><td>hub; в пакете апдейтера</td><td>да, как сейчас</td></tr>
+  <tr><td>Токен прокси контроллера</td><td>hub (<code>fleet.json</code>) + переменная сервиса zt-controller</td><td><b>нет</b></td></tr>
+  <tr><td>identity контроллера</td><td>volume zt-controller; бэкап — в бандл флота</td><td>нет</td></tr>
+  <tr><td><code>authtoken.secret</code> zerotier-one</td><td>только внутри контейнера, наружу не выходит</td><td>нет</td></tr>
+</table>
+
+<h2>Риски и что проверить первым</h2>
+<div class="grid">
+  <div class="card risk"><b>Railway и исходящий UDP.</b> Контроллеру нужен исходящий UDP до
+    корней ZeroTier. Входящий не нужен: работают NAT и relay. Это не проверено. Первый шаг —
+    деплой пустого <code>zerotier-one</code> и проверка, что <code>zerotier-cli info</code>
+    показывает <code>ONLINE</code>. Не проходит — контроллер переезжает на любой маленький VPS,
+    схема та же.</div>
+  <div class="card risk"><b>Потеря identity контроллера = потеря сети.</b> ID сети начинается
+    с адреса контроллера. Volume пропал → новый ID → клиенты со старым указателем не войдут.
+    Лечится бэкапом <code>identity.secret</code> в зашифрованный бандл флота при <code>fleet.ps1 init</code>.</div>
+  <div class="card risk"><b>Контроллер лежит.</b> Уже вошедшие члены держат конфиг некоторое
+    время, новые СЗ не войдут. Канал остаётся: LAN-discovery и quick tunnel работают без ZT.</div>
+  <div class="card risk"><b>Лицензия.</b> libzt 1.8.4 с 2026-01-01 под Apache 2.0. Контроллер в
+    <code>zerotier-one</code> идёт под своей лицензией (BSL/коммерческой). Самохостинг для
+    себя, не как платный сервис, — посмотреть по их текущему тексту лицензии перед деплоем.</div>
+</div>
+
+<h2>Что меняется в задачах</h2>
+<table>
+  <tr><th>Задача</th><th>Было (Central)</th><th>Станет (свой контроллер)</th></tr>
+  <tr><td>T037 <code>zt-network.ps1</code></td><td>API <code>api.zerotier.com</code></td>
+      <td>API прокси контроллера на Railway; + деплой сервиса zt-controller и бэкап identity в бандл</td></tr>
+  <tr><td>T047 <code>ZtControllerClient</code></td><td>Bearer Central</td>
+      <td>тот же интерфейс <code>IZtControllerClient</code>, базовый URL и токен — прокси; код сторожа не меняется</td></tr>
+  <tr><td>T035 спайк</td><td>тестовая сеть в Central</td>
+      <td>сначала проверка UDP с Railway, затем тестовая сеть на своём контроллере</td></tr>
+  <tr><td>Агент, апдейтер, hub-фильтры</td><td colspan="2">без изменений: им всё равно, кто контроллер</td></tr>
+</table>
+
+<h2>Порядок развёртывания</h2>
+<ol>
+  <li>Railway: сервис <code>zt-controller</code> с volume. Проверить <code>ONLINE</code> (риск UDP).</li>
+  <li>Создать сервисную сеть, пул <code>10.88.0.0/24</code>, flow rules. ID сети — в бандл флота.</li>
+  <li>ПК и ноут: <code>zerotier-cli join &lt;сеть&gt;</code> (один раз, под админом), статические
+      <code>.1</code>/<code>.2</code> через API, личная сеть — в <code>Hub.DenySubnets</code>.</li>
+  <li>Спайк T035, пункты 2–4: два libzt-процесса в этой сети.</li>
+  <li>Дальше — T038–T050 по плану.</li>
+</ol>
+
+</main>
+</body>
+</html>

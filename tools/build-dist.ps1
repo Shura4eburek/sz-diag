@@ -34,7 +34,8 @@
 param(
     [string]$HubIp = "",
     [int]$Port = 5099,
-    # Пусто — берётся из существующего dist\host\hub\appsettings.json, иначе "dev-token".
+    # Устарело: токены берутся из секретов флота (secrets\fleet.json, tools\fleet.ps1).
+    # Заданный и отличный от флотского — игнорируется с предупреждением.
     [string]$Token = "",
     [string]$ToolsRoot = "",
     [double]$WatchdogHours = 6,
@@ -60,7 +61,17 @@ param(
     [string]$TunnelName = "",
     [string]$TunnelConfig = "",
     # Путь к cloudflared.exe на хосте. Пусто — ищется в PATH и штатных каталогах установки.
-    [string]$TunnelExe = ""
+    [string]$TunnelExe = "",
+    # Свой указатель hub (specs/002): сервис szdiag-signpost в СВОЁМ проекте Railway, например
+    # https://<сервис>.up.railway.app. Значения по умолчанию нет намеренно — репозиторий публичный,
+    # каждый поднимает свой. Пусто — берётся из прежнего dist\host\hub\appsettings.json, иначе
+    # указатель выключен и клиент ищет hub только по конфигу и в LAN.
+    [string]$SignpostUrl = "",
+    # Имя hub для людей в указателе и Desk («ПК», «ноут»). Пусто — имя машины.
+    [string]$HubName = "",
+    # Опубликовать собранный пакет агента: подписанный релиз — в свой указатель. На GitHub
+    # ничего не уходит: исполняемые файлы в репозитории не релизятся.
+    [switch]$Publish
 )
 
 $ErrorActionPreference = "Stop"
@@ -105,16 +116,28 @@ if (-not (Test-Path "$sshCache\sshd.exe")) {
     Write-Host "-- портативный OpenSSH уже в кэше ($sshCache)"
 }
 
-# 1. SSH-ключ сервиса (приватный остаётся на хосте, публичный уедет агенту)
+# 1. Секреты флота: один набор на все машины-hub (ssh-ключ сервиса, токены, ключ подписи).
+# Своих ключей build-dist больше не генерирует: раньше каждая машина делала свои, и апдейтер,
+# собранный на ноуте, получал 401 от hub на ПК. Нет секретов — забираем из Railway, не вышло —
+# стоп, а не молчаливая генерация несовместимых (specs/002-domain-independent-access, FR-013).
 New-Item -ItemType Directory secrets -Force | Out-Null
-if (-not (Test-Path secrets\svc_diag_key)) {
-    Write-Host "-- генерирую ключ secrets\svc_diag_key"
-    # Через cmd: PowerShell ломает пустой пароль (-N '""' даёт литеральные кавычки,
-    # ключ выходит зашифрованным). В cmd `-N ""` — честный пустой пароль.
-    cmd /c 'ssh-keygen -t ed25519 -f secrets\svc_diag_key -C szdiag-service -N "" -q'
-} else {
-    Write-Host "-- ключ secrets\svc_diag_key уже есть"
+if (-not (Test-Path secrets\fleet.json)) {
+    Write-Host "-- нет secrets\fleet.json — забираю секреты флота из Railway (tools\fleet.ps1 pull)"
+    & (Join-Path $PSScriptRoot 'fleet.ps1') pull
+    if ($LASTEXITCODE -ne 0 -or -not (Test-Path secrets\fleet.json)) {
+        Write-Host "build-dist: секретов флота нет — сборка остановлена." -ForegroundColor Red
+        Write-Host "  Первая машина флота: .\tools\fleet.ps1 init   ·   остальные: .\tools\fleet.ps1 pull" -ForegroundColor Red
+        exit 6
+    }
 }
+foreach ($f in 'svc_diag_key', 'svc_diag_key.pub', 'fleet-sign.pub', 'fleet-sign.key') {
+    if (-not (Test-Path "secrets\$f")) {
+        Write-Host "build-dist: в secrets\ нет $f — секреты флота неполные, выполни .\tools\fleet.ps1 pull" -ForegroundColor Red
+        exit 6
+    }
+}
+$fleet = Get-Content secrets\fleet.json -Raw | ConvertFrom-Json
+Write-Host "-- секреты флота: secrets\fleet.json"
 
 # 2. Публикация self-contained single-file exe.
 # Чистим только сами билды (hub/cli/agent) — dist\host\kb и szdiag.db это runtime-данные
@@ -249,6 +272,7 @@ function Should-WriteConfig($outDir) {
 }
 if (Test-Path dist\client\SzDiag.Agent.exe) {
     Copy-Item secrets\svc_diag_key.pub dist\client\service_key.pub -Force
+    Copy-Item secrets\fleet-sign.pub dist\client\fleet-sign.pub -Force
 }
 
 # 2c. cloudflared для публикации sshd клиента quick tunnel'ом. Кладём в каталог раздачи,
@@ -278,13 +302,8 @@ if (Test-Path dist\client\SzDiag.Agent.exe) {
     Copy-Item "$sshCache\*.dll" dist\client\ssh\ -Force -ErrorAction SilentlyContinue
 }
 
-# Апдейтер кладём рядом с агентом в dist\client (та же папка, БЕЗ сноса — агент уже там,
-# а функция Publish меняет папку целиком через staging и снесла бы его). Прямой publish -o.
-if (Test-Path dist\client\SzDiag.Agent.exe) {
-    Write-Host "-- публикую SzDiag.Updater -> dist\client"
-    dotnet publish src/SzDiag.Updater @common -o dist\client | Out-Null
-    if ($LASTEXITCODE -ne 0) { throw "dotnet publish SzDiag.Updater упал (код $LASTEXITCODE)." }
-}
+# Апдейтер публикуется НИЖЕ, после записи dist\client\appsettings.json: конфиг клиента вшивается в exe,
+# чтобы на клиент хватало одного файла.
 
 # --- Версия и пакет для апдейтера ---
 # Версия = git short sha (+ -dirty, если есть незакоммиченные правки); вне git — timestamp.
@@ -300,6 +319,11 @@ if (Test-Path dist\client\SzDiag.Agent.exe) {
     if ([string]::IsNullOrWhiteSpace($version)) { $version = Get-Date -Format "yyyyMMdd-HHmmss" }
 
     Set-Content -Path dist\client\version.txt -Value $version -Encoding ascii -NoNewline
+    # Время сборки — порядок релизов для апдейтера (git sha не упорядочен): подписанный релиз
+    # старее установленного не ставится (защита от replay, specs/002 R6).
+    $buildTime = (Get-Date).ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ssZ')
+    $buildInfo = '{"version":"' + $version + '","buildTime":"' + $buildTime + '"}'
+    [System.IO.File]::WriteAllText((Join-Path $root 'dist\client\build-info.json'), $buildInfo)
 
     # Пакет: agent.exe + ssh + service_key.pub + testsuite.json + version.txt.
     # БЕЗ appsettings.json (локальный конфиг клиента), tools\ (тяжёлые тулы) и Updater.exe.
@@ -307,9 +331,13 @@ if (Test-Path dist\client\SzDiag.Agent.exe) {
     Remove-Item $pkgStage -Recurse -Force -ErrorAction SilentlyContinue
     New-Item -ItemType Directory $pkgStage -Force | Out-Null
     Copy-Item dist\client\SzDiag.Agent.exe    $pkgStage\ -Force
+    # libzt (ZeroTier, US3) — нативная, в single-file не вшивается: без неё агент работает без ZT.
+    Copy-Item dist\client\libzt.dll           $pkgStage\ -Force -ErrorAction SilentlyContinue
     Copy-Item dist\client\service_key.pub     $pkgStage\ -Force -ErrorAction SilentlyContinue
+    Copy-Item dist\client\fleet-sign.pub      $pkgStage\ -Force -ErrorAction SilentlyContinue
     Copy-Item dist\client\testsuite.json      $pkgStage\ -Force -ErrorAction SilentlyContinue
     Copy-Item dist\client\version.txt         $pkgStage\ -Force
+    Copy-Item dist\client\build-info.json     $pkgStage\ -Force
     if (Test-Path dist\client\ssh) { Copy-Item dist\client\ssh $pkgStage\ssh -Recurse -Force }
 
     $distRoot = "dist\host\hub\agent-dist"
@@ -367,9 +395,36 @@ if (-not $tunnelName -and -not $tunnelConfig -and $prevHub) {
 # Токен и постоянный адрес hub тоже переносим из прежнего dist: пересборка без -Token молча
 # ставила "dev-token", и апдейтер на клиенте с настоящим токеном получал 401 — а без HubUrl
 # клиент из новой сборки терял внешний адрес (бэклог п.265).
-if (-not $Token -and $prevHub) { $Token = [string]$prevHub.AgentToken }
-if (-not $Token) { $Token = "dev-token" }
-if (-not $HubUrl -and -not $HubIp -and $prevClientCfgText) {
+# Токены — из секретов флота: одинаковые на всех машинах, поэтому апдейтер из любой сборки
+# принимается любым hub. -Token больше не главнее флота.
+if ($Token -and $Token -ne [string]$fleet.agentToken) {
+    Write-Host "-- -Token проигнорирован: токен агента берётся из секретов флота" -ForegroundColor Yellow
+}
+$Token = [string]$fleet.agentToken
+$MgmtToken = [string]$fleet.managementToken
+if (-not $MgmtToken) { $MgmtToken = $Token }
+# Токены соседних hub (MacBook, рабочий ноут…): апдейтер, собранный на любом из них, принимается
+# и здесь. Источник — secrets\agent-tokens.txt (по токену на строку, # — комментарий) плюс то,
+# что уже было в прежнем конфиге: пересборка не теряет однажды добавленных соседей.
+$extraTokens = @()
+if ($prevHub -and $prevHub.ExtraAgentTokens) { $extraTokens += @($prevHub.ExtraAgentTokens | ForEach-Object { [string]$_ }) }
+# Переход на флот: прежний токен этой машины уже лежит в разданных апдейтерах — принимаем и его.
+if ($prevHub -and $prevHub.AgentToken -and [string]$prevHub.AgentToken -ne 'dev-token') { $extraTokens += [string]$prevHub.AgentToken }
+$extraTokensFile = Join-Path $root 'secrets\agent-tokens.txt'
+if (Test-Path $extraTokensFile) {
+    $extraTokens += @(Get-Content $extraTokensFile | ForEach-Object { $_.Trim() } | Where-Object { $_ -and -not $_.StartsWith('#') })
+}
+$extraTokens = @($extraTokens | Where-Object { $_ -and $_ -ne $Token } | Select-Object -Unique)
+$extraTokensJson = ($extraTokens | ForEach-Object { '"' + ($_ -replace '\\', '\\' -replace '"', '\"') + '"' }) -join ', '
+Write-Host "-- соседские токены агентов: $($extraTokens.Count) (secrets\agent-tokens.txt)"
+# С указателем домен туннеля клиенту не нужен (specs/002): клиент найдёт hub сам — LAN, затем
+# указатель (zt/lan). Без этого прежний https-адрес переносился из старого конфига вечно, и убрать
+# домен из апдейтера можно было только руками. Явный -HubUrl по-прежнему главнее.
+$signpostKnown = $SignpostUrl -or ($prevHub -and $prevHub.Signpost -and $prevHub.Signpost.Url)
+if ($signpostKnown -and -not $HubUrl -and $prevClientCfgText) {
+    Write-Host "-- указатель задан: прежний HubUrl клиента не переносится (поиск hub — LAN → указатель)"
+}
+if (-not $HubUrl -and -not $HubIp -and -not $signpostKnown -and $prevClientCfgText) {
     try {
         $prevClient = $prevClientCfgText | ConvertFrom-Json
         # Только постоянный адрес (домен туннеля): http://<ip> прошлой сборки мог устареть.
@@ -382,16 +437,73 @@ if (-not $HubUrl -and -not $HubIp -and $prevClientCfgText) {
         }
     } catch { }
 }
-Write-Host "-- токен: $(if ($Token -eq 'dev-token') { 'dev-token (по умолчанию)' } else { 'задан/перенесён' }); HubUrl клиента: $(if ($HubUrl) { $HubUrl } else { 'нет (UDP-обнаружение)' })"
+Write-Host "-- токен: из секретов флота; HubUrl клиента: $(if ($HubUrl) { $HubUrl } else { 'нет (UDP-обнаружение)' })"
 $tunnelEnabled = if ($tunnelName -or $tunnelConfig) { "true" } else { "false" }
 Write-Host "-- туннель хаба: $(if ($tunnelEnabled -eq 'true') { "$tunnelName ($tunnelConfig)" } else { 'выключен' })"
+
+# Адрес своего указателя переносим из прежнего конфига hub — как токены и туннель.
+if (-not $SignpostUrl -and $prevHub -and $prevHub.Signpost -and $prevHub.Signpost.Url) {
+    $SignpostUrl = [string]$prevHub.Signpost.Url
+}
+$SignpostUrl = $SignpostUrl.TrimEnd('/')
+if (-not $HubName -and $prevHub -and $prevHub.Signpost -and $prevHub.Signpost.HubName) {
+    $HubName = [string]$prevHub.Signpost.HubName
+}
+$signpostEnabled = if ($SignpostUrl) { "true" } else { "false" }
+$signKeyAbs = (Join-Path $root 'secrets\fleet-sign.key').Replace('\', '\\')
+# Указатель публичен: в него уходят только адреса, которые hub найдёт сам (LAN, позже ZeroTier).
+# Домены туннеля сюда не пишем никогда.
+Write-Host "-- указатель: $(if ($SignpostUrl) { $SignpostUrl } else { 'выключен (-SignpostUrl https://<свой>.up.railway.app)' })"
+
+# Сервисная ZT-сеть — из флота (tools\zt-network.ps1 → fleet.ps1 push). Нет сети — hub без ZT.
+$ztNetwork = [string]$fleet.ztNetwork
+$ztEnabled = if ($ztNetwork) { "true" } else { "false" }
+Write-Host "-- ZeroTier: $(if ($ztNetwork) { "сеть $ztNetwork" } else { 'не настроен (tools\zt-network.ps1)' })"
+
+# Hub.DenySubnets — личные ZT-сети этой машины, на адреса которых hub не отвечает вовсе.
+# В коде дефолт пустой (личная подсеть владельца не живёт в публичном репо, а массив из
+# конфига к непустому дефолту только дописывается), поэтому список собирается здесь:
+# всё, что было в прежнем конфиге, плюс подсети всех ZT-сетей ZeroTier One, кроме сервисной.
+$denySubnets = @()
+if ($prevHub -and $prevHub.DenySubnets) { $denySubnets += @($prevHub.DenySubnets | ForEach-Object { [string]$_ }) }
+$ztAuthFile = Join-Path $env:LOCALAPPDATA 'ZeroTier\authtoken.secret'
+if (Test-Path $ztAuthFile) {
+    $ztPortFile = Join-Path $env:ProgramData 'ZeroTier\One\zerotier-one.port'
+    $ztPort = if (Test-Path $ztPortFile) { (Get-Content $ztPortFile -Raw).Trim() } else { '9993' }
+    try {
+        $ztHeaders = @{ 'X-ZT1-Auth' = (Get-Content $ztAuthFile -Raw).Trim() }
+        # Через конвейер: в 5.1 Invoke-RestMethod отдаёт JSON-массив одним объектом, @() его не разворачивает.
+        $ztNets = @(Invoke-RestMethod "http://127.0.0.1:$ztPort/network" -Headers $ztHeaders -TimeoutSec 5 | ForEach-Object { $_ })
+        foreach ($n in @($ztNets | Where-Object { [string]$_.id -ne $ztNetwork })) {
+            foreach ($a in @($n.assignedAddresses)) {
+                if ([string]$a -notmatch '^(\d{1,3}(?:\.\d{1,3}){3})/(\d{1,2})$') { continue }   # IPv6 — мимо
+                $ip = [System.Net.IPAddress]::Parse($Matches[1])
+                $prefix = [int]$Matches[2]
+                if ($prefix -gt 32) { continue }
+                $b = $ip.GetAddressBytes()
+                # [uint64]: в 5.1 литерал 0xFFFFFFFF — это -1 (int32), маска на нём ломается.
+                $ipNum = ([uint64]$b[0] -shl 24) -bor ([uint64]$b[1] -shl 16) -bor ([uint64]$b[2] -shl 8) -bor [uint64]$b[3]
+                $mask = if ($prefix -eq 0) { [uint64]0 } else { ([uint64]4294967295 -shl (32 - $prefix)) -band [uint64]4294967295 }
+                $netNum = $ipNum -band $mask
+                $netIp = '{0}.{1}.{2}.{3}' -f (($netNum -shr 24) -band 255), (($netNum -shr 16) -band 255), (($netNum -shr 8) -band 255), ($netNum -band 255)
+                $denySubnets += "$netIp/$prefix"
+            }
+        }
+    } catch {
+        Write-Host "-- ZeroTier One не ответил ($($_.Exception.Message)) — DenySubnets только из прежнего конфига" -ForegroundColor Yellow
+    }
+}
+$denySubnets = @($denySubnets | Where-Object { $_ } | Select-Object -Unique)
+$denySubnetsJson = ($denySubnets | ForEach-Object { '"' + $_ + '"' }) -join ', '
+Write-Host "-- DenySubnets (личные ZT-сети): $(if ($denySubnets) { $denySubnets -join ', ' } else { 'нет' })"
 
 $hubCfg = @"
 {
   "Urls": "http://0.0.0.0:$Port",
   "Hub": {
     "AgentToken": "$Token",
-    "ManagementToken": "$Token",
+    "ExtraAgentTokens": [$extraTokensJson],
+    "ManagementToken": "$MgmtToken",
     "Port": $Port,
     "SqliteConnectionString": "Data Source=$db",
     "KnowledgeBaseRoot": "$kb",
@@ -413,6 +525,24 @@ $hubCfg = @"
       "ExecutablePath": "$($tunnelExe.Replace('\','\\'))",
       "RestartDelay": "00:00:10",
       "PidFile": "cloudflared.pid"
+    },
+    "Signpost": {
+      "Enabled": $signpostEnabled,
+      "Url": "$SignpostUrl",
+      "HubName": "$HubName",
+      "SignKeyPath": "$signKeyAbs",
+      "PublishInterval": "00:00:30",
+      "ExtraEndpoints": []
+    },
+    "DenySubnets": [$denySubnetsJson],
+    "ZeroTier": {
+      "Enabled": $ztEnabled,
+      "Network": "$ztNetwork",
+      "Subnet": "10.88.0.0/24",
+      "SweepAfter": "00:10:00",
+      "ControllerUrl": "$([string]$fleet.ztControllerUrl)",
+      "ControllerToken": "$([string]$fleet.ztControllerToken)",
+      "HubAddresses": ["10.88.0.1", "10.88.0.2"]
     }
   }
 }
@@ -447,7 +577,7 @@ $erpToken = $erpTokenFile -replace '\\', '\\'
 $cliCfg = @"
 {
   "HubBaseUrl": "http://localhost:$Port",
-  "ManagementToken": "$Token",
+  "ManagementToken": "$MgmtToken",
   "KbRoot": "$kb",
   "SshKeyPath": "$sshKeyAbs",
   "Erp": {
@@ -469,7 +599,7 @@ $claudeWork = ("$root").Replace('\', '\\')
 $deskCfg = @"
 {
   "HubBaseUrl": "http://localhost:$Port",
-  "ManagementToken": "$Token",
+  "ManagementToken": "$MgmtToken",
   "KbRoot": "$kb",
   "ClaudeWorkDir": "$claudeWork",
   "PermissionMode": "auto"
@@ -489,10 +619,15 @@ $watchdogValue = $WatchdogHours.ToString([System.Globalization.CultureInfo]::Inv
 
 # JSON не терпит одиночный обратный слеш — путь к cloudflared экранируем.
 $clientCloudflaredJson = $ClientCloudflaredPath.Replace('\', '\\')
+# Публичный ключ подписи флота — им клиент проверяет записи указателя (US1). Приватная
+# половина (fleet-sign.key) на клиента не уезжает никогда — проверка в конце сборки.
+$signPubJson = ((Get-Content secrets\fleet-sign.pub -Raw).Trim() -replace "`r?`n", '\n')
 $agentCfg = @"
 {
   "HubUrl": "$hubUrlValue",
   "AgentToken": "$Token",
+  "SignPublicKey": "$signPubJson",
+  "SignpostUrl": "$SignpostUrl",
   "AccessClientId": "$AccessClientId",
   "AccessClientSecret": "$AccessClientSecret",
   "CloudflaredPath": "$clientCloudflaredJson",
@@ -509,13 +644,30 @@ if ((Test-Path dist\client) -and (Should-WriteConfig "dist/client")) {
     Set-Content -Path dist\client\appsettings.json -Value $agentCfg -Encoding utf8
 }
 
+# Апдейтер — рядом с агентом в dist\client (та же папка, БЕЗ сноса — агент уже там, а функция Publish
+# меняет папку целиком через staging и снесла бы его). Прямой publish -o. Конфиг клиента вшивается в
+# exe ресурсом: на клиент приносится ОДИН SzDiag.Updater.exe, appsettings.json он кладёт агенту сам.
+# Файл-источник живёт только на время publish (в .gitignore — внутри токен агента).
+if (Test-Path dist\client\SzDiag.Agent.exe) {
+    $embeddedCfg = Join-Path $root 'src\SzDiag.Updater\embedded-client.json'
+    $cfgForExe = if (Test-Path dist\client\appsettings.json) { Get-Content dist\client\appsettings.json -Raw -Encoding UTF8 } else { $agentCfg }
+    [System.IO.File]::WriteAllText($embeddedCfg, $cfgForExe, (New-Object System.Text.UTF8Encoding($false)))
+    try {
+        Write-Host "-- публикую SzDiag.Updater -> dist\client (конфиг клиента вшит в exe)"
+        dotnet publish src/SzDiag.Updater @common -o dist\client | Out-Null
+        if ($LASTEXITCODE -ne 0) { throw "dotnet publish SzDiag.Updater упал (код $LASTEXITCODE)." }
+    } finally {
+        Remove-Item $embeddedCfg -Force -ErrorAction SilentlyContinue
+    }
+}
+
 # 4. Удобные лаунчеры на хосте (single-quoted here-string — литералы)
 # exe — полным путём: при NoDefaultCurrentDirectoryInExePath=1 (его ставит окружение Claude Code, а
 # Desk, запущенный оттуда, передаёт дальше) cmd не ищет голое имя в текущей папке — код 9009.
 $startHub = @'
 @echo off
 cd /d "%~dp0hub"
-"%~dp0hub\SzDiag.Hub.exe"
+"%~dp0hub\SzDiag.Hub.exe" %*
 pause
 '@
 Set-Content -Path dist\host\start-hub.cmd -Value $startHub -Encoding ascii
@@ -595,6 +747,66 @@ pause
 '@
 if (Test-Path dist\client) {
     Set-Content -Path dist\client\updater-log.cmd -Value $updaterLog -Encoding ascii
+}
+
+# FR-014: приватные ключи флота на клиента не уезжают. Клиентский dist и пакет апдейтера —
+# публичные артефакты (пакет раздаётся с указателя всем), поэтому проверяем по факту.
+$privateNames = @('fleet-sign.key', 'svc_diag_key', 'fleet.json', 'agent-tokens.txt')
+$leaks = @()
+if (Test-Path dist\client) {
+    $leaks += @(Get-ChildItem dist\client -Recurse -File | Where-Object { $privateNames -contains $_.Name } | ForEach-Object { $_.FullName })
+}
+$pkgZip = 'dist\host\hub\agent-dist\package.zip'
+if (Test-Path $pkgZip) {
+    Add-Type -AssemblyName System.IO.Compression.FileSystem
+    $z = [System.IO.Compression.ZipFile]::OpenRead((Resolve-Path $pkgZip).Path)
+    try { $leaks += @($z.Entries | Where-Object { $privateNames -contains $_.Name } | ForEach-Object { "$pkgZip!$($_.FullName)" }) }
+    finally { $z.Dispose() }
+}
+if ($leaks.Count -gt 0) {
+    Write-Host "build-dist: в клиентский dist/пакет попали секреты флота — удали и пересобери:" -ForegroundColor Red
+    $leaks | ForEach-Object { Write-Host "  $_" -ForegroundColor Red }
+    exit 7
+}
+
+# -Publish: подписанный релиз агента — в свой указатель (specs/002, US1). Клиент вне LAN берёт
+# пакет оттуда и сверяет sha256 с подписанным релизом. На GitHub ничего не уходит.
+if ($Publish) {
+    if ($failed.Count -gt 0) {
+        Write-Host "-- -Publish пропущен: сборка неполная ($($failed -join ', '))" -ForegroundColor Yellow
+    } elseif (-not (Test-Path $pkgZip) -or -not $buildTime) {
+        # Без $buildTime пакет — от прошлой сборки: публиковать его под новой подписью нельзя.
+        Write-Host "-- -Publish пропущен: пакет агента в этой сборке не собирался" -ForegroundColor Yellow
+    } else {
+        $cliExe = Join-Path $root 'dist\host\cli\SzDiag.Cli.exe'
+        $pkgSha = (Get-FileHash $pkgZip -Algorithm SHA256).Hash.ToLower()
+        if (-not $SignpostUrl) {
+            Write-Host "build-dist: -Publish без указателя бессмысленен — задай -SignpostUrl https://<свой>.up.railway.app" -ForegroundColor Red
+            exit 8
+        }
+        # Относительный адрес: клиент резолвит его от своего SignpostUrl.
+        $relJson = (& $cliExe fleet sign-release $pkgZip --secrets (Join-Path $root 'secrets') `
+            --version $version --build-time $buildTime --url '/package/{sha256}' | Out-String).Trim()
+        if ($LASTEXITCODE -ne 0 -or -not $relJson) { Write-Host "build-dist: fleet sign-release не прошёл" -ForegroundColor Red; exit 8 }
+        $relFile = Join-Path $root 'dist\host\hub\agent-dist\release.json'
+        [System.IO.File]::WriteAllText($relFile, $relJson)
+
+        if ($SignpostUrl) {
+            Write-Host "-- указатель: загружаю пакет ($([math]::Round((Get-Item $pkgZip).Length / 1MB, 1)) МБ)"
+            try {
+                # Пакет принимается только вместе с подписанным релизом на этот же sha256.
+                $relHeader = [Convert]::ToBase64String([System.Text.Encoding]::UTF8.GetBytes($relJson))
+                Invoke-WebRequest -UseBasicParsing -Method Put -Uri "$SignpostUrl/package/$pkgSha" -InFile $pkgZip `
+                    -ContentType 'application/zip' -Headers @{ 'X-SzDiag-Release' = $relHeader } -TimeoutSec 600 | Out-Null
+                Invoke-WebRequest -UseBasicParsing -Method Put -Uri "$SignpostUrl/signpost/release" -Body $relJson `
+                    -ContentType 'application/json' -TimeoutSec 60 | Out-Null
+                Write-Host "-- указатель: релиз $version опубликован" -ForegroundColor Green
+            } catch {
+                Write-Host "build-dist: указатель не принял релиз: $($_.Exception.Message)" -ForegroundColor Red
+                exit 8
+            }
+        }
+    }
 }
 
 Write-Host ""

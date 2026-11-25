@@ -282,11 +282,15 @@ public static class ManagementApi
             // Туннельный режим без имени — машина сейчас недостижима по SSH. Сессия при этом
             // может быть жива: управляющий канал отдельный, exec продолжает работать. Отдаём
             // причину, а не строку, которая гарантированно не сработает.
-            if (s.AccessMode == AccessMode.Tunnel && string.IsNullOrWhiteSpace(s.AccessHost))
+            // Туннель и ZT (US3) адресуются именем/адресом, который прислал агент, а не IP коннекта.
+            var byAccessHost = s.AccessMode is AccessMode.Tunnel or AccessMode.Zt;
+            if (byAccessHost && string.IsNullOrWhiteSpace(s.AccessHost))
                 return Results.Ok(new TargetInfo(sz, s.Ip, user, "", AccessMode: s.AccessMode,
-                    Unavailable: "туннель не поднят — SSH недоступен; exec-канал работает"));
+                    Unavailable: s.AccessMode == AccessMode.Zt
+                        ? "адрес в сети ZT неизвестен — SSH недоступен; exec-канал работает"
+                        : "туннель не поднят — SSH недоступен; exec-канал работает"));
 
-            var host = s.AccessMode == AccessMode.Tunnel ? s.AccessHost! : s.Ip;
+            var host = byAccessHost ? s.AccessHost! : s.Ip;
             // Ключ приколот только когда агент его прислал: у старых сборок его нет, и
             // ломать им рабочий путь нельзя.
             string? knownHosts = null;

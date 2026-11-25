@@ -15,8 +15,19 @@ cd sz-diag
 # ИЛИ клиент — отдельная ВМ: укажи LAN-IP хоста
 .\tools\build-dist.ps1 -HubIp <HUB_LAN_IP>
 ```
-Скрипт публикует exe, генерит SSH-ключ (`secrets\svc_diag_key`), пишет конфиги и
-лаунчеры. Результат:
+Скрипт публикует exe, пишет конфиги и лаунчеры. SSH-ключ (`secrets\svc_diag_key`) и токены
+он **не генерирует** — это секреты флота, одни на все машины-hub:
+
+```powershell
+railway login; railway link            # свой проект Railway с сервисом szdiag-signpost
+.\tools\fleet.ps1 init                 # ОДИН раз, на машине с текущими секретами (обычно ПК)
+.\tools\fleet.ps1 pull                 # на остальных (build-dist сделает сам, если secrets\fleet.json нет)
+```
+Спросит пароль флота (≥ 12 символов, хранится только у оператора). Коды `fleet.ps1`:
+2 флот уже создан · 3 нет railway-логина/линка или бандла · 4 неверный пароль · 5 бандл испорчен.
+build-dist без секретов флота выходит с кодом 6, с приватным ключом в клиентском dist — с 7.
+
+Результат:
 - `dist\host\`  — `start-hub.cmd`, `szcli.cmd`, `hub\` (+ `hub\agent-dist\` — пакет для
   апдейтера), `cli\`
 - `dist\client\` — `SzDiag.Updater.exe` (точка входа) + `SzDiag.Agent.exe` +
@@ -65,7 +76,7 @@ cd <путь>\dist\client
 `SzDiag.Updater.exe` — точка входа: находит hub, сверяет `version.txt`, при
 расхождении качает свежий пакет агента (`agent.exe` + ssh + ключ + testsuite, без
 `appsettings.json`/`tools`) и запускает `SzDiag.Agent.exe`. Первый заезд: на клиент
-достаточно закинуть `SzDiag.Updater.exe` + `appsettings.json` (с токеном) — остальное
+достаточно закинуть один `SzDiag.Updater.exe` (конфиг с токеном вшит в exe) — остальное
 подтянется само. Прямой запуск `SzDiag.Agent.exe` тоже работает (без самообновления).
 
 > **Куда класть на клиенте: `C:\szdiag`, НЕ на рабочий стол.** Рабочий стол в Windows 11
@@ -269,7 +280,7 @@ Test-Path C:\ProgramData\szdiag\ssh                # False (host-ключи сн
 Точка входа на клиенте — `SzDiag.Updater.exe` (не агент напрямую). Проверять после
 `build-dist.ps1` (он кладёт пакет в `dist\host\hub\agent-dist\`) при живом hub:
 
-1. **Первый заезд**: в чистую папку — только `SzDiag.Updater.exe` + `appsettings.json`
+1. **Первый заезд**: в чистую папку — только `SzDiag.Updater.exe` (appsettings.json он положит сам)
    (с `AgentToken`, опц. `HubUrl`). Запуск от админа → `Hub: … → Обновление: (нет) ->
    <version> → Пакет применён` → появляются `SzDiag.Agent.exe`, `ssh\`, `service_key.pub`,
    `testsuite.json`, `version.txt` → запускается агент (спрашивает СЗ).

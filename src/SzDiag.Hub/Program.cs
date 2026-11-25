@@ -5,6 +5,11 @@ using SzDiag.Contracts;
 using SzDiag.Hub;
 using SzDiag.Kb;
 
+// `--takeover` — перехватить живую аренду указателя у другого hub (specs/002, US4). Флаг без
+// значения провайдер командной строки не понимает — вынимаем его до CreateBuilder.
+var takeover = args.Any(a => a.Equals("--takeover", StringComparison.OrdinalIgnoreCase));
+args = args.Where(a => !a.Equals("--takeover", StringComparison.OrdinalIgnoreCase)).ToArray();
+
 var builder = WebApplication.CreateBuilder(args);
 
 // Единый лок на запись в консоль: липкая панель перерисовывается из таймер-потока,
@@ -32,6 +37,7 @@ var listenUrls = (builder.Configuration["Urls"] ?? "http://0.0.0.0:5099")
 builder.WebHost.UseUrls(listenUrls);
 
 builder.Services.Configure<HubOptions>(builder.Configuration.GetSection("Hub"));
+if (takeover) builder.Services.PostConfigure<HubOptions>(o => o.Signpost.Takeover = true);
 builder.Services.AddSingleton<SessionRegistry>();
 builder.Services.AddSingleton<ISessionStore>(sp =>
 {
@@ -66,10 +72,14 @@ builder.Services.AddSingleton<IKbBackup>(sp =>
 builder.Services.AddSingleton(new HubStatusTracker(TimeProvider.System));
 builder.Services.AddHostedService<KbBackupService>();
 builder.Services.AddHostedService<OfflineSweeper>();
+// Сервисная ZT-сеть (US3): прокси своего контроллера и сторож членов сети.
+builder.Services.AddSingleton<IZtControllerClient, ZtControllerClient>();
+builder.Services.AddHostedService<ZtMemberSweeper>();
 builder.Services.AddHostedService<ThreadPoolWatchdog>();
 // Туннель наружу живёт ровно столько, сколько hub: поднятый hub без туннеля недоступен
 // снаружи, туннель без hub отдаёт 502.
 builder.Services.AddHostedService<HubTunnelService>();
+builder.Services.AddHostedService<SignpostPublisher>();
 builder.Services.AddHostedService(sp =>
     new HubDiscoveryResponder(sp.GetRequiredService<IOptions<HubOptions>>()));
 builder.Services.AddSingleton<IAgentCommandSender, SignalRAgentCommandSender>();
@@ -161,14 +171,18 @@ app.Lifetime.ApplicationStarted.Register(() =>
 app.Lifetime.ApplicationStopping.Register(() => sticky?.Dispose());
 AppDomain.CurrentDomain.ProcessExit += (_, _) => sticky?.Dispose();
 
+// Первым — фильтр по локальному адресу: личная ZT-сеть не видит hub вовсе, сервисная —
+// не видит /api (T048). До токенов: отказ не должен зависеть от того, что прислал запрос.
+app.UseLocalAddressFilter(app.Services.GetRequiredService<IOptions<HubOptions>>().Value);
+
 // Проверка pre-shared токена на коннекте к хабу.
 app.Use(async (ctx, next) =>
 {
     if (ctx.Request.Path.StartsWithSegments(HubRoutes.Path))
     {
-        var expected = app.Services.GetRequiredService<IOptions<HubOptions>>().Value.AgentToken;
+        var opts = app.Services.GetRequiredService<IOptions<HubOptions>>().Value;
         var provided = ctx.Request.Headers[HubRoutes.TokenHeader].ToString();
-        if (string.IsNullOrEmpty(expected) || provided != expected)
+        if (!opts.IsAgentToken(provided))
         {
             ctx.Response.StatusCode = StatusCodes.Status401Unauthorized;
             return;

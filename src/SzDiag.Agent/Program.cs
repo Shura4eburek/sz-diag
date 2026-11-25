@@ -1,4 +1,5 @@
-﻿using System.Runtime.InteropServices;
+﻿using SzDiag.Agent.Zt;
+using System.Runtime.InteropServices;
 using System.Text;
 using Microsoft.Extensions.Configuration;
 using Spectre.Console;
@@ -132,13 +133,19 @@ if (args.Length >= 2 && args[0] == "--revert")
         // сам откат уже случился к этому моменту.
         try
         {
-            using var reportCts = new CancellationTokenSource(TimeSpan.FromSeconds(8));
-            var hubUrl = revertOpts.HubUrl;
-            if (string.IsNullOrWhiteSpace(hubUrl))
-                hubUrl = await HubDiscovery.FindHubAsync(revertOpts.AgentToken,
-                    timeout: TimeSpan.FromSeconds(3), ct: reportCts.Token);
+            // ZT — одноразовой identity: при живом агенте его нода с identity СЗ ещё в сети (US3).
+            // Вход в сеть занимает секунды, поэтому и бюджет с ZT больше.
+            using var revertZt = ZtHubSession.ForRevert(m => revertLog.Write(m));
+            using var reportCts = new CancellationTokenSource(TimeSpan.FromSeconds(revertZt is null ? 8 : 90));
+            // Тот же резолвер, что при старте (specs/002): hub мог переехать на другую машину.
+            var revertLoc = await AgentHubFinder.FindAsync(revertOpts, TimeSpan.FromSeconds(3), reportCts.Token,
+                m => revertLog.Write(m), revertZt)
+                ?? throw new HubNotFoundException("hub не найден ни в сети, ни через указатель");
+            var hubUrl = revertLoc.Url;
 
-            using var reportHttp = new HttpClient { BaseAddress = new Uri(hubUrl) };
+            using var reportHttp = AgentHubFinder.IsZt(revertLoc) && revertZt?.Transport is { } rzt
+                ? rzt.CreateHttpClient(hubUrl)
+                : new HttpClient { BaseAddress = new Uri(hubUrl) };
             if (!string.IsNullOrEmpty(revertOpts.AgentToken))
                 reportHttp.DefaultRequestHeaders.Add(HubRoutes.TokenHeader, revertOpts.AgentToken);
             var reportError = await new RevertStatusReporter(reportHttp)
@@ -219,23 +226,35 @@ if (args.Length >= 2 && args[0] == "--resume")
     IAccessTunnel? rTunnel = rCloudflared is not null && File.Exists(rCloudflared)
         ? new CloudflaredTunnel(rCloudflared, rOpts.SshWorkDir, ps)
         : null;
-    var rManager = new WindowsSystemAccessManager(ps, rSshd, args[1], rTunnel);
 
     var rHubUrl = rOpts.HubUrl;
     var rFoundByBroadcast = string.IsNullOrWhiteSpace(rHubUrl);
+    // Та же identity, что до ребута (storage СЗ) — узел в сети тот же (US3).
+    using var rZt = ZtHubSession.ForSession(state.Sz, m => { logFile.WriteLine($"[resume] {m}"); logFile.Flush(); });
+    ZtHubTransport? rZtTransport = null;
+    var rManager = new WindowsSystemAccessManager(ps, rSshd, args[1], rTunnel,
+        rZt is null ? null : new ZtAccess(rZt, m => { logFile.WriteLine($"[resume] {m}"); logFile.Flush(); }));
     if (string.IsNullOrWhiteSpace(rHubUrl))
     {
-        try { rHubUrl = await HubDiscovery.FindHubAsync(rOpts.AgentToken); }
-        catch (HubNotFoundException ex)
+        var rLoc = await AgentHubFinder.FindAsync(rOpts, null, CancellationToken.None,
+            m => { logFile.WriteLine($"[resume] {m}"); logFile.Flush(); }, rZt);
+        if (rLoc is null)
         {
-            logFile.WriteLine($"[resume] hub не найден: {ex.Message}");
+            logFile.WriteLine("[resume] hub не найден ни в сети, ни через указатель");
             logFile.Flush();
             return 1; // автостарт повторит при следующем ребуте
+        }
+        rHubUrl = rLoc.Url;
+        rFoundByBroadcast = AgentHubFinder.IsDirect(rLoc);
+        if (AgentHubFinder.IsZt(rLoc))
+        {
+            rZtTransport = rZt?.Transport;
+            if (ZtSubnetConflict.CheckLocal() is { } rZtWarn) { logFile.WriteLine($"[resume] {rZtWarn}"); logFile.Flush(); }
         }
     }
 
     var rLink = new SignalRHubLink(rHubUrl, rOpts.AgentToken,
-        rOpts.AccessClientId, rOpts.AccessClientSecret);
+        rOpts.AccessClientId, rOpts.AccessClientSecret, rZtTransport);
     // Разбор прошлого выключения уезжает на hub вместе с boot-time: без него нажатие
     // кнопки питания попадало в счётчик вырубонов наравне с обрывом (бэклог п.93).
     var rBoot = BootTimeReader.Read(ps);
@@ -278,7 +297,7 @@ if (args.Length >= 2 && args[0] == "--resume")
 
     var rExec = AgentCommandWiring.RegisterHandlers(rLink, Environment.MachineName, ps,
         R(rOpts.TestSuitePath), (plain, _) => { logFile.WriteLine(plain); logFile.Flush(); },
-        rHubUrl, rOpts.AgentToken);
+        rHubUrl, rOpts.AgentToken, rZtTransport);
 
     // Приборный захват (бэклог п.147, #86): переживает управление (агент сам поднимается),
     // но не переживает сам себя — обычный дочерний процесс гибнет вместе с машиной. Маркер
@@ -532,7 +551,17 @@ var cloudflaredPath = string.IsNullOrWhiteSpace(opts.CloudflaredPath)
 IAccessTunnel? accessTunnel = cloudflaredPath is not null && File.Exists(cloudflaredPath)
     ? new CloudflaredTunnel(cloudflaredPath, opts.SshWorkDir, ps)
     : null;
-var manager = new WindowsSystemAccessManager(ps, sshd, opts.StatePath, accessTunnel);
+// ZT (US3): storage прошлых сессий, оставшийся от краха до Open, — снести до своей.
+try
+{
+    foreach (var w in ZtStorage.WipeLeftovers(sz))
+        Announce($"zt: снят остаток прошлой сессии ({w})", null);
+}
+catch (Exception ex) { logFile.WriteLine($"[zt] остатки не сняты: {ex.Message}"); }
+using var zt = ZtHubSession.ForSession(sz, m => logFile.WriteLine($"[zt] {m}"));
+ZtHubTransport? ztTransport = null;
+var manager = new WindowsSystemAccessManager(ps, sshd, opts.StatePath, accessTunnel,
+    zt is null ? null : new ZtAccess(zt, m => logFile.WriteLine($"[zt] {m}")));
 
 // Бэклог п.140 (#77): опечатка в номере СЗ от ручного/бракованного запуска не оставляет
 // state.json — RevertStaleState такой хвост не увидит никогда. Единственный шанс поймать —
@@ -548,20 +577,27 @@ var foundHubByBroadcast = string.IsNullOrWhiteSpace(hubUrl);
 if (string.IsNullOrWhiteSpace(hubUrl))
 {
     Announce("Ищу hub в сети…", "[grey]Ищу hub в сети…[/]");
-    try
+    var found = await AgentHubFinder.FindAsync(opts, null, CancellationToken.None,
+        m => Announce(m, $"[grey]{Markup.Escape(m)}[/]"), zt);
+    if (found is null)
     {
-        hubUrl = await HubDiscovery.FindHubAsync(opts.AgentToken);
-        Announce($"Hub найден: {hubUrl}", $"Hub найден: [green]{hubUrl}[/]");
-    }
-    catch (HubNotFoundException ex)
-    {
-        Announce(ex.Message, $"[red]{Markup.Escape(ex.Message)}[/]");
+        const string notFound = "Hub не найден ни в сети, ни через указатель.";
+        Announce(notFound, $"[red]{notFound}[/]");
         return 1;
     }
+    hubUrl = found.Url;
+    // Адрес из указателя в режиме lan — та же прямая связь, что и broadcast; tunnel — нет.
+    foundHubByBroadcast = AgentHubFinder.IsDirect(found);
+    if (AgentHubFinder.IsZt(found))
+    {
+        ztTransport = zt?.Transport;
+        if (ZtSubnetConflict.CheckLocal() is { } ztWarn) Announce(ztWarn, $"[yellow]{Markup.Escape(ztWarn)}[/]");
+    }
+    Announce($"Hub найден: {hubUrl} ({found.Source})", $"Hub найден: [green]{Markup.Escape(hubUrl)}[/] [grey]({found.Source})[/]");
 }
 
 var link = new SignalRHubLink(hubUrl, opts.AgentToken,
-    opts.AccessClientId, opts.AccessClientSecret);
+    opts.AccessClientId, opts.AccessClientSecret, ztTransport);
 var sessionBoot = BootTimeReader.Read(ps);
 var session = new AgentSession(manager, link, spec, Environment.MachineName,
     sessionBoot, ShutdownClassifier.Read(ps, sessionBoot), foundHubByBroadcast);
@@ -607,7 +643,7 @@ catch (Exception ex) { logFile.WriteLine($"[power] журнал не отпра�
 // Обработчики RunTests/RunDiag от hub (общие с resume-веткой — см. AgentCommandWiring).
 var execHandler = AgentCommandWiring.RegisterHandlers(link, Environment.MachineName, ps,
     ResolvePath(opts.TestSuitePath), (plain, markup) => Announce(plain, markup),
-    hubUrl, opts.AgentToken);
+    hubUrl, opts.AgentToken, ztTransport);
 
 // Липкая панель статуса. Момент открытия доступа — точка отсчёта watchdog.
 var openedAt = DateTimeOffset.Now;
@@ -634,6 +670,9 @@ using var closeGuard = new ConsoleCloseGuard(() =>
 {
     sticky?.Dispose();
     session.RevertAsync().GetAwaiter().GetResult();
+    // У крестика ~5 с, и `using` в конце программы может не успеть: нода и стирание storage —
+    // здесь, сразу после отката (отчёт hub уже ушёл в RevertAsync).
+    zt?.Dispose();
 });
 
 // Пока агент жив, машина не уходит в простойный сон: на 160705 она уснула посреди

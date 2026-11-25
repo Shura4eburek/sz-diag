@@ -149,7 +149,7 @@ public sealed class AgentHub : Microsoft.AspNetCore.SignalR.Hub
         if (!SzNumber.IsValid(request.Sz)) return Task.CompletedTask;
 
         _registry.SetAccess(request.Sz, request.AccessHost, request.AccessMode,
-            request.SshHostKeyFingerprint);
+            request.SshHostKeyFingerprint, request.ZtNodeId);
 
         // Пиннинг host-ключа: имя quick tunnel'а публично и не аутентифицировано, и без
         // known_hosts подмену не отличить. Ключ пришёл управляющим каналом (аутентифицирован,

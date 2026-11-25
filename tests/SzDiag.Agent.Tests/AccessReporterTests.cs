@@ -122,4 +122,46 @@ public class AccessReporterTests
 
         Assert.Equal("162003", report.Sz);
     }
+
+    private static RevertState ZtState(bool tunnel = false) => new()
+    {
+        Sz = "162003",
+        JoinedZt = true,
+        ZtAddress = "10.88.0.95",
+        ZtNodeId = "ae264cb785",
+        StartedQuickTunnel = tunnel,
+        QuickTunnelHost = tunnel ? "aaa-bbb.trycloudflare.com" : "",
+        SshHostPublicKey = "ssh-ed25519 AAAA",
+    };
+
+    [Fact]
+    public void Zt_поднят_режим_zt_с_адресом_узлом_и_ключом_раньше_туннеля()
+    {
+        var report = AccessReporter.BuildReport(ZtState(tunnel: true), "162003", foundHubByBroadcast: false);
+
+        Assert.Equal(AccessMode.Zt, report.AccessMode);
+        Assert.Equal("10.88.0.95", report.AccessHost);
+        Assert.Equal("ae264cb785", report.ZtNodeId);
+        Assert.Equal("ssh-ed25519 AAAA", report.SshHostKeyFingerprint);
+    }
+
+    [Fact]
+    public void Broadcast_важнее_zt_но_узел_всё_равно_уезжает_для_уборки()
+    {
+        var report = AccessReporter.BuildReport(ZtState(), "162003", foundHubByBroadcast: true);
+
+        Assert.Equal(AccessMode.Direct, report.AccessMode);
+        Assert.Equal("ae264cb785", report.ZtNodeId);
+    }
+
+    [Fact]
+    public void Zt_без_адреса_не_выдаётся_за_рабочий_режим()
+    {
+        var state = ZtState(tunnel: true);
+        state.ZtAddress = "";
+
+        var report = AccessReporter.BuildReport(state, "162003", foundHubByBroadcast: false);
+
+        Assert.Equal(AccessMode.Tunnel, report.AccessMode);
+    }
 }

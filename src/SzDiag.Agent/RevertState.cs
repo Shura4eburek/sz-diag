@@ -48,6 +48,22 @@ public sealed class RevertState
     /// откате не трогаем: чужое не наше дело.</summary>
     public bool DeployedCloudflared { get; set; }
 
+    /// <summary>Шаг 11: SSH через сервисную ZT-сеть (US3). Нода живёт в процессе агента, на
+    /// машине от неё остаётся только storage — его откат и стирает.</summary>
+    public bool JoinedZt { get; set; }
+
+    /// <summary>Storage ноды (identity, конфиг сети) — стереть при откате.</summary>
+    public string ZtStoragePath { get; set; } = "";
+
+    /// <summary>Узел в сети ZT: hub удаляет его из сети при закрытии СЗ (у клиента токена
+    /// контроллера нет, FR-023).</summary>
+    public string ZtNodeId { get; set; } = "";
+
+    /// <summary>Адрес клиента в сервисной сети — куда hub ходит по SSH.</summary>
+    public string ZtAddress { get; set; } = "";
+
+    public string ZtNetwork { get; set; } = "";
+
     /// <summary>Секрет этой сессии, выданный hub при регистрации. Нужен headless-откату
     /// (watchdog, после ребута): там нет живого SignalR, и доказать hub, что отчитывается
     /// владелец СЗ, больше нечем — токен `/agent/*` общий на весь флот, а за туннелем у всех

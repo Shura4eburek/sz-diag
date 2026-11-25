@@ -46,7 +46,7 @@ public sealed class HubDiscoveryResponder : BackgroundService
 
                 var text = Encoding.UTF8.GetString(result.Buffer);
                 if (!DiscoveryProtocol.TryParseRequest(text, out var token)) continue;
-                if (token != _options.AgentToken) continue; // чужой/битый токен — молча игнорируем
+                if (!_options.IsAgentToken(token)) continue; // чужой/битый токен — молча игнорируем
 
                 var response = Encoding.UTF8.GetBytes(DiscoveryProtocol.BuildResponse(_options.Port));
                 try { await udp.SendAsync(response, result.RemoteEndPoint, stoppingToken); }

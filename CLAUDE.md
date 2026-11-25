@@ -108,6 +108,28 @@ tunnel выбран сознательно: он не требует токен�
 до прогона схема остаётся дополнением к прямому доступу, а не заменой.
 Публичная раздача апдейтера (портал с ботом-аппрувом, Turnstile, антиабуз) — отдельно, ишью #209.
 
+**Независимость от домена (2026-11-25, ветка `2028-domain-independent-access`).** Доступ к
+клиенту больше не держится на своём домене и чужих тарифах. **Указатель** — свой сервис на
+Railway (`szdiag-signpost`): hub публикует туда подписанный конверт «где я» (аренда с
+перехватом — ПК и ноут не перетягивают её друг у друга, `--takeover` для явного захвата),
+клиент ищет hub по цепочке конфиг → LAN → указатель и отвергает конверт с чужой подписью или
+старым `seq`. **Ключи флота** — один ключ подписи, токен агента, mgmt-токен и SSH-ключ на все
+сборки (апдейтер с ноута больше не ловит 401 от hub ПК); в Railway лежат только зашифрованными
+паролем флота, `tools\fleet.ps1 init|pull|push`. **Свой ZeroTier-контроллер** на Railway
+(сервис `szdiag-zt-controller`, наружу только прокси с bearer-токеном) и сервисная сеть
+`10.88.0.0/24` (`tools\zt-network.ps1`): сеть публичная, flow rules пускают клиентов только к
+hub-машинам (`.1` ПК, `.2` ноут), клиент↔клиент — drop. **libzt встроен в агент** — без
+драйвера и установки ZeroTier на клиенте; `Send`/`Receive` у `ZeroTier.Sockets` 1.8.4 битые
+(длина всего массива, запись за границу, буфер без pin), поэтому свой `ZtStream` на P/Invoke.
+Шаг 11 `Open` — SSH поверх ZT с парной веткой `Revert` (storage `C:\ProgramData\szdiag\zt\`
+стирается целиком), `AccessMode.zt` — `szcli target` даёт ssh на `10.88.0.x` с пиннингом
+ключа. Hub защищён `LocalAddressFilter`: на адресах личной ZT-сети молчит, `/api` из сервисной
+сети — 403; член сети удаляет hub при `close`, остатки без СЗ старше 10 мин снимает
+`ZtMemberSweeper`. Спека — [specs/002-domain-independent-access/spec.md](specs/002-domain-independent-access/spec.md).
+**Живьём не проверено** (только спайк на боксе и автотесты): клиент вне LAN через указатель и
+ZT, скорость ZT против quick tunnel, откат и ребут на живой машине —
+[docs/live-checklist-2026-11-25.md](docs/live-checklist-2026-11-25.md).
+
 **Бэклог улучшений инструментария** — [docs/dev-backlog.md](docs/dev-backlog.md): боли, собранные
 по живым СЗ (доставка тулов мимо SMB через hub, ad-hoc PS через агента вместо SSH/ConPTY,
 boot-time в heartbeat, freshness-guard для `build-dist`, валидация секций diag, sensors одной
@@ -217,7 +239,7 @@ IP и пинг hub; ручной повтор — команда `net-up`. Но�
 находит hub, сверяет `version.txt`, при расхождении качает свежий пакет агента с hub
 (`/agent/version|package|package.sha256`, из `dist\host\hub\agent-dist\`, кладёт build-dist)
 и запускает `agent.exe`. Убирает ручной цикл раздачи через share — на клиент достаточно
-один раз положить `SzDiag.Updater.exe` + `appsettings.json`. Спека/план —
+один раз положить **один** `SzDiag.Updater.exe` (конфиг клиента build-dist вшивает в exe, агенту `appsettings.json` апдейтер раскладывает сам). Спека/план —
 [docs/superpowers/specs/2026-07-21-agent-updater-design.md](docs/superpowers/specs/2026-07-21-agent-updater-design.md).
 Ручной e2e-прогон и траблшутинг — в [docs/TESTING.md](docs/TESTING.md), включая раздел
 про headless-управление по SSH (GUI-тулзы без десктопа падают/висят — обход через

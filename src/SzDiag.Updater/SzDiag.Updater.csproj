@@ -6,6 +6,10 @@
 
   <ItemGroup>
     <None Update="appsettings.json" CopyToOutputDirectory="PreserveNewest" />
+    <!-- Конфиг клиента: build-dist кладёт сюда dist\client\appsettings.json на время publish и удаляет
+         после (в .gitignore — внутри токен агента). Без файла exe собирается как раньше. -->
+    <EmbeddedResource Include="embedded-client.json" Condition="Exists('embedded-client.json')"
+                      LogicalName="SzDiag.Updater.embedded-client.json" />
   </ItemGroup>
 
   <ItemGroup>

@@ -3,13 +3,13 @@
 > Плотный справочник по всему функционалу для быстрой навигации и правок без повторного
 > обхода кодовой базы. Общий замысел — [vision.md](vision.md); архитектура/инварианты для
 > ежедневной работы — [../CLAUDE.md](../CLAUDE.md). Здесь — протокол, точки расширения,
-> таблицы параметров и рецепты. Обновлено 2026-09-04.
+> таблицы параметров и рецепты. Обновлено 2026-11-25 (доступ без своего домена — specs/002).
 
-## Проекты (12 в `src/` + зеркальные тесты в `tests/`)
+## Проекты (14 в `src/` + зеркальные тесты в `tests/`)
 
 | Проект | Роль | Ключевые типы |
 |---|---|---|
-| `SzDiag.Contracts` | DTO + имена протокола (единый источник) + автообнаружение | `HubRoutes`, `DiscoveryProtocol`, `HubDiscovery`, DTO-записи |
+| `SzDiag.Contracts` | DTO + имена протокола (единый источник) + поиск hub + подпись/флот | `HubRoutes`, `HubLocator`, `HubDiscovery`, `EnvelopeSigner`/`EnvelopeVerifier`, `FleetSecrets`/`FleetBundle`, `SeenSeqStore`, DTO-записи |
 | `SzDiag.Hub` | ASP.NET Core на хосте: SignalR `/agents` + `/api/*` + `/agent/*` | `AgentHub`, `ManagementApi`, `AgentPackageApi`, `SessionRegistry` |
 | `SzDiag.Cli` (`szcli`) | тонкий клиент к `/api` | команды в `Program.cs` |
 | `SzDiag.HubClient` | клиент `/api`, общий для CLI и Desk | `HubApiClient`, `IHubApiClient`, `SzLiveness` |
@@ -21,6 +21,8 @@
 | `SzDiag.Hardware` | резолвер видях по PCI ID | `GpuResolver`, `VgaBiosScraper`, `GpuRepository` |
 | `SzDiag.Kb` | Obsidian-vault базы знаний | `KbPaths`, `KnowledgeBaseScaffolder`, `ReportMarkdownBuilder` |
 | `SzDiag.Erp` | локальный API учётной системы → база знаний | `ErpApiClient`, `ErpSession`, `ErpJson`, `ErpBlockBuilder`, `SzFetchWriter` |
+| `SzDiag.Signpost` | сервис указателя на своём Railway: подписанная запись «где hub» + аренда + релиз агента | `LeaseTable`, `PackageStore`, `SignpostKeys` |
+| `SzDiag.ZtController` | свой ZeroTier-контроллер на Railway (zerotier-one) + Bearer-прокси к его API с белым списком | `ZtRoutes`, `entrypoint.sh` |
 
 ## Протокол (единственный источник имён — `SzDiag.Contracts/HubRoutes.cs`)
 
@@ -34,7 +36,7 @@
 | Метод (`HubRoutes`) | Сигнатура на hub | Что делает |
 |---|---|---|
 | `Register` | `Register(RegisterRequest{Sz,Hostname,…,LanIp,AccessHost,AccessMode,SshHostKeyFingerprint})` → `RegisterResponse{SessionSecret}` | `SessionRegistry.Register` + `Kb.EnsureSkeleton` + `store.RecordOpenAsync`; **возвращает секрет сессии** — им headless-откат доказывает владение СЗ |
-| `ReportAccess` | `ReportAccess(AccessReportRequest{Sz,AccessHost,AccessMode,SshHostKeyFingerprint})` | Чем машина доступна сейчас: `Registry.SetAccess` + запись `known_hosts` по СЗ. Отдельный метод, а не поле heartbeat: SignalR не умеет перегрузки, а имя quick tunnel меняется в течение сессии (после ребута оно **другое**) |
+| `ReportAccess` | `ReportAccess(AccessReportRequest{Sz,AccessHost,AccessMode,SshHostKeyFingerprint,ZtNodeId})` | Чем машина доступна сейчас: `Registry.SetAccess` + запись `known_hosts` по СЗ; `ZtNodeId` (необязательный) запоминается в `SessionInfo.ZtNodeId` — по нему hub удаляет узел из сервисной сети при `close`. Отдельный метод, а не поле heartbeat: SignalR не умеет перегрузки, а имя quick tunnel меняется в течение сессии (после ребута оно **другое**) |
 | `Heartbeat` | `Heartbeat(string sz)` | `Registry.Heartbeat` (обновляет `LastHeartbeat`, статус Online) |
 | `ReportActivity` | `ReportActivity(sz, activity, since)` | `Registry.SetActivity`; `since=null` = простой. Fire-and-forget |
 | `UploadReportFile` | `UploadReportFile(UploadReportPart{Sz,Timestamp,FileName,Content})` | `ReportStore.Save` → `kb/СЗ/<sz>/reports/<ts>/<file>` |
@@ -149,7 +151,89 @@ STARVATION` (уносится в `hub-<дата>.log` тем же Tee, что и
 Агент broadcast-ит `SZDIAG-DISCOVER:<token>` на все локальные подсети + `255.255.255.255`
 (`HubDiscovery.FindHubAsync`), hub (`HubDiscoveryResponder`) отвечает unicast `SZDIAG-HUB:<port>`
 только при совпадении `AgentToken`. Таймаут 3 c, повтор 500 мс. Если `AgentOptions.HubUrl` задан —
-discovery не запускается.
+discovery не запускается. Сам по себе broadcast теперь — второй источник `HubLocator` (ниже).
+
+### Поиск hub — `HubLocator` (Contracts, общий для апдейтера и агента)
+
+`LocateAsync` идёт по источникам **по порядку**, первый живой выигрывает:
+
+| # | Источник | `HubLocation.Mode` | Условие |
+|---|---|---|---|
+| 1 | `HubUrl` из конфига | `config` | `GET /healthz` ответил (`ProbeTimeout` 4 с) |
+| 2 | LAN-broadcast (`HubLocator.Broadcast` поверх `HubDiscovery`) | `lan-broadcast` | ответ на UDP 5098 |
+| 3 | указатель → `endpoints` записи hub по порядку | `zt` / `lan` / `tunnel` | подпись + `kid` + `seq` сошлись; режим есть в `LocatorOptions.Modes`; адрес отвечает |
+
+`Modes` по умолчанию `[lan, tunnel]`; `zt` добавляет только агент с нодой ZT
+(`AgentHubFinder` → `[zt, lan, tunnel]`). zt-адрес обычным сокетом ОС не проверить — для него
+есть хук `ztProbe(network, url, ct)` (`ZtHubSession.ProbeAsync`: поднять ноду, войти в сеть из
+записи `ztNetwork`, дождаться `/healthz` через неё); Contracts о libzt не знает. Каждый отказ
+(не отвечает / таймаут / подпись / чужой `kid` / `seq` старее / режим не поддержан / «ZeroTier в
+этом процессе нет») — в `LastRejected` и в лог клиента, **и при неудаче тоже**: иначе на заявке
+гадаешь, почему апдейтер «не видит hub». `LocateReleaseAsync` — подписанный релиз агента из
+указателя (апдейтер, когда hub не найден). Ответу сервиса клиент **не доверяет**: подпись
+перепроверяется на клиенте. Replay: `SeenSeqStore` (файл рядом с exe) помнит последний
+принятый `seq` по виду записи — сравнение только с самим собой, часы клиента не участвуют.
+
+### Подписанные конверты (`Contracts/Signing`)
+
+`SignedEnvelope{payload,sig,kid}`: `payload` — base64 **сырых** UTF-8 байт JSON (подпись над ними
+как есть, без пересериализации), `sig` — ECDSA P-256/SHA-256 в IEEE P1363 (Ed25519 в .NET 8 нет,
+сторонняя криптография в Contracts потянулась бы в клиентские процессы), `kid` — первые 16 hex
+SHA-256 от SPKI. `EnvelopeVerifier` различает «подпись не сошлась» (подмена) и «ключ не наш»
+(устаревший клиент после ротации). Подписывает `EnvelopeSigner` — только там, где лежит
+`secrets\fleet-sign.key` (hub, build-dist). Клиент берёт публичный ключ из `SignPublicKey`
+конфига, иначе из `fleet-sign.pub` рядом с exe (`FleetPublicKey.Resolve`) — **только с диска до
+обновления**, ключ из проверяемого пакета проверкой не был бы. Нагрузки (`SignpostRecords`):
+
+| `kind` | Поля |
+|---|---|
+| `hub` (`HubRecord`) | `hubId` (файл `hub-id` рядом с exe hub), `hubName`, `endpoints[{mode,url}]` (порядок = предпочтение), `ztNetwork` (только если есть zt-адрес), `seq` (unix-мс, строго растёт), `issuedAt`, `takeover` |
+| `release` (`ReleaseRecord`) | `version`, `buildTime`, `packageSha256`, `packageSize`, `packageUrls` (относительные `/package/{sha}` — от своего указателя), `seq` |
+
+### Указатель `szdiag-signpost` (`SzDiag.Signpost`, свой Railway оператора)
+
+База `https://<свой>.up.railway.app` — задаётся при сборке (`build-dist -SignpostUrl`), в репо не
+пишется. Сервис **ничего не подписывает**: проверяет подпись ключом из `SZDIAG_SIGN_PUBKEY`, хранит
+и отдаёт конверты. Авторизации на запись нет — её заменяет подпись. Env: `SZDIAG_SIGN_PUBKEY`,
+`SZDIAG_FLEET_BUNDLE` (шифротекст, сервисом не читается), `DATA_DIR=/data` (volume),
+`RAILWAY_DOCKERFILE_PATH=src/SzDiag.Signpost/Dockerfile`. Без ключа все `PUT` → `503`.
+
+| Метод + путь (`SignpostRoutes`) | Ответ |
+|---|---|
+| `GET /signpost` | `{hub?, release?, lease?{holderHubId,hubName,expiresAt}}` |
+| `PUT /signpost/hub` | `200 lease` · `400` подпись/`kind`/чужой `kid` · `409 lease` держателя · `412` `seq` не вырос |
+| `PUT /signpost/release` | `200` · `400` (в т.ч. пакет с этим sha256 не загружен) · `412` |
+| `PUT /package/{sha256}` + `X-SzDiag-Release: base64(конверт релиза на этот sha)` | `201` · `401` нет/чужой релиз · `400` sha256 тела ≠ путь; ≤ 100 МБ, хранятся 3 последних + пакет текущего релиза всегда |
+| `GET /package/{sha256}` · `GET /healthz` | `application/zip`/`404` · `ok` |
+
+**Аренда** (`LeaseTable`, в памяти — редеплой её теряет, живой hub переопубликуется за 30 с):
+`expiresAt = получено + 90 с` по часам **сервиса** (часы hub могут врать). Пусто/истекла — любой
+валидный `PUT hub` занимает; живая и тот же `hubId` — продление; другой `hubId` → `409`, с
+`takeover=true` — смена держателя. Издатель — `SignpostPublisher` на hub (см. «Хост»).
+
+### Свой ZeroTier-контроллер (`SzDiag.ZtController`, свой Railway оператора)
+
+Образ `zerotier/zerotier` (встроенный контроллер) + ASP.NET-прокси к его API (`127.0.0.1:9993`,
+`authtoken.secret` читается на каждый запрос). Входящий UDP не нужен — исходящий до корней
+DIRECT. Наружу — только прокси: `Authorization: Bearer <ZT_PROXY_TOKEN>` (короче 32 символов —
+прокси не стартует) + белый список `ZtRoutes`: `GET /status|/controller|/controller/network`,
+`/controller/network/<nwid>` (создание — `POST …/<10 hex>______`), `GET …/member`,
+`GET|POST|DELETE …/member/<10 hex>`; остальное API zerotier-one закрыто. Без токена — `/healthz`.
+`GET /admin/identity` — бэкап `identity.secret` во флот: адрес контроллера = префикс ID сети,
+потеря volume без бэкапа = новая сеть, и клиенты со старым указателем в неё не войдут;
+`entrypoint.sh` восстанавливает identity из `ZT_IDENTITY_SECRET`, если volume пуст. Volume — под
+`/var/lib/zerotier-one`. Токен прокси — **только на hub-машинах**, клиенту не уходит (FR-023).
+
+**Сервисная сеть** (`tools\zt-network.ps1`, идемпотентно): публичная (`private=false` — ID лежит в
+публичном указателе, авторизовать неизвестного клиента до первого байта нечем), подсеть
+`10.88.0.0/24`, пул `.10–.250`, hub-машины статикой `10.88.0.1` (ПК) / `10.88.0.2` (ноут), только
+IPv4 (`v4AssignMode.zt`). Flow rules: не-IPv4/не-ARP → drop; ARP → accept; к/от каждого
+`HubAddresses/32` → accept; остальное → drop (клиент↔клиент не соединяется). Порты hub правила
+**не режут** (stateless-правилам не отличить ответ ssh от нового соединения) — входящее на
+hub-машину держат Windows Firewall (профиль адаптера ZT — **Public**) и `LocalAddressFilter`.
+Итог скрипта — `secrets\zt.json` `{controllerUrl, controllerToken, identitySecret, network}`
+(пишется до join — сеть и identity не теряются, даже если join упал). Коды: 0 · 2 нет URL/токена
+· 3 контроллер не отвечает · 4 нет ZeroTier One · 5 адрес hub не назначился · 1 прочее.
 
 ### DTO (`SzDiag.Contracts`, все `sealed record`)
 
@@ -164,7 +248,12 @@ vs `<машина>\<юзер>` при ручном запуске: из session 
 · `UploadReportPart(Sz,Timestamp,FileName,Content:byte[])` ·
 `RevertResult(Sz,Done:string[],Failed:RevertResultFailure[])` (агент → hub, живой канал) ·
 `RevertStatusReport(Sz,Success,Summary)` (агент → hub, HTTP/headless) ·
-`CloseOutcome(Closed,Revert:RevertResult?)` (hub → CLI, ответ `close`). Enum
+`CloseOutcome(Closed,Revert:RevertResult?)` (hub → CLI, ответ `close`) ·
+`AccessReportRequest(Sz,AccessHost?,AccessMode?,SshHostKeyFingerprint?,ZtNodeId?)` (`SessionInfo`
+несёт тот же `ZtNodeId`). `AccessMode` — строки, не enum (ездит по SignalR, лежит в SQLite, от
+старых агентов приходит null): `direct` · `tunnel` · `zt` (`AccessHost` = ZT-IP агента;
+`target` печатает `ssh svc-diag@<zt-ip>` с пиннингом host-ключа, как для туннеля; адреса нет —
+`Unavailable` «адрес в сети ZT неизвестен»). Enum
 `SessionStatus{Online,Offline}` (в JSON — число). Enum статусов тестов НЕТ (статус идёт меткой
 через `ReportActivity`).
 
@@ -177,7 +266,26 @@ vs `<машина>\<юзер>` при ручном запуске: из session 
   → ждать клавиш: `C` откат+выход, `Q` выход без отката. Крестик окна ловит `ConsoleCloseGuard`
   (P/Invoke `SetConsoleCtrlHandler`, `CTRL_CLOSE_EVENT`) → откат.
 - **Watchdog** (`--revert <statePath>`): грузит `RevertState`, зовёт `Revert`, выходит. Ни консоли,
-  ни SignalR. Запускается scheduled task по таймауту.
+  ни SignalR. Запускается scheduled task по таймауту. Hub для отчёта ищет тем же `AgentHubFinder`
+  (hub мог переехать); ZT поднимается **одноразовым** storage (`ZtHubSession.ForRevert` →
+  `zt\revert-<8 hex>`): при живом агенте его нода с identity СЗ ещё в сети, две ноды с одной
+  identity мешали бы друг другу. Бюджет отчёта с ZT — 90 с (без — 8 с); ZT не поднялся — статус
+  не уходит, узел добирает `ZtMemberSweeper`.
+
+Поиск hub при старте/`--resume`/`--revert` — `AgentHubFinder.FindAsync` (обёртка над
+`HubLocator`). Hub найден по `zt` → HttpClient и SignalR (WebSockets) идут через
+`ZtHubTransport` (`SocketsHttpHandler.ConnectCallback` ноды; новый handler на каждое
+подключение — SignalR освобождает его вместе с подключением). Нода (`ZtHubSession`)
+поднимается лениво, только когда указатель дал zt-адрес, а LAN не нашёл hub раньше, и живёт до
+конца процесса: через неё идёт управляющий канал, отчёт об откате и проброс SSH. Storage:
+основной агент и `--resume` — `C:\ProgramData\szdiag\zt\<СЗ>` (одна identity на сессию, после
+ребута тот же узел и обычно тот же адрес). На старте `ZtStorage.WipeLeftovers(sz)` сносит
+storage прошлых сессий (он создаётся при поиске hub — до `Open` и до `state.json`, крах между
+ними оставил бы папку, о которой не знает ни один откат), кроме своей СЗ и `revert-*` моложе
+10 мин. `ZtSubnetConflict.CheckLocal` (когда hub найден по zt) предупреждает, если LAN/VPN клиента пересекается с `10.88.0.0/24`
+(libzt держит свой стек, трафик не ломается, но адреса в выводе двусмысленны). Порт ноды —
+случайный 20000–40000 (`InitSetPort`; не 9993 — на машине может стоять свой ZeroTier One).
+`libzt.dll` нативная, едет рядом с exe в пакете агента; нет её — агент работает без ZT.
 
 `RevertCoordinator` (`SemaphoreSlim`+флаг) гарантирует откат ровно один раз при любом числе триггеров
 (крестик / `C` / hub `Revert`).
@@ -186,15 +294,34 @@ vs `<машина>\<юзер>` при ручном запуске: из session 
 
 | # | Шаг | Флаг `RevertState` |
 |---|---|---|
+Номера — как в комментариях `Open` (2 в коде пропущен; до шагов — `RevertStaleState` чужой СЗ).
+
+| # | Шаг | Флаг `RevertState` |
+|---|---|---|
 | 1 | остановить системный `sshd`, если Running (держит порт) | `StoppedSystemSshd` |
-| 2 | firewall-правило `szdiag-ssh-{sz}` на `SshPort` | `AddedFirewallRule` |
-| 3 | `LocalAccountTokenFilterPolicy=1` (прежнее → `TokenPolicyPreviousValue`) | `SetTokenPolicy` |
-| 4 | учётка `svc-diag` (`New-LocalUser` + Administrators по SID) | `CreatedUser` |
-| 5 | `PortableSshServer.Start` — sshd **под SYSTEM** (задача `szdiag-sshd-{sz}`) | `GeneratedHostKeys`, `WroteAuthorizedKey`, `CreatedSshdTask` |
-| 6 | watchdog scheduled task (`--revert`) под SYSTEM, `Now+WatchdogTimeout` | `CreatedWatchdogTask` |
+| 3 | firewall-правило `szdiag-ssh-{sz}` на `SshPort` | `AddedFirewallRule` |
+| 4 | `LocalAccountTokenFilterPolicy=1` (прежнее → `TokenPolicyPreviousValue`) | `SetTokenPolicy` |
+| 5 | учётка `svc-diag` (`New-LocalUser` + Administrators по SID) | `CreatedUser` |
+| 6 | `PortableSshServer.Start` — sshd **под SYSTEM** (задача `szdiag-sshd-{sz}`) | `GeneratedHostKeys`, `WroteAuthorizedKey`, `CreatedSshdTask` |
+| 7 | watchdog scheduled task (`--revert`) под SYSTEM, `Now+WatchdogTimeout` | `CreatedWatchdogTask` |
+| 8 | автостарт `-AtStartup` → `agent.exe --resume` | `CreatedAutostartTask` |
+| 9 | ярлык «Закрыть доступ» на общем рабочем столе | `CreatedDesktopShortcut` |
+| 10 | quick tunnel на sshd (`szdiag-cfd-{sz}`), необязательный | `StartedQuickTunnel`, `DeployedCloudflared` |
+| 11 | SSH через сервисную ZT-сеть: `ZtAccess.Start` → `ZtSshForwarder` (ZT:`SshPort` → `127.0.0.1:SshPort`), необязательный; только если нода уже поднята поиском hub | `JoinedZt` + `ZtStoragePath`, `ZtNodeId`, `ZtAddress`, `ZtNetwork` |
 
 `Revert` — обратный порядок, каждый шаг под своим флагом (идемпотентно). **Инвариант:** новый шаг
-`Open` ⇒ парная ветка `Revert` под флагом, иначе следы на недоверенной машине.
+`Open` ⇒ парная ветка `Revert` под флагом, иначе следы на недоверенной машине. Исключение из
+обратного порядка — **наружные двери снимаются первыми**, раньше sshd: `quick tunnel`, сразу за
+ним `zt-доступ` (флаг `JoinedZt` **или** непустой `ZtStoragePath`). `zt-доступ`: нода в процессе
+есть → `IZtAccess.Stop` снимает проброс, а storage стирается **после остановки ноды** (через неё
+ещё уйдёт отчёт об откате на hub); ноды нет (headless) → `ZtStorage.Wipe` сразу, не стёрлось —
+шаг падает (`IOException`), файл состояния остаётся. Удалить свой узел на контроллере клиент не
+может (токена нет) — это делает hub (`SessionCloser`/`ZtMemberSweeper`). `--resume`: проброс
+умирает с процессом, после ребута нода поднимается поиском hub с тем же storage, и
+`StartZt` переподнимает проброс. ZT-шаг не поднялся — доступ открыт, работают туннель/прямой
+режим. Выбор режима для `ReportAccess` — `AccessReporter.BuildReport`: hub найден broadcast'ом
+→ `direct`; есть `ZtAddress` → `zt` (раньше туннеля: P2P без Cloudflare и внешнего процесса);
+есть имя туннеля → `tunnel`; иначе `direct`. `ZtNodeId` уходит при любом режиме, если `JoinedZt`.
 
 `PortableSshServer` (план Б): свежие host-ключи ed25519 каждую сессию, свой `sshd_config`
 (`Match Group administrators` → свой `AuthorizedKeysFile`), ACL SYSTEM+Administrators, запуск
@@ -211,7 +338,9 @@ vs `<машина>\<юзер>` при ручном запуске: из session 
 `HubUrl=""` (пусто→discovery) · `AgentToken=""` · `ServiceAccount="svc-diag"` ·
 `ServicePublicKeyPath="service_key.pub"` · `SshPort=22` · `WatchdogHours=6` · `HeartbeatSeconds=20` ·
 `StatePath=C:\ProgramData\szdiag\state.json` · `TestSuitePath="testsuite.json"` · `LogPath=logs\agent.log` ·
-`SshBinDir="ssh"` · `SshWorkDir=C:\ProgramData\szdiag\ssh`.
+`SshBinDir="ssh"` · `SshWorkDir=C:\ProgramData\szdiag\ssh` · `SignpostUrl=""` (пусто — указатель
+не используется) · `SignPublicKey=""` (SPKI PEM; пусто — `fleet-sign.pub` рядом с exe; нет ни
+того, ни другого — указателю не верим). Оба пишет build-dist, у `UpdaterOptions` — те же поля.
 
 ### Test-runner (`TestSuite`→`TestReportRunner`→`TestRunner`→`ICommandExecutor`/`IScreenCapturer`)
 
@@ -273,6 +402,13 @@ staging) → `AgentLauncher.LaunchAndWait` (запуск `agent.exe` в насл
 `build-dist` (`version.txt` = git short sha; zip без `appsettings`/`tools`/`Updater.exe`) в
 `dist\host\hub\agent-dist\`. Сам Updater в пакет не входит — самообновление вне MVP.
 
+Hub не найден/не отвечает (specs/002) → `UpdateFromSignpostAsync`: `HubLocator.LocateReleaseAsync`
+(режимы `[lan, tunnel]` — апдейтеру ZeroTier не нужен) → `SignedReleaseUpdater.ApplyAsync`
+(пакет по `packageUrls` относительно `SignpostUrl`, сверка с подписанным sha256; старее
+установленного по `buildTime` не ставит) → запуск агента, который уже сам ищет hub (в т.ч. по
+zt). Отвергнутые источники печатаются строками `отвергнут <источник>: <причина>`. Релиза нет —
+локальный агент, иначе exit 2.
+
 ## Хост (`SzDiag.Hub`)
 
 - **`AgentHub`** — тонкий слой (см. таблицы протокола). IP берётся из соединения.
@@ -290,6 +426,76 @@ staging) → `AgentLauncher.LaunchAndWait` (запуск `agent.exe` в насл
   `Registry.TryGetConnectionId(sz)`, зовут `IAgentCommandSender`; `false` при неизвестном connId.
 - **Аутентификация**: `AgentToken` (`X-SzDiag-Token`, middleware на `/agents` + discovery),
   `ManagementToken` (`X-SzDiag-Mgmt-Token`, фильтр на `/api`). Оба из секции `Hub` конфига.
+  `Hub.ExtraAgentTokens` — токены соседних hub (несколько хостов): везде, где проверяется
+  `AgentToken` (`/agents`, `/agent/*`, `/tools`, revert-status, discovery), принимается и любой из
+  них (`HubOptions.IsAgentToken`). build-dist берёт их из `secrets\agent-tokens.txt` и переносит из
+  прежнего конфига; с переходом на флот это **переходный** список для уже разданных апдейтеров
+  (прежний токен машины build-dist добавляет туда сам).
+- **Секреты флота** (specs/002-domain-independent-access): один набор на все машины-hub —
+  `AgentToken`, `ManagementToken`, ssh-ключ `svc_diag_key`, ключ подписи `fleet-sign.key/.pub`
+  (ECDSA P-256), параметры ZT (`ztControllerUrl`, `ztControllerToken`, `ztIdentitySecret` — бэкап
+  identity контроллера, `ztNetwork`). Лежат в `secrets\` (`fleet.json` + ключи, `FleetSecretsStore`),
+  в Railway — только шифротекстом паролем флота (`FleetBundle`: AES-256-GCM, PBKDF2-SHA256 600k)
+  в переменной `SZDIAG_FLEET_BUNDLE` сервиса `szdiag-signpost` (свой Railway оператора); публичный
+  ключ — `SZDIAG_SIGN_PUBKEY`. `tools\fleet.ps1 init` (один раз, на машине с текущими секретами:
+  берёт её прежние ssh-ключ и `AgentToken`) / `pull` (на остальных; build-dist зовёт сам).
+  build-dist **больше не генерирует** ключи и `dev-token`: нет секретов флота → exit 6; приватная
+  часть в клиентском dist/пакете → exit 7. `-Token` игнорируется. Клиенту уезжают только
+  `fleet-sign.pub` и `SignPublicKey` в `appsettings.json`. CLI: `szcli fleet keygen|encrypt|decrypt`
+  (коды 0 · 1 · 2 уже есть · 4 неверный пароль · 5 бандл испорчен). ZT во флот: `tools\zt-network.ps1`
+  → `secrets\zt.json` → `fleet.ps1 init` подхватывает сам / `fleet.ps1 push` (= `szcli fleet set-zt
+  --from secrets\zt.json` + перешифровать и залить; пустое поле `zt.json` не затирает лежащее).
+  `fleet.ps1` коды: 0 · 2 бандл уже есть (`init` без `-Force`) · 3 нет railway-логина/линка/бандла
+  · 4 · 5 · 1. Пароль — запросом без эха или `SZDIAG_FLEET_PASSWORD`. build-dist берёт из флота
+  `ztNetwork`/`ztControllerUrl`/`ztControllerToken` в `Hub.ZeroTier` (нет сети — hub без ZT),
+  `-SignpostUrl` (переносится из прежнего конфига) — в `Hub.Signpost.Url` и в клиентский
+  `SignpostUrl`; `libzt.dll` кладёт в пакет агента. `-Publish`: `szcli fleet sign-release
+  <package.zip> --version --build-time --url /package/{sha256}` → `PUT /package/{sha}` +
+  `PUT /signpost/release`; без `-SignpostUrl` или при отказе — exit 8.
+- **`SignpostPublisher`** (`BackgroundService`): раз в `PublishInterval` (30 с; аренда живёт 90 с
+  — три пропуска) подписывает `HubRecord` ключом `Signpost.SignKeyPath` и `PUT /signpost/hub`.
+  `seq = max(unix-мс, прошлый+1)`. Адреса (`DefaultEndpoints`): сначала zt (`ZtEndpoints` — только
+  при `ZeroTier.Enabled`, валидном `Network` и реальном адресе машины в `ZeroTier.Subnet`; ноут без
+  ZeroTier One — без zt), затем LAN (частные IPv4 на физических адаптерах со шлюзом; VPN/ZT/
+  гипервизоры отсеиваются по имени адаптера), затем `ExtraEndpoints` (руками; режим по умолчанию
+  `tunnel`). `ztNetwork` в записи — только вместе с zt-адресом. Домены в публичный указатель
+  **не пишутся никогда**. Ответы → `SignpostStates` в `HubStatusTracker` (`/api/status`,
+  поле `Signpost`): `published` · `other-holder` (409: новые клиенты идут к держателю, перехват —
+  `start-hub.cmd --takeover`, флаг снимается после первого успеха) · `unreachable` ·
+  `misconfigured` (нет ключа / 400 чужой ключ / 412 часы ушли назад / 503 нет
+  `SZDIAG_SIGN_PUBKEY`) · `off`. В консоль — только смена состояния. Указатель недоступен — hub
+  работает как раньше.
+- **`LocalAddressFilter`** — первым в конвейере, решает по `Connection.LocalIpAddress` (адрес,
+  **на который** пришёл запрос; bind на конкретные IP не годится — у ноута LAN по DHCP; hub
+  слушает `0.0.0.0`): адрес в `Hub.DenySubnets` → `Abort()` без ответа (личная ZT-сеть владельца
+  hub не видит вовсе); адрес в `Hub.ZeroTier.Subnet` и путь `/api*` → `403` (сервисная сеть
+  публичная — management закрыт независимо от токена и даже при `ZeroTier.Enabled=false`);
+  остальное (в т.ч. `/agents`, `/agent/*`, `/tools` из сервисной сети) — дальше. IPv4-mapped
+  IPv6 приводится к IPv4; `LocalIpAddress=null` (TestServer) — пропуск. Неразобранная подсеть —
+  предупреждение на старте, а не молча выключенный фильтр.
+- **ZT на hub**: `ZtControllerClient` (`IZtControllerClient`) — Bearer-прокси контроллера,
+  `controller/network/{Network}/member[/{id}]`: список, член (`creationTime`, `ipAssignments`),
+  удаление (404 = уже нет). `SessionCloser.CloseAsync` после `Remove(sz)` удаляет узел
+  `ZtNodeId` (таймаут, ошибки глотаются — доберёт сторож). `ZtMemberSweeper` (раз в минуту, при
+  `ControllerConfigured`): член без активной СЗ, старше `SweepAfter`, не hub (`HubAddresses`) —
+  удаляется; нет `creationTime` — срок от первого раза, когда увидели. Причина: сеть публичная,
+  а headless-откат клиента свой узел удалить не может.
+
+  | Опция `Hub.*` | По умолчанию | Смысл |
+  |---|---|---|
+  | `DenySubnets` | `[]` (build-dist: ZT-сети машины, кроме сервисной, + прежний конфиг) | hub на эти локальные адреса не отвечает (`Abort`) |
+  | `ZeroTier.Enabled` | `false` | сторож членов + zt-адрес в указателе |
+  | `ZeroTier.Network` | `""` | id сервисной сети, 16 hex (из флота) |
+  | `ZeroTier.Subnet` | `10.88.0.0/24` | клиенты оттуда ходят к hub, но не в `/api` (403) |
+  | `ZeroTier.SweepAfter` | `00:10:00` | возраст «бесхозного» члена до удаления |
+  | `ZeroTier.ControllerUrl` / `ControllerToken` | `""` | прокси своего контроллера; токен — только hub (FR-023) |
+  | `ZeroTier.HubAddresses` | `[]` (build-dist пишет `[10.88.0.1, 10.88.0.2]`) | узлы hub-машин — сторож не трогает |
+  | `Signpost.Enabled` / `Url` | `false` / `""` | публикация в указатель (`https://<свой>.up.railway.app`) |
+  | `Signpost.PublishInterval` | `00:00:30` | период продления аренды |
+  | `Signpost.HubName` | `""` → имя машины | для людей («ПК», «ноут») |
+  | `Signpost.Takeover` | `false` | перехват живой аренды (`--takeover` выставляет сам) |
+  | `Signpost.SignKeyPath` | `""` | `secrets\fleet-sign.key` (относительный — от exe) |
+  | `Signpost.ExtraEndpoints` | `[]` | `{Mode,Url}` сверх найденных; build-dist пустой |
 - **`HubTunnelService`** (`BackgroundService`) — именованный Cloudflare Tunnel, публикующий
   hub наружу (`hub.<домен>`). Поднимает `cloudflared` дочерним процессом на старте, снимает
   при остановке, перезапускает через `RestartDelay`, если тот упал сам. Секция
@@ -315,6 +521,12 @@ staging) → `AgentLauncher.LaunchAndWait` (запуск `agent.exe` в насл
 - `diag status <СЗ>` — свежий `diag.md` + текущая `Activity` сессии без нового прогона (упавшая
   диагностика видна сразу, а не как «висит», `DiagStatusCommand`).
 - `kb record/summary/search …` — локальная ФС через `SzDiag.Kb` (без HTTP).
+- `fleet keygen [--agent-token T] [--management-token T] [--zt-from <zt.json>] [--force]` ·
+  `fleet set-zt --from <zt.json>` · `fleet encrypt` (бандл в stdout) · `fleet decrypt [--in <файл>]`
+  (иначе из `SZDIAG_FLEET_BUNDLE`) · `fleet sign-release <package.zip> --version <v> --build-time
+  <ISO> --url <адрес> [--url …]` (`{sha256}` в адресе подставится; конверт релиза в stdout); у всех
+  `--secrets <папка>` (по умолчанию `secrets`), без hub (`FleetCommand`). Обычно зовутся из
+  `tools\fleet.ps1` и `build-dist -Publish`.
 - `hw import [path] / update / resolve "<PCI ID>"` — локальная БД + `VgaBiosScraper`.
 - `hw passport <СЗ>` — паспорт видеокарты (SUBSYS/vBIOS/PCIe/TDR) одной командой через `exec`,
   без файла рецепта рядом с exe (`GpuPassport`).
@@ -498,6 +710,20 @@ Mono — `Assets/Fonts` (OFL рядом). Тесты Desk рисуют наст�
 3. `Agent/Program.cs` (прикладное, есть `link`/`reportRunner`) или `AgentSession.StartAsync`
 (жизненный цикл). Долгие операции — через `Task.Run`, иначе блокируется поток SignalR.
 
+**Флот и сервисная сеть с нуля** (specs/002, `quickstart.md`): Railway — сервисы `szdiag-signpost`
+(env `SZDIAG_SIGN_PUBKEY`, volume `/data`) и `szdiag-zt-controller` (`ZT_PROXY_TOKEN` ≥ 32 симв.,
+volume `/var/lib/zerotier-one`) → `tools\zt-network.ps1 -ControllerUrl https://<свой>.up.railway.app`
+на ПК (`10.88.0.1`; ноут — `-HubAddress 10.88.0.2`, URL/токен из флота) → `toolsleet.ps1 init`
+(или `push`, если флот уже есть) → `build-dist.ps1 -SignpostUrl https://<свой>.up.railway.app
+[-Publish]` → `start-hub.cmd`. На второй hub-машине: `fleet.ps1 pull` (build-dist зовёт сам) →
+`zt-network.ps1 -HubAddress 10.88.0.2` → build-dist. Профиль адаптера ZT на hub — Public.
+**Новый режим адреса hub** (по образцу `zt`): константа в `HubEndpointMode` → публикация в
+`SignpostPublisher.DefaultEndpoints` → ветка в `HubLocator.LocateAsync` (если обычный сокет ОС
+до адреса не дотянется — хук по образцу `ztProbe`) → режим в `LocatorOptions.Modes` того процесса,
+который его умеет.
+**Новое поле в записи указателя**: `SignpostRecords` (+ `SignpostJson`); старые клиенты должны
+пережить лишнее поле — подпись идёт над сырыми байтами, пересериализации нет.
+
 **Возврат результата агент→hub**: `link.UploadReportFileAsync(UploadReportPart)` (файлы) /
 `link.ReportActivityAsync(sz,label,since)` (статус). Новый вид — новый метод по образцу
 `UploadReportFile` (константа + `IHubLink`/`SignalRHubLink` + приём в `AgentHub` + `HubRoutes`).
@@ -520,6 +746,24 @@ Mono — `Assets/Fonts` (OFL рядом). Тесты Desk рисуют наст�
 - **Фоновые exec-задачи**: скрипт оператора — отдельный `user.ps1`; parse-ошибка ловится
   обёрткой в `err.txt` и едет в `ExecJobStatus.Error` (п.177). Отмена/список — через канал
   статуса (`Cancel`, `JobId="*"`), потому что только он проходит под полной нагрузкой.
+- **`ZeroTier.Sockets` 1.8.4: их `Send`/`Receive` и `NetworkStream` не использовать.** `Send(buf,
+  offset, size)`/`Receive` передают в нативный вызов длину **всего массива** (`Buffer.ByteLength`)
+  вместо `size` — мусорный хвост в поток / запись за границу при `offset>0`; адрес берётся
+  `UnsafeAddrOfPinnedArrayElement` **без закрепления** на время блокирующего вызова (GC сдвинет
+  массив — порча памяти); базовый `Stream.ReadAsync/WriteAsync` сериализует чтение и запись одним
+  семафором — full-duplex WebSocket виснет. Обход — `Zt/ZtStream.cs` + `LibztSocketIo.cs`: свой
+  P/Invoke `CSharp_zts_bsd_send/recv` с `fixed` и точной длиной, дескриптор — из приватного `_fd`
+  их `Socket` reflection'ом (Connect/Bind/Listen/Accept у них корректны); чтение — один
+  выделенный поток на соединение в `Pipe` (поток на каждый `ReadAsync` под SignalR = голодание пула
+  под OCCT, п.50), запись — независимо. В `dotnet test` libzt не поднимается — всё за
+  `IZtNode`/`IZtSocketIo`-фейками. Шум `Socket error: recv, 10093` после `Stop()` — норма.
+- **Публичный указатель — только адреса, которые hub нашёл сам** (LAN, zt) + `ExtraEndpoints`;
+  реальные URL Railway, домены и id сетей в репо/доках не пишем — плейсхолдеры
+  `https://<свой>.up.railway.app`.
+- **Токен ZT-контроллера и приватный ключ подписи на клиента не заезжают**: build-dist падает
+  (exit 7), если в клиентский dist/пакет попал `fleet-sign.key`/`svc_diag_key`/`fleet.json`/
+  `agent-tokens.txt`. Клиенту — только
+  `fleet-sign.pub`/`SignPublicKey` и агентский токен.
 - Секреты/`kb/`/`*.db` — в .gitignore, не коммитить.
 
 ## Быстрые команды

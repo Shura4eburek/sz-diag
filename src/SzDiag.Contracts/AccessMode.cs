@@ -10,4 +10,8 @@ public static class AccessMode
 
     /// <summary>SSH через quick tunnel: у машины нет входящего порта, доступного хосту.</summary>
     public const string Tunnel = "tunnel";
+
+    /// <summary>SSH по адресу клиента в сервисной ZT-сети (US3): проброс в процессе агента на
+    /// его sshd. Работает из любой сети без входящего порта и без Cloudflare.</summary>
+    public const string Zt = "zt";
 }
