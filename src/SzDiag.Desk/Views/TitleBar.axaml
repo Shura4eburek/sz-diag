@@ -3,15 +3,15 @@
              x:Class="SzDiag.Desk.Views.TitleBar"
              Height="{StaticResource Size.Toolbar}" Background="{StaticResource Bg.Base}">
   <!-- Тулбар на раме: пустое место — зона перетаскивания (двойной клик — развернуть/восстановить),
-       справа кнопки окна 46×40. -->
+       справа кнопки окна 46×40. На маке кнопки системные (слева, рисует macOS), а название по центру. -->
   <Grid ColumnDefinitions="*,Auto">
     <Border x:Name="DragArea" Background="Transparent">
-      <StackPanel Orientation="Horizontal" Spacing="8" Margin="14,0" VerticalAlignment="Center">
+      <StackPanel x:Name="TitlePanel" Orientation="Horizontal" Spacing="8" Margin="14,0" VerticalAlignment="Center">
         <Path Classes="icon" Data="{StaticResource Icon.Pulse}" Stroke="{StaticResource Accent.Text}" />
         <TextBlock Text="SzDiag" Classes="body-medium" VerticalAlignment="Center" />
       </StackPanel>
     </Border>
-    <StackPanel Grid.Column="1" Orientation="Horizontal">
+    <StackPanel x:Name="CaptionButtons" Grid.Column="1" Orientation="Horizontal">
       <Button x:Name="MinButton" Classes="caption" ToolTip.Tip="Свернуть">
         <Path Classes="icon" Data="{StaticResource Icon.Min}" />
       </Button>

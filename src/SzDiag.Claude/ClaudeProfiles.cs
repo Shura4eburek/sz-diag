@@ -16,7 +16,7 @@ public static class ClaudeProfiles
         try
         {
             return new DirectoryInfo(home).EnumerateDirectories(".claude*")
-                .Where(d => File.Exists(Path.Combine(d.FullName, ".credentials.json")))
+                .Where(d => HasLogin(d, home))
                 .Select(d => new ClaudeProfile(d.Name.TrimStart('.'),
                     d.Name.Equals(".claude", StringComparison.OrdinalIgnoreCase) ? null : d.FullName))
                 // Профиль по умолчанию — первым: его берёт «Начать сессию», когда выбирать не из чего.
@@ -28,5 +28,16 @@ public static class ClaudeProfiles
         {
             return Array.Empty<ClaudeProfile>();
         }
+    }
+
+    /// <summary>На macOS логин лежит в связке ключей, `.credentials.json` там нет: признак профиля —
+    /// его `.claude.json` (у профиля по умолчанию этот файл лежит в домашней папке).</summary>
+    private static bool HasLogin(DirectoryInfo dir, string home)
+    {
+        if (File.Exists(Path.Combine(dir.FullName, ".credentials.json"))) return true;
+        if (!OperatingSystem.IsMacOS()) return false;
+        return dir.Name.Equals(".claude", StringComparison.OrdinalIgnoreCase)
+            ? File.Exists(Path.Combine(home, ".claude.json"))
+            : File.Exists(Path.Combine(dir.FullName, ".claude.json"));
     }
 }

@@ -24,7 +24,7 @@ public sealed class KbReportStore : IReportStore
 
     public string Save(string sz, string timestamp, string fileName, byte[] content)
     {
-        var safeName = Path.GetFileName(fileName);
+        var safeName = ClientPath.FileName(fileName);
         var isNote = safeName.EndsWith(".md", StringComparison.OrdinalIgnoreCase);
         var dir = isNote || _pullRoot is null
             ? _paths.ReportDir(sz, timestamp)

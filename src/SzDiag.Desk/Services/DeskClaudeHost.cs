@@ -103,17 +103,20 @@ public sealed class DeskClaudeHost : IAsyncDisposable
                 _runDir),
             Profiles.Select(p => p.Name).ToList(), ui, Peers, SessionWorkDir, Limits);
 
-    /// <summary>szcli рядом с Desk в dist (`dist\host\desk` → `dist\host\szcli.cmd`), иначе в dist
-    /// репозитория сессий; ни там ни там — null.</summary>
+    /// <summary>szcli рядом с Desk в dist (`dist\host\desk` → `dist\host\szcli.cmd`, на маке —
+    /// `dist/host/szcli`), иначе в dist репозитория сессий; ни там ни там — null.</summary>
     public static string? FindSzcli(string baseDir, string workDir)
     {
         var parent = Directory.GetParent(Path.TrimEndingDirectorySeparator(baseDir))?.FullName;
-        foreach (var candidate in new[]
-                 {
-                     parent is null ? null : Path.Combine(parent, "szcli.cmd"),
-                     Path.Combine(workDir, "dist", "host", "szcli.cmd"),
-                 })
-            if (candidate is not null && File.Exists(candidate)) return candidate;
+        foreach (var dir in new[] { parent, Path.Combine(workDir, "dist", "host") })
+        {
+            if (dir is null) continue;
+            foreach (var name in new[] { "szcli.cmd", "szcli" })
+            {
+                var candidate = Path.Combine(dir, name);
+                if (File.Exists(candidate)) return candidate;
+            }
+        }
         return null;
     }
 

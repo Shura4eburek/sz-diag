@@ -77,17 +77,27 @@ public sealed class HubTunnelService : BackgroundService
 
     private static IEnumerable<string> DefaultExecutableCandidates()
     {
+        var windows = OperatingSystem.IsWindows();
         foreach (var dir in (Environment.GetEnvironmentVariable("PATH") ?? "")
                  .Split(Path.PathSeparator, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
         {
             string candidate;
-            try { candidate = Path.Combine(dir, "cloudflared.exe"); }
+            try { candidate = Path.Combine(dir, windows ? "cloudflared.exe" : "cloudflared"); }
             catch (ArgumentException) { continue; }   // мусорный элемент PATH — не повод падать
             yield return candidate;
         }
 
-        yield return @"C:\Program Files (x86)\cloudflared\cloudflared.exe";
-        yield return @"C:\Program Files\cloudflared\cloudflared.exe";
+        if (windows)
+        {
+            yield return @"C:\Program Files (x86)\cloudflared\cloudflared.exe";
+            yield return @"C:\Program Files\cloudflared\cloudflared.exe";
+        }
+        else
+        {
+            // Запуск из Finder/launchd не наследует PATH оболочки.
+            yield return "/opt/homebrew/bin/cloudflared";
+            yield return "/usr/local/bin/cloudflared";
+        }
     }
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)

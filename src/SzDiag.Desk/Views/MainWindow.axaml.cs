@@ -20,6 +20,10 @@ public partial class MainWindow : Window
     public MainWindow()
     {
         InitializeComponent();
+        // На маке кнопки окна — системные: зелёная сама даёт нативный полноэкранный режим.
+        if (OperatingSystem.IsMacOS())
+            ExtendClientAreaChromeHints = Avalonia.Platform.ExtendClientAreaChromeHints.PreferSystemChrome
+                                          | Avalonia.Platform.ExtendClientAreaChromeHints.OSXThickTitleBar;
         // Узкое окно: инспектор не сжимает чат, а ложится поверх него плавающим слоем (с тенью) —
         // переключатель в шапке продолжает работать при любой ширине.
         SizeChanged += (_, e) => SetInspectorOverlay(e.NewSize.Width < InspectorMinWindowWidth);

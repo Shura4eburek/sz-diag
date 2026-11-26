@@ -10,6 +10,11 @@ public partial class TitleBar : UserControl
     public TitleBar()
     {
         InitializeComponent();
+        if (OperatingSystem.IsMacOS())
+        {
+            CaptionButtons.IsVisible = false;
+            TitlePanel.HorizontalAlignment = Avalonia.Layout.HorizontalAlignment.Center;
+        }
         MinButton.Click += (_, _) => Owner()!.WindowState = WindowState.Minimized;
         MaxButton.Click += (_, _) => ToggleMaximize();
         CloseButton.Click += (_, _) => Owner()!.Close();

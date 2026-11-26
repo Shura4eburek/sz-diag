@@ -30,12 +30,16 @@ public sealed class HubAutostart(Func<CancellationToken, Task<bool>> isUp, Func<
     public static string? FindScript(string baseDir, string workDir)
     {
         var parent = Directory.GetParent(Path.TrimEndingDirectorySeparator(baseDir))?.FullName;
-        foreach (var candidate in new[]
-                 {
-                     parent is null ? null : Path.Combine(parent, "start-hub.cmd"),
-                     Path.Combine(workDir, "dist", "host", "start-hub.cmd"),
-                 })
-            if (candidate is not null && File.Exists(candidate)) return candidate;
+        foreach (var dir in new[] { parent, Path.Combine(workDir, "dist", "host") })
+        {
+            if (dir is null) continue;
+            // .command на маке: `open` (UseShellExecute) открывает его в Terminal своим окном.
+            foreach (var name in new[] { "start-hub.cmd", "start-hub.command" })
+            {
+                var candidate = Path.Combine(dir, name);
+                if (File.Exists(candidate)) return candidate;
+            }
+        }
         return null;
     }
 

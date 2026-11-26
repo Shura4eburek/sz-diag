@@ -8,10 +8,11 @@ public static class ClaudeLocator
     public static string? Resolve(string? configured, string? pathVariable)
     {
         if (!string.IsNullOrWhiteSpace(configured)) return File.Exists(configured) ? configured : null;
+        var name = OperatingSystem.IsWindows() ? "claude.exe" : "claude";
         foreach (var dir in (pathVariable ?? "").Split(Path.PathSeparator,
                      StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
         {
-            var candidate = Path.Combine(dir, "claude.exe");
+            var candidate = Path.Combine(dir, name);
             if (File.Exists(candidate)) return candidate;
         }
         return null;

@@ -33,22 +33,39 @@ public sealed class TerminalLauncher(string? claudeExe, Func<string, string> wor
         return sb.ToString();
     }
 
+    /// <summary>То же для macOS: `.command` открывается в Terminal через `open`.</summary>
+    public static string MacScript(string claudeExe, string workDir, string? configDir, string sessionId)
+    {
+        static string Q(string s) => "'" + s.Replace("'", "'\\''") + "'";
+        var sb = new StringBuilder("#!/bin/bash\n");
+        foreach (var name in ClaudeLaunch.InheritedSessionMarkers) sb.Append($"unset {name}\n");
+        sb.Append(configDir is null ? "unset CLAUDE_CONFIG_DIR\n" : $"export CLAUDE_CONFIG_DIR={Q(configDir)}\n");
+        sb.Append($"cd {Q(workDir)}\n");
+        sb.Append($"{Q(claudeExe)} --resume {Q(sessionId)}\n");
+        return sb.ToString();
+    }
+
     public bool Open(string key, string sessionId)
     {
         if (claudeExe is null || profileFor(key) is not { } profile) return false;
         var configDir = profile.ConfigDir;
         var workDir = workDirFor(key);
+        var mac = OperatingSystem.IsMacOS();
         string path;
         try
         {
             Directory.CreateDirectory(scriptDir);
-            path = Path.Combine(scriptDir, $"resume-{key}.cmd");
-            File.WriteAllText(path, Script(claudeExe, workDir, configDir, sessionId), new UTF8Encoding(false));
+            path = Path.Combine(scriptDir, $"resume-{key}.{(mac ? "command" : "cmd")}");
+            File.WriteAllText(path, mac
+                ? MacScript(claudeExe, workDir, configDir, sessionId)
+                : Script(claudeExe, workDir, configDir, sessionId), new UTF8Encoding(false));
+            if (mac) File.SetUnixFileMode(path, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
             return false;
         }
+        if (mac) return TryStart("/usr/bin/open", $"\"{path}\"");
         return TryStart("wt.exe", $"-d \"{workDir}\" cmd.exe /k \"{path}\"")
                || TryStart("cmd.exe", $"/c start \"claude {key}\" cmd.exe /k \"{path}\"");
     }

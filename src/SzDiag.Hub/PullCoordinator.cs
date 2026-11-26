@@ -119,7 +119,7 @@ public sealed class PullCoordinator
         {
             // Каталог — только теперь, когда реально есть что в него класть.
             Directory.CreateDirectory(session.Dir);
-            var target = UniqueTargetPath(session.Dir, Path.GetFileName(source));
+            var target = UniqueTargetPath(session.Dir, ClientPath.FileName(source));
             session.Saved[source] = target;
             return new FileStream(target, FileMode.Create, FileAccess.Write, FileShare.Read);
         });

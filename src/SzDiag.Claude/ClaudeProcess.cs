@@ -68,6 +68,15 @@ public sealed class ClaudeProcess : IClaudeProcess
     private Task WaitForHandleAsync(Process p)
     {
         var tcs = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        if (!OperatingSystem.IsWindows())
+        {
+            // Вне Windows Process.Handle — не объект ожидания. Exited тоже не ждёт EOF пайпов;
+            // HasExited после подписки закрывает гонку с уже завершившимся процессом.
+            p.EnableRaisingEvents = true;
+            p.Exited += (_, _) => tcs.TrySetResult();
+            if (p.HasExited) tcs.TrySetResult();
+            return tcs.Task;
+        }
         _waitHandle = new ManualResetEvent(false)
         {
             SafeWaitHandle = new Microsoft.Win32.SafeHandles.SafeWaitHandle(p.Handle, ownsHandle: false),

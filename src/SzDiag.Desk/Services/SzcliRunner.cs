@@ -28,8 +28,13 @@ public sealed partial class SzcliRunner(Func<string?> szcliCmd) : ISzcliRunner
     public static string? ExeFor(string? szcliCmd)
     {
         if (szcliCmd is null) return null;
-        var exe = Path.Combine(Path.GetDirectoryName(szcliCmd)!, "cli", "SzDiag.Cli.exe");
-        return File.Exists(exe) ? exe : null;
+        var cli = Path.Combine(Path.GetDirectoryName(szcliCmd)!, "cli");
+        foreach (var name in new[] { "SzDiag.Cli.exe", "SzDiag.Cli" })
+        {
+            var exe = Path.Combine(cli, name);
+            if (File.Exists(exe)) return exe;
+        }
+        return null;
     }
 
     [GeneratedRegex(@"\x1B\[[0-9;?]*[ -/]*[@-~]")]
