@@ -22,14 +22,32 @@ param(
 $ErrorActionPreference = "Continue"
 $ProgressPreference = "SilentlyContinue"
 
-if (-not $HubHost) {
-    # Хост hub берём из конфига агента рядом со скриптом — чтобы не дублировать адрес.
-    $cfg = Join-Path $PSScriptRoot "appsettings.json"
-    if (Test-Path $cfg) {
-        try {
-            $url = (Get-Content $cfg -Raw | ConvertFrom-Json).HubUrl
-            if ($url) { $HubHost = ([Uri]$url).Host }
-        } catch { }
+$SignpostUrl = ""
+$cfg = Join-Path $PSScriptRoot "appsettings.json"
+if (Test-Path $cfg) {
+    try {
+        $agentCfg = Get-Content $cfg -Raw | ConvertFrom-Json
+        # Хост hub берём из конфига агента рядом со скриптом — чтобы не дублировать адрес.
+        if (-not $HubHost -and $agentCfg.HubUrl) { $HubHost = ([Uri]$agentCfg.HubUrl).Host }
+        # Без домена (specs/002) hub из другой подсети агент находит через указатель — проверяем его.
+        if ($agentCfg.SignpostUrl) { $SignpostUrl = ([string]$agentCfg.SignpostUrl).TrimEnd('/') }
+    } catch { }
+}
+
+# Корни ISRG (Let's Encrypt) — в хранилище PE: указатель на Railway работает по HTTPS, а в офлайн-PE
+# своего набора корней может не оказаться (автообновление корней там не работает). Через .NET —
+# модуля PKI и certutil в PE нет.
+$certDir = Join-Path $PSScriptRoot "certs"
+if (Test-Path $certDir) {
+    try {
+        $store = New-Object System.Security.Cryptography.X509Certificates.X509Store("Root", "LocalMachine")
+        $store.Open("ReadWrite")
+        foreach ($f in Get-ChildItem $certDir -Filter *.cer) {
+            $store.Add((New-Object System.Security.Cryptography.X509Certificates.X509Certificate2($f.FullName)))
+        }
+        $store.Close()
+    } catch {
+        Write-Host ("Root certs not imported: {0}" -f $_.Exception.Message) -ForegroundColor Yellow
     }
 }
 
@@ -134,6 +152,27 @@ if ($ip) {
         } else {
             Write-Host ("Hub {0} : NO PING (wrong subnet/VLAN or hub is down)" -f $HubHost) -ForegroundColor Yellow
         }
+    }
+    if ($SignpostUrl) {
+        # Указатель — единственный путь к hub из чужой подсети: HTTPS здесь проверяет и DNS, и
+        # исходящий 443, и корни сертификатов разом.
+        try {
+            [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+            $r = Invoke-WebRequest -UseBasicParsing -Uri "$SignpostUrl/signpost" -TimeoutSec 15
+            Write-Host ("Signpost : reachable (HTTP {0})" -f [int]$r.StatusCode) -ForegroundColor Green
+        } catch {
+            Write-Host ("Signpost : FAILED - {0}" -f $_.Exception.Message) -ForegroundColor Yellow
+            Write-Host "  hub in another subnet will NOT be found (check DNS/443/time: date must be correct for TLS)" -ForegroundColor Yellow
+        }
+    }
+    if (Test-Path (Join-Path $PSScriptRoot "libzt.dll")) {
+        if (Test-Path (Join-Path $PSScriptRoot "vcruntime140.dll")) {
+            Write-Host "ZeroTier : libzt.dll + VC runtime present (hub via service ZT network)" -ForegroundColor Green
+        } else {
+            Write-Host "ZeroTier : VC runtime MISSING next to libzt.dll - ZT will not load in PE, rebuild USB" -ForegroundColor Yellow
+        }
+    } else {
+        Write-Host "ZeroTier : libzt.dll MISSING - hub in another subnet unreachable, rebuild USB" -ForegroundColor Yellow
     }
     exit 0
 }

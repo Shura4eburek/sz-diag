@@ -304,13 +304,33 @@ Write-Host "-- копирую агента -> $szdir"
 New-Item -ItemType Directory $szdir -Force | Out-Null
 Copy-Item (Join-Path $clientDist "SzDiag.Agent.exe") $szdir -Force
 Copy-Item (Join-Path $clientDist "appsettings.json") $szdir -Force
-foreach ($opt in @("service_key.pub", "testsuite.json", "version.txt")) {
+# libzt.dll — ZeroTier (specs/002): без домена hub из другой подсети агент в PE находит только через
+# сервисную ZT-сеть, а нативная библиотека в single-file exe не вшивается. fleet-sign.pub — проверка
+# записей указателя (ключ есть и в appsettings, файл — запасной путь FleetPublicKey.Resolve).
+foreach ($opt in @("service_key.pub", "testsuite.json", "version.txt", "build-info.json", "fleet-sign.pub", "libzt.dll")) {
     $src = Join-Path $clientDist $opt
     if (Test-Path $src) { Copy-Item $src $szdir -Force }
 }
+if (-not (Test-Path (Join-Path $szdir "libzt.dll"))) {
+    Write-Host "   ВНИМАНИЕ: в $clientDist нет libzt.dll — агент в PE не найдёт hub из другой подсети" -ForegroundColor Yellow
+} else {
+    # libzt.dll собрана MSVC и импортирует VC++ runtime, которого в чистом PE нет: без него LoadLibrary
+    # падает, и ZT молча не поднимается. App-local копия этих трёх DLL разрешена лицензией redist.
+    $vcMissing = @()
+    foreach ($vc in @("msvcp140.dll", "vcruntime140.dll", "vcruntime140_1.dll")) {
+        $src = Join-Path $env:SystemRoot "System32\$vc"
+        if (Test-Path $src) { Copy-Item $src $szdir -Force } else { $vcMissing += $vc }
+    }
+    if ($vcMissing) {
+        Write-Host "   ВНИМАНИЕ: на этой машине нет $($vcMissing -join ', ') (VC++ Redistributable x64) —" -ForegroundColor Yellow
+        Write-Host "   libzt в PE не загрузится. Поставь VC++ Redistributable x64 и пересобери флешку." -ForegroundColor Yellow
+    }
+}
 
-# Подъём сети в PE + авто-доставка драйвера NIC с флешки.
+# Подъём сети в PE + авто-доставка драйвера NIC с флешки. certs\ — корни ISRG для HTTPS к указателю
+# (net-up импортирует их в хранилище PE).
 Copy-Item (Join-Path $PSScriptRoot "winpe\net-up.ps1") $szdir -Force
+Copy-Item (Join-Path $PSScriptRoot "winpe\certs") $szdir -Recurse -Force
 
 # Драйверы на флешку: подхватываются только при промахе, зато обновляются
 # копированием .inf — без пересборки boot.wim.

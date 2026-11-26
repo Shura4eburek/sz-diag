@@ -371,25 +371,37 @@ if (args.Length >= 1 && args[0] == "--pe")
     var peSpec = new AccessSpec(peSz, peOpts.ServiceAccount, peKey, peOpts.SshPort,
         TimeSpan.FromHours(peOpts.WatchdogHours));
 
+    // Поиск hub — как у основного агента (specs/002): конфиг → LAN → указатель (lan/zt). Раньше PE
+    // знал только HubUrl и broadcast: без домена в конфиге hub из другой подсети не находился вовсе.
+    // ZT-нода живёт в X:\ (RAM-диск PE) — следов на дисках клиента не остаётся.
+    // Сообщения ZT — на экран: в PE оператору больше негде увидеть, что libzt не загрузилась
+    // (нет VC++ runtime рядом) или нода не вышла в сеть.
+    using var peZt = ZtHubSession.ForSession(peSz, m => Announce(m, $"[grey]{Markup.Escape(m)}[/]"));
+    if (peZt is null)
+        Announce("libzt.dll рядом с агентом нет — hub из другой подсети не найти (пересобери флешку).",
+            "[yellow]libzt.dll рядом с агентом нет[/] — hub из другой подсети не найти (пересобери флешку).");
+    ZtHubTransport? peZtTransport = null;
     var peHubUrl = peOpts.HubUrl;
     if (string.IsNullOrWhiteSpace(peHubUrl))
     {
         Announce("Ищу hub в сети…", "[grey]Ищу hub в сети…[/]");
-        try
+        var peFound = await AgentHubFinder.FindAsync(peOpts, null, CancellationToken.None,
+            m => Announce(m, $"[grey]{Markup.Escape(m)}[/]"), peZt);
+        if (peFound is null)
         {
-            peHubUrl = await HubDiscovery.FindHubAsync(peOpts.AgentToken);
-            Announce($"Hub найден: {peHubUrl}", $"Hub найден: [green]{peHubUrl}[/]");
-        }
-        catch (HubNotFoundException ex)
-        {
-            Announce($"{ex.Message} Сеть в PE поднимается через wpeinit — если её нет, " +
-                     "в образ не инжектнуты драйверы сетевой карты.",
-                $"[red]{Markup.Escape(ex.Message)}[/]");
+            const string peNotFound = "Hub не найден ни в сети, ни через указатель.";
+            Announce($"{peNotFound} Сеть в PE поднимается через wpeinit — если её нет, " +
+                     "в образ не инжектнуты драйверы сетевой карты. Повтор проверки сети — net-up.",
+                $"[red]{peNotFound}[/] Повтор проверки сети — [yellow]net-up[/].");
             return 1;
         }
+        peHubUrl = peFound.Url;
+        if (AgentHubFinder.IsZt(peFound)) peZtTransport = peZt?.Transport;
+        Announce($"Hub найден: {peHubUrl} ({peFound.Source})",
+            $"Hub найден: [green]{Markup.Escape(peHubUrl)}[/] [grey]({peFound.Source})[/]");
     }
 
-    var peLink = new SignalRHubLink(peHubUrl, peOpts.AgentToken);
+    var peLink = new SignalRHubLink(peHubUrl, peOpts.AgentToken, zt: peZtTransport);
     var peBoot = BootTimeReader.Read(ps);
     var peSession = new AgentSession(new WinPeAccessManager(), peLink, peSpec,
         Environment.MachineName, peBoot, ShutdownClassifier.Read(ps, peBoot));
@@ -457,7 +469,7 @@ if (args.Length >= 1 && args[0] == "--pe")
 
     AgentCommandWiring.RegisterHandlers(peLink, Environment.MachineName, ps,
         PeResolve(peOpts.TestSuitePath), (plain, markup) => Announce(plain, markup),
-        peHubUrl, peOpts.AgentToken);
+        peHubUrl, peOpts.AgentToken, peZtTransport);
 
     // Панель в PE: watchdog не ставится (в PE нет Task Scheduler — см. WinPeAccessManager),
     // поэтому WatchdogAt = null и в панели будет прочерк.

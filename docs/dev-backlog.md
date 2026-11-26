@@ -11455,3 +11455,11 @@ cleanup». Після `client cleanup` (jobs і sensors вичищено) пов
 **Що було.** Після переходу на флот (specs/002) мак-збірка далі генерувала свій токен і ssh-ключ — апдейтер з мака отримав би 401 від hub на ПК; pwsh на маці немає, тож `fleet.ps1`/`zt-network.ps1` не запустити. Зроблено `tools/fleet-mac.sh`, `tools/zt-join-mac.sh`, флот/указатель/ZT у `build-dist-mac.sh`, домен і тунель hub прибрані. Дрібниці по дорозі: `SzDiag.Desk` ігнорує SIGTERM і SIGINT (зупинився лише від `kill -9` перед перезбіркою); python з python.org без кореневих сертифікатів (`CERTIFICATE_VERIFY_FAILED`) — HTTP у мак-скриптах лише через `curl`.
 
 **Критерій.** Desk завершується штатно по SIGTERM (перезбірка/`run.sh` не потребують `kill -9`); будь-яка зміна `build-dist.ps1` щодо флоту/указателя має парну правку в `build-dist-mac.sh`.
+
+### 283. WinPE-агент не бачить hub з іншої підмережі після відмови від домену (2026-11-26)
+
+**Що було.** Флешка 5fd8af5, машина в чужій підмережі — агент `--pe` hub не знайшов. Причина в коді: гілка `--pe` у specs/002 не оновлювалась — знала лише `HubUrl` і broadcast, без указателя й ZT; поки в конфігу був домен, це не було видно. Плюс `build-winpe.ps1` не клав на флешку `libzt.dll`, а сама `libzt.dll` імпортує VC++ runtime (`MSVCP140`, `VCRUNTIME140`, `VCRUNTIME140_1`), якого в чистому PE немає (і на клієнтах без VC++ Redistributable теж) — ZT мовчки не піднімався б навіть з DLL. HTTPS до указателя (Let's Encrypt, ISRG Root X1) в офлайн-PE може не пройти без кореня. `net-up` пінгував hub за `HubUrl`, а той тепер порожній.
+
+**Зроблено.** `--pe` шукає hub через `AgentHubFinder` (конфіг → LAN → указатель lan/zt) з ZT-транспортом, повідомлення ZT — на екран; на флешку їдуть `libzt.dll`, VC++ runtime (app-local з System32 збиральної машини), `fleet-sign.pub`, корені ISRG (`tools/winpe/certs`, імпорт у `net-up` через .NET); `net-up` перевіряє указатель і наявність libzt/runtime; `build-dist.ps1` кладе VC++ runtime і в пакет агента.
+
+**Критерій (живцем).** Флешка, перезібрана з цими змінами, з чужої підмережі: `net-up` → `Signpost : reachable`, `ZeroTier : … present`; агент → «Hub найден: http://10.88.0.x:5099 (signpost…)», СЗ online у `szcli list`.

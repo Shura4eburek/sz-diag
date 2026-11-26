@@ -333,6 +333,17 @@ if (Test-Path dist\client\SzDiag.Agent.exe) {
     Copy-Item dist\client\SzDiag.Agent.exe    $pkgStage\ -Force
     # libzt (ZeroTier, US3) — нативная, в single-file не вшивается: без неё агент работает без ZT.
     Copy-Item dist\client\libzt.dll           $pkgStage\ -Force -ErrorAction SilentlyContinue
+    # libzt.dll импортирует VC++ runtime: на клиенте без VC++ Redistributable (и в чистом WinPE)
+    # она не грузится, и ZT молча не поднимается. App-local копия разрешена лицензией redist.
+    foreach ($vc in @('msvcp140.dll', 'vcruntime140.dll', 'vcruntime140_1.dll')) {
+        $vcSrc = Join-Path $env:SystemRoot "System32\$vc"
+        if (Test-Path $vcSrc) {
+            Copy-Item $vcSrc dist\client\ -Force
+            Copy-Item $vcSrc $pkgStage\ -Force
+        } else {
+            Write-Host "   нет $vcSrc (VC++ Redistributable x64) — на клиентах без него ZT не поднимется" -ForegroundColor Yellow
+        }
+    }
     Copy-Item dist\client\service_key.pub     $pkgStage\ -Force -ErrorAction SilentlyContinue
     Copy-Item dist\client\fleet-sign.pub      $pkgStage\ -Force -ErrorAction SilentlyContinue
     Copy-Item dist\client\testsuite.json      $pkgStage\ -Force -ErrorAction SilentlyContinue
