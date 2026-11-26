@@ -10,6 +10,11 @@
 #
 #   szcli exec <СЗ> -f tools\recipes\client\gpu-load-tdr-watch.ps1 --timeout 1500
 $Minutes = 22
+$Proc    = 'furmark'   # ← процесс нагрузки (furmark | cs2 | occt …)
+# 168175: счётчик событий включает ретрансляции WER старых дампов (бэклог п.280) —
+# поэтому рядом печатаем число НОВЫХ .dmp, созданных после старта наблюдения: это и есть сбой.
+$t0 = Get-Date
+function NewDumps { @(Get-ChildItem "$env:SystemRoot\LiveKernelReports", "$env:SystemRoot\Minidump" -Recurse -Filter *.dmp -ErrorAction SilentlyContinue | Where-Object { $_.LastWriteTime -ge $t0 }).Count }
 
 $smi = Join-Path $env:SystemRoot 'System32\nvidia-smi.exe'
 function Gpu { (& $smi --query-gpu=pstate,utilization.gpu,clocks.current.graphics,temperature.gpu,fan.speed,power.draw --format=csv,noheader,nounits) -join '' }
@@ -26,9 +31,9 @@ function TdrCount {
 
 '== старт наблюдения: ' + (Get-Date -Format 'HH:mm:ss') + ', события за сегодня до теста: ' + (TdrCount)
 for ($i = 0; $i -lt $Minutes; $i++) {
-    $fm = Get-Process furmark -ErrorAction SilentlyContinue
+    $fm = Get-Process $Proc -ErrorAction SilentlyContinue
     $alive = if ($fm) { 'жив' } else { 'НЕТ' }
-    '   {0}  furmark: {1,-4} {2}   события: {3}' -f (Get-Date -Format 'HH:mm:ss'), $alive, (Gpu), (TdrCount)
+    '   {0}  {5}: {1,-4} {2}   новых dmp: {4}   события: {3}' -f (Get-Date -Format 'HH:mm:ss'), $alive, (Gpu), (TdrCount), (NewDumps), $Proc
     Start-Sleep -Seconds 60
 }
-'== конец наблюдения, события за сегодня: ' + (TdrCount)
+'== конец наблюдения, новых dmp: ' + (NewDumps) + ', события за сегодня: ' + (TdrCount)
