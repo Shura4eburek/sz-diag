@@ -81,13 +81,13 @@ async Task<int> RunAsync()
         try { hostVersion = await client.GetVersionAsync(); }
         catch (HttpRequestException ex) when (ex.StatusCode is null)
         {
-            Console.WriteLine($"Hub не ответил ({ex.Message}).");
+            Console.WriteLine(UpdateFailure.Describe(ex));
             return await UpdateFromSignpostAsync(opts, agentExe, localVersionPath);
         }
-        catch (HttpRequestException)
+        catch (HttpRequestException ex)
         {
-            Console.WriteLine("Hub не поддерживает апдейт (нет /agent/version).");
-            return LaunchLocalOrFail(agentExe, baseDir, "hub без апдейт-эндпоинта", args);
+            Console.WriteLine(UpdateFailure.Describe(ex));
+            return LaunchLocalOrFail(agentExe, baseDir, "не удалось узнать версию на hub", args);
         }
 
         var localVersion = File.Exists(localVersionPath) ? File.ReadAllText(localVersionPath).Trim() : null;
