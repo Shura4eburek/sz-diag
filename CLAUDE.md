@@ -218,6 +218,10 @@ dotnet test --filter FullyQualifiedName~RevertCoordinator   # один клас�
 $env:SZDIAG_LIVE=1; dotnet test    # + live-тест vgabios (реально ходит на TPU; по умолчанию skip)
 .\tools\build-dist.ps1             # публикация готового dist (host + client), см. ниже
 .\tools\build-dist.ps1 -HubIp <HUB_LAN_IP>      # клиент — отдельная ВМ: LAN-IP хоста
+./run.sh [desk | hub [--restart] | cli <аргументы> | build | help]   # мак: собрать из исходников в dist и запустить; без аргументов — hub + Desk
+tools/fleet-mac.sh pull            # мак: секреты флота из Railway (пароль флота; аналог fleet.ps1 pull)
+tools/zt-join-mac.sh [--list]      # мак: hub-машина в сервисной ZT-сети (10.88.0.2; ПК — 10.88.0.1)
+tools/build-dist-mac.sh --signpost-url https://<свой>.up.railway.app [--publish]  # мак как хост: без домена/туннеля (параметры — secrets/mac-dist.env)
 .\tools\prep-winpe-drivers.ps1     # пак NIC-драйверов из SDI (C:\winpe-szdiag-drivers)
 .\tools\build-winpe.ps1 -UsbDrive G:            # загрузочная PE-флешка с агентом
 .\tools\kb-backup.ps1              # ручная выгрузка kb в репо (штатно это делает hub)
